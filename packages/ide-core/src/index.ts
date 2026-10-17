@@ -14,7 +14,12 @@ export {
   type PlatformProviderProps,
 } from './platform/PlatformContext';
 export { configurePlatform, getPlatform, hasPlatform } from './platform/registry';
-export type { PlatformApi, BpmnValidationReport, BpmnValidationIssue } from './platform/types';
+export type {
+  PlatformApi,
+  PlatformProject,
+  BpmnValidationReport,
+  BpmnValidationIssue,
+} from './platform/types';
 
 export { useProjectStore, type FieldPatch, type RelationPatch } from './stores/projectStore';
 export { useUIStore } from './stores/uiStore';

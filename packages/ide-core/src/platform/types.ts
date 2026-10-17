@@ -24,6 +24,21 @@ export interface BpmnValidationReport {
   issues: BpmnValidationIssue[];
 }
 
+/**
+ * A project as listed by a host that stores projects server-side.
+ *
+ * Desktop hosts keep working copy on disk and omit the optional project
+ * methods below; the web host implements them so the IDE can show a project
+ * picker instead of file dialogs.
+ */
+export interface PlatformProject {
+  id: string;
+  name: string;
+  description?: string | null;
+  revision?: number;
+  updatedAt?: string;
+}
+
 export interface PlatformApi {
   /** Which host is running the IDE. */
   readonly kind: 'tauri' | 'web';
@@ -84,4 +99,19 @@ export interface PlatformApi {
 
   /** Structurally validate workflow JSON with the BPMN engine. */
   bpmnValidate(workflowJson: string): Promise<BpmnValidationReport>;
+
+  /**
+   * Projects stored by the host, when it has a project store (web/server).
+   * Absent on file-based hosts, which use `pickOpenPath` instead.
+   */
+  listProjects?(): Promise<PlatformProject[]>;
+
+  /** Open a project from `listProjects` by id; returns project JSON. */
+  openProjectById?(id: string): Promise<string>;
+
+  /** Create a project in the host store; returns project JSON. */
+  createProject?(name: string): Promise<string>;
+
+  /** Delete a project from the host store. */
+  deleteProject?(id: string): Promise<void>;
 }
