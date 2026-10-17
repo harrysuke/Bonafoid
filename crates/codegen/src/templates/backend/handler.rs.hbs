@@ -1,0 +1,75 @@
+//! CRUD handlers for {{entity.name}}.
+
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::Json;
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel, Set};
+use uuid::Uuid;
+
+use crate::error::AppError;
+use crate::models::{{entity.snake}}::{
+    ActiveModel as {{entity.pascal}}ActiveModel, Create{{entity.pascal}}, Entity as {{entity.pascal}}Entity,
+    Update{{entity.pascal}}, {{entity.pascal}}Response,
+};
+
+/// List all {{entity.plural_name}}.
+pub async fn list(State(db): State<DatabaseConnection>) -> Result<Json<Vec<{{entity.pascal}}Response>>, AppError> {
+    let items = {{entity.pascal}}Entity::find().all(&db).await?;
+    Ok(Json(items.into_iter().map({{entity.pascal}}Response::from).collect()))
+}
+
+/// Fetch a single {{entity.name}} by id.
+pub async fn get(
+    State(db): State<DatabaseConnection>,
+    Path(id): Path<{{entity.pk_rust_type}}>,
+) -> Result<Json<{{entity.pascal}}Response>, AppError> {
+    let item = {{entity.pascal}}Entity::find_by_id(id)
+        .one(&db)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    Ok(Json({{entity.pascal}}Response::from(item)))
+}
+
+/// Create a new {{entity.name}}.
+pub async fn create(
+    State(db): State<DatabaseConnection>,
+    Json(payload): Json<Create{{entity.pascal}}>,
+) -> Result<(StatusCode, Json<{{entity.pascal}}Response>), AppError> {
+    let item = {{entity.pascal}}ActiveModel {
+{{#if entity.pk_is_uuid}}        {{entity.pk_rust_ident}}: Set(uuid::Uuid::new_v4()),
+{{/if}}{{#each entity.fields}}{{#unless is_primary_key}}        {{rust_ident}}: Set(payload.{{rust_ident}}),
+{{/unless}}{{/each}}        ..Default::default()
+    }
+    .insert(&db)
+    .await?;
+    Ok((StatusCode::CREATED, Json({{entity.pascal}}Response::from(item))))
+}
+
+/// Update an existing {{entity.name}}.
+pub async fn update(
+    State(db): State<DatabaseConnection>,
+    Path(id): Path<{{entity.pk_rust_type}}>,
+    Json(payload): Json<Update{{entity.pascal}}>,
+) -> Result<Json<{{entity.pascal}}Response>, AppError> {
+    let mut active: {{entity.pascal}}ActiveModel = {{entity.pascal}}Entity::find_by_id(id)
+        .one(&db)
+        .await?
+        .ok_or(AppError::NotFound)?
+        .into_active_model();
+
+{{#each entity.fields}}{{#unless is_primary_key}}    if let Some(value) = payload.{{rust_ident}} {
+        active.{{rust_ident}} = Set(value);
+    }
+{{/unless}}{{/each}}
+    let item = active.update(&db).await?;
+    Ok(Json({{entity.pascal}}Response::from(item)))
+}
+
+/// Delete a {{entity.name}}.
+pub async fn delete(
+    State(db): State<DatabaseConnection>,
+    Path(id): Path<{{entity.pk_rust_type}}>,
+) -> Result<StatusCode, AppError> {
+    {{entity.pascal}}Entity::delete_by_id(id).exec(&db).await?;
+    Ok(StatusCode::NO_CONTENT)
+}

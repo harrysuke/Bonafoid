@@ -1,0 +1,258 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary-50: #f0f9ff;
+    --color-primary-100: #e0f2fe;
+    --color-primary-200: #bae6fd;
+    --color-primary-300: #7dd3fc;
+    --color-primary-400: #38bdf8;
+    --color-primary-500: #0ea5e9;
+    --color-primary-600: #0284c7;
+    --color-primary-700: #0369a1;
+    --color-primary-800: #075985;
+    --color-primary-900: #0c4a6e;
+  }
+
+  .dark {
+    --color-bg-primary: #0f172a;
+    --color-bg-secondary: #1e293b;
+    --color-bg-tertiary: #334155;
+  }
+
+  * {
+    @apply border-gray-200 dark:border-slate-700;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 dark:bg-slate-900 dark:text-gray-100;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  /* React Flow overrides */
+  .react-flow__background {
+    @apply bg-gray-100 dark:bg-slate-800;
+  }
+
+  .react-flow__attribution {
+    @apply text-gray-400 dark:text-gray-600;
+  }
+
+  .react-flow__minimap {
+    @apply bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700;
+  }
+
+  .react-flow__controls {
+    @apply bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700;
+  }
+
+  .react-flow__controls-button {
+    @apply bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700;
+  }
+
+  .react-flow__controls-button:hover {
+    @apply bg-gray-50 dark:bg-slate-700;
+  }
+
+  .react-flow__panel {
+    @apply bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700;
+  }
+
+  /* Monaco Editor overrides */
+  .monaco-editor {
+    @apply bg-white dark:bg-slate-900;
+  }
+
+  .monaco-editor .margin {
+    @apply bg-gray-50 dark:bg-slate-800;
+  }
+
+  /* DnD Kit overrides */
+  .sortable-active {
+    @apply opacity-50;
+  }
+
+  .sortable-chosen {
+    @apply shadow-lg;
+  }
+
+  .sortable-ghost {
+    @apply opacity-0;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-sm;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-lg;
+  }
+
+  .btn-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-100 text-gray-900 hover:bg-gray-200 focus:ring-gray-500 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-600;
+  }
+
+  .btn-success {
+    @apply bg-green-600 text-white hover:bg-green-700 focus:ring-green-500;
+  }
+
+  .btn-warning {
+    @apply bg-yellow-600 text-white hover:bg-yellow-700 focus:ring-yellow-500;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-gray-700 hover:bg-gray-100 focus:ring-gray-500 dark:text-gray-300 dark:hover:bg-gray-800;
+  }
+
+  .btn-link {
+    @apply bg-transparent text-primary-600 hover:text-primary-700 hover:underline focus:ring-primary-500;
+  }
+
+  .input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white dark:placeholder-gray-500;
+  }
+
+  .input-error {
+    @apply border-red-500 focus:ring-red-500 focus:border-red-500;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1;
+  }
+
+  .card {
+    @apply bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-primary {
+    @apply bg-primary-100 text-primary-800 dark:bg-primary-900 dark:text-primary-200;
+  }
+
+  .badge-success {
+    @apply bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200;
+  }
+
+  .badge-warning {
+    @apply bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200;
+  }
+
+  .badge-danger {
+    @apply bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200;
+  }
+
+  .badge-gray {
+    @apply bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .animate-in {
+    animation: animateIn 0.2s ease-out;
+  }
+
+  .animate-out {
+    animation: animateOut 0.15s ease-in;
+  }
+
+  @keyframes animateIn {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes animateOut {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.gray.400') transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: theme('colors.gray.400');
+    border-radius: 3px;
+  }
+
+  /* Focus visible for accessibility */
+  .focus-visible-ring:focus-visible {
+    @apply outline-none ring-2 ring-primary-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900;
+  }
+
+  /* Drag and drop */
+  .drag-overlay {
+    @apply fixed inset-0 z-50 pointer-events-none;
+  }
+
+  .drop-zone {
+    @apply border-2 border-dashed border-primary-500 bg-primary-50 dark:bg-primary-900/20;
+  }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

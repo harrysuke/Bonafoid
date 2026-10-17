@@ -1,0 +1,140 @@
+    Blocking waiting for file lock on package cache
+warning: unused import: `crate::workflow::WorkflowId`
+ --> D:\nocode-ide\crates\model\src\form.rs:7:5
+  |
+7 | use crate::workflow::WorkflowId;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `indexmap::IndexMap`
+ --> D:\nocode-ide\crates\model\src\entity.rs:5:5
+  |
+5 | use indexmap::IndexMap;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: variant `SSL_TLS` should have an upper camel case name
+   --> D:\nocode-ide\crates\model\src\project.rs:541:5
+    |
+541 |     SSL_TLS,
+    |     ^^^^^^^ help: convert the identifier to upper camel case: `SslTls`
+    |
+    = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: ambiguous glob re-exports
+  --> D:\nocode-ide\crates\model\src\lib.rs:10:9
+   |
+10 | pub use form::*;
+   |         ^^^^^^^ the name `FieldId` in the type namespace is first re-exported here
+11 | pub use workflow::*;
+12 | pub use entity::*;
+   |         --------- but the name `FieldId` in the type namespace is also re-exported here
+   |
+   = note: `#[warn(ambiguous_glob_reexports)]` on by default
+
+warning: ambiguous glob re-exports
+  --> D:\nocode-ide\crates\model\src\lib.rs:10:9
+   |
+10 | pub use form::*;
+   |         ^^^^^^^ the name `FieldId` in the value namespace is first re-exported here
+11 | pub use workflow::*;
+12 | pub use entity::*;
+   |         --------- but the name `FieldId` in the value namespace is also re-exported here
+
+warning: ambiguous glob re-exports
+  --> D:\nocode-ide\crates\model\src\lib.rs:11:9
+   |
+11 | pub use workflow::*;
+   |         ^^^^^^^^^^^ the name `RetryConfig` in the type namespace is first re-exported here
+...
+15 | pub use project::*;
+   |         ---------- but the name `RetryConfig` in the type namespace is also re-exported here
+
+warning: `nocode-model` (lib) generated 6 warnings (run `cargo fix --lib -p nocode-model` to apply 2 suggestions)
+    Checking nocode-codegen v0.1.0 (D:\nocode-ide\crates\codegen)
+   Compiling nocode-ide-tauri v0.1.0 (D:\nocode-ide\apps\ide-tauri\src-tauri)
+warning: unused imports: `Entity`, `Form`, `Page`, `Theme`, and `Workflow`
+ --> D:\nocode-ide\crates\codegen\src\backend.rs:1:29
+  |
+1 | use nocode_model::{Project, Form, Entity, Workflow, Page, Theme};
+  |                             ^^^^  ^^^^^^  ^^^^^^^^  ^^^^  ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Context`
+ --> D:\nocode-ide\crates\codegen\src\backend.rs:4:22
+  |
+4 | use anyhow::{Result, Context};
+  |                      ^^^^^^^
+
+warning: unused import: `Context`
+ --> D:\nocode-ide\crates\codegen\src\frontend.rs:4:22
+  |
+4 | use anyhow::{Result, Context};
+  |                      ^^^^^^^
+
+warning: unused import: `Context`
+ --> D:\nocode-ide\crates\codegen\src\database.rs:4:22
+  |
+4 | use anyhow::{Result, Context};
+  |                      ^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> D:\nocode-ide\crates\codegen\src\database.rs:5:5
+  |
+5 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+ --> D:\nocode-ide\crates\codegen\src\database.rs:6:5
+  |
+6 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> D:\nocode-ide\crates\codegen\src\project.rs:2:5
+  |
+2 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Context`
+ --> D:\nocode-ide\crates\codegen\src\project.rs:4:22
+  |
+4 | use anyhow::{Result, Context};
+  |                      ^^^^^^^
+
+warning: unused import: `walkdir::WalkDir`
+ --> D:\nocode-ide\crates\codegen\src\project.rs:6:5
+  |
+6 | use walkdir::WalkDir;
+  |     ^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::database::MigrationFile`
+  --> D:\nocode-ide\crates\codegen\src\project.rs:24:5
+   |
+24 | use crate::database::MigrationFile;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `nocode-codegen` (lib) generated 10 warnings (run `cargo fix --lib -p nocode-codegen` to apply 10 suggestions)
+warning: unused import: `tauri_plugin_dialog::DialogExt`
+ --> src\lib.rs:2:5
+  |
+2 | use tauri_plugin_dialog::DialogExt;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `tauri_plugin_fs::FsExt`
+ --> src\lib.rs:3:5
+  |
+3 | use tauri_plugin_fs::FsExt;
+  |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `tauri_plugin_store::StoreExt`
+ --> src\lib.rs:4:5
+  |
+4 | use tauri_plugin_store::StoreExt;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `nocode-ide-tauri` (lib) generated 3 warnings (run `cargo fix --lib -p nocode-ide-tauri` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 59.11s

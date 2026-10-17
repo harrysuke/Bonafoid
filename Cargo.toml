@@ -1,0 +1,85 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ide",
+    "crates/model",
+    "crates/codegen",
+    "crates/plugins",
+    "crates/bpmn",
+    "crates/runtime",
+    "crates/ide-server",
+    "apps/generated-app",
+]
+exclude = ["xtask", "apps/ide-tauri", "apps/ide-native"]
+
+[workspace.dependencies]
+# Core
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+schemars = { version = "0.8", features = ["chrono", "uuid1", "indexmap2"] }
+thiserror = "1.0"
+anyhow = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde", "fast-rng"] }
+chrono = { version = "0.4", features = ["serde"] }
+indexmap = { version = "2.0", features = ["serde"] }
+
+# Async
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+
+# GUI
+egui = "0.29"
+egui_dock = "0.4"
+egui_extras = "0.29"
+epaint = "0.29"
+
+# Tauri
+tauri = "2.0"
+tauri_plugin_dialog = "2.0"
+tauri_plugin_fs = "2.0"
+tauri_plugin_updater = "2.0"
+tauri_plugin_shell = "2.0"
+
+# Web/Backend
+axum = { version = "0.7", features = ["ws", "json", "multipart", "form"] }
+sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "sqlite", "mysql", "chrono", "uuid", "migrate"] }
+sea-orm = { version = "0.12", features = ["sqlx-postgres", "sqlx-sqlite", "sqlx-mysql", "chrono", "uuid", "macros"] }
+utoipa = { version = "4.0", features = ["axum_extras", "chrono", "uuid"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "fs", "add-extension"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+# Frontend (Leptos) - for generated app
+leptos = { version = "0.7", features = ["csr", "hydrate", "nightly", "axum", "leptos_router"] }
+leptos_router = { version = "0.7", features = ["axum"] }
+leptos_use = "0.7"
+
+# Codegen
+quote = "1.0"
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+proc-macro2 = "1.0"
+handlebars = "5.0"
+prettyplease = "0.2"
+
+# Plugins
+wasmtime = { version = "20.0", features = ["component-model", "async"] }
+wit-bindgen = { version = "0.35", features = [] }
+
+# BPMN
+napi = { version = "2.0", features = ["napi6"] }
+napi-derive = "2.0"
+
+# Build/Release
+cargo_dist = "0.4"
+wasm_pack = "0.12"
+xtask = "0.1"
+
+# Licensing
+axocharge = "0.1"
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+strip = true
+panic = "abort"

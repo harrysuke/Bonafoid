@@ -1,0 +1,103 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0.json",
+  "identifier": "com.nocode.ide",
+  "productName": "No-Code IDE",
+  "version": "0.1.0",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "plugins": {
+    "dialog": {
+      "all": true
+    },
+    "fs": {
+      "all": true,
+      "scope": ["$APPDATA/**", "$HOME/**", "$DOWNLOAD/**", "$DESKTOP/**", "$DOCUMENT/**"]
+    },
+    "store": {
+      "all": true
+    },
+    "updater": {
+      "active": false,
+      "endpoints": [],
+      "dialog": true,
+      "pubkey": ""
+    },
+    "shell": {
+      "all": true,
+      "open": true
+    },
+    "opener": {
+      "all": true
+    },
+    "clipboardManager": {
+      "all": true
+    },
+    "notification": {
+      "all": true
+    },
+    "os": {
+      "all": true
+    },
+    "process": {
+      "all": true
+    },
+    "windowState": {
+      "all": true
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "No-Code IDE",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 768,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "hiddenTitle": false,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "resources": [],
+    "externalBin": [],
+    "copyright": "",
+    "category": "DeveloperTool",
+    "shortDescription": "Visual No-Code IDE for building applications",
+    "longDescription": "A powerful visual IDE for building web, desktop, and mobile applications without writing code.",
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1", "librsvg2-2"]
+      }
+    },
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": null,
+      "providerShortName": null
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
+  }
+}

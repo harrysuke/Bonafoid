@@ -1,0 +1,41 @@
+[package]
+name = "nocode-ide-server"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "No-Code IDE web server (Axum + SeaORM)"
+
+[[bin]]
+name = "nocode-ide-server"
+path = "src/main.rs"
+
+[dependencies]
+nocode-model = { path = "../model" }
+nocode-ide = { path = "../ide" }
+nocode-codegen = { path = "../codegen" }
+nocode-bpmn = { path = "../bpmn" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+async-trait = { workspace = true }
+sqlx = { workspace = true }
+sea-orm = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+# Auth
+argon2 = "0.5"
+jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
+rsa = { version = "0.9", features = ["pem"] }
+rand = "0.8"
+sha2 = "0.10"
+zeroize = "1"
+
+[dev-dependencies]
+tower = { version = "0.4", features = ["util"] }

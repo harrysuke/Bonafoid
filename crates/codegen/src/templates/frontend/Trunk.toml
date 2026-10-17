@@ -1,0 +1,9 @@
+[build]
+target = "index.html"
+dist = "dist"
+
+[watch]
+watch = ["src", "index.html", "style"]
+
+[tools]
+tailwindcss = "3.4.17"

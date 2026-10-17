@@ -1,0 +1,16 @@
+[package]
+name = "nocode-model"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Core data models for No-Code IDE"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+indexmap = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }

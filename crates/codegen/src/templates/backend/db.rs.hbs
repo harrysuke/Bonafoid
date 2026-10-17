@@ -1,0 +1,37 @@
+//! Database connection and migration handling.
+
+use std::time::Duration;
+
+use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection};
+
+/// Connect to the database described by `database_url`.
+pub async fn init_db(database_url: &str) -> anyhow::Result<DatabaseConnection> {
+    let mut options = ConnectOptions::new(database_url.to_string());
+    options
+        .max_connections(20)
+        .min_connections(2)
+        .connect_timeout(Duration::from_secs(30))
+        .idle_timeout(Duration::from_secs(600))
+        .sqlx_logging(false);
+
+    let db = Database::connect(options).await?;
+    db.execute_unprepared("SELECT 1").await?;
+    Ok(db)
+}
+
+/// Apply the generated schema. Statements are executed one at a time so the
+/// same migration works across SQLite and Postgres.
+pub async fn run_migrations(db: &DatabaseConnection) -> anyhow::Result<()> {
+    let schema = include_str!("../migrations/0001_initial.sql");
+    for statement in schema.split(';') {
+        let statement = statement.trim();
+        let is_comment_only = statement
+            .lines()
+            .all(|line| line.trim().is_empty() || line.trim_start().starts_with("--"));
+        if statement.is_empty() || is_comment_only {
+            continue;
+        }
+        db.execute_unprepared(statement).await?;
+    }
+    Ok(())
+}

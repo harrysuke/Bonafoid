@@ -1,0 +1,115 @@
+//! CRUD page for `{{this.pascal}}` (list + create + delete).
+
+use leptos::prelude::*;
+
+use crate::api;
+use crate::convert;
+use crate::types::{Create{{this.pascal}}, {{this.pascal}}};
+
+#[component]
+pub fn List() -> impl IntoView {
+    let (items, set_items) = signal(Vec::<{{this.pascal}}>::new());
+    let (error, set_error) = signal(Option::<String>::None);
+{{#each fields}}{{#unless is_primary_key}}
+    let (input_{{@index}}, set_input_{{@index}}) = signal(String::new());
+{{/unless}}{{/each}}
+    let reload = move || {
+        leptos::task::spawn_local(async move {
+            match api::list_{{this.snake}}().await {
+                Ok(list) => {
+                    set_items.set(list);
+                    set_error.set(None);
+                }
+                Err(e) => set_error.set(Some(e)),
+            }
+        });
+    };
+    reload();
+
+    let on_submit = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+        let payload = Create{{this.pascal}} {
+{{#each fields}}{{#unless is_primary_key}}            {{rust_ident}}: convert::{{wasm_ctor}}(input_{{@index}}.get().as_str()),
+{{/unless}}{{/each}}        };
+        leptos::task::spawn_local(async move {
+            match api::create_{{this.snake}}(&payload).await {
+                Ok(_) => reload(),
+                Err(e) => set_error.set(Some(e)),
+            }
+        });
+    };
+
+    view! {
+        <section class="space-y-6">
+            <header class="flex items-center justify-between">
+                <h1 class="text-2xl font-bold">{{plural_name}}</h1>
+                <button
+                    class="rounded bg-slate-200 px-3 py-1 text-sm hover:bg-slate-300"
+                    on:click=move |_| reload()
+                >
+                    "Refresh"
+                </button>
+            </header>
+
+            {move || error.get().map(|e| view! { <p class="rounded bg-red-50 p-3 text-sm text-red-700">{e}</p> })}
+
+            <form
+                class="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-2"
+                on:submit=on_submit
+            >
+{{#each fields}}{{#unless is_primary_key}}                <label class="flex flex-col gap-1 text-sm">
+                    <span class="font-medium text-slate-600">{{label}}</span>
+                    <input
+                        class="rounded border border-slate-300 px-2 py-1"
+                        type="text"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    />
+                </label>
+{{/unless}}{{/each}}                <div class="flex items-end">
+                    <button class="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700" type="submit">
+                        "Create"
+                    </button>
+                </div>
+            </form>
+
+            <div class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                <table class="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead class="bg-slate-100 text-left text-slate-600">
+                        <tr>
+{{#each fields}}                            <th class="px-3 py-2 font-medium">{{label}}</th>
+{{/each}}                            <th class="px-3 py-2 text-right">"Actions"</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <For
+                            each=move || items.get()
+                            key=|item| item.{{pk_rust_ident}}.to_string()
+                            children=move |item| {
+                                let item_id = item.{{pk_rust_ident}}.to_string();
+                                view! {
+                                    <tr class="border-t border-slate-100">
+{{#each fields}}                                        <td class="px-3 py-2">{format!("{:?}", item.{{rust_ident}})}</td>
+{{/each}}                                        <td class="px-3 py-2 text-right">
+                                            <button
+                                                class="rounded bg-red-100 px-2 py-1 text-red-700 hover:bg-red-200"
+                                                on:click=move |_| {
+                                                    let id = item_id.clone();
+                                                    leptos::task::spawn_local(async move {
+                                                        let _ = api::delete_{{this.snake}}(&id).await;
+                                                    });
+                                                }
+                                            >
+                                                "Delete"
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        />
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+}

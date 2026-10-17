@@ -1,0 +1,40 @@
+[package]
+name = "nocode-ide-tauri"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "nocode_ide_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = "2.0"
+tauri-plugin-dialog = "2.0"
+tauri-plugin-fs = "2.0"
+tauri-plugin-updater = "2.0"
+tauri-plugin-shell = "2.0"
+tauri-plugin-opener = "2.0"
+tauri-plugin-clipboard-manager = "2.0"
+tauri-plugin-store = "2.0"
+tauri-plugin-log = "2.0"
+tauri-plugin-http = "2.0"
+tauri-plugin-notification = "2.0"
+tauri-plugin-os = "2.0"
+tauri-plugin-process = "2.0"
+tauri-plugin-window-state = "2.0"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+anyhow = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+uuid = { version = "1.0", features = ["v4", "serde", "fast-rng"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+nocode-model = { path = "../../../crates/model" }
+nocode-codegen = { path = "../../../crates/codegen" }
+nocode-ide = { path = "../../../crates/ide" }

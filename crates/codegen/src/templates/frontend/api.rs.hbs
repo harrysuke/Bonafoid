@@ -1,0 +1,66 @@
+//! Thin typed HTTP client for the generated backend API.
+
+use gloo_net::http::Request;
+
+use crate::types::*;
+
+/// Base URL of the backend. Override at compile time with `API_BASE=...`.
+const API_BASE: &str = match option_env!("API_BASE") {
+    Some(base) => base,
+    None => "http://127.0.0.1:3000",
+};
+
+async fn read_json<T: serde::de::DeserializeOwned>(
+    resp: gloo_net::http::Response,
+) -> Result<T, String> {
+    if !resp.ok() {
+        return Err(format!("request failed with status {}", resp.status()));
+    }
+    resp.json::<T>().await.map_err(|e| e.to_string())
+}
+
+pub async fn health() -> Result<serde_json::Value, String> {
+    let resp = Request::get(&format!("{}/health", API_BASE))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    read_json(resp).await
+}
+
+{{#each entities}}
+pub async fn list_{{this.snake}}() -> Result<Vec<{{this.pascal}}>, String> {
+    let resp = Request::get(&format!("{}/api/v1/{{this.snake}}", API_BASE))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    read_json(resp).await
+}
+
+pub async fn create_{{this.snake}}(payload: &Create{{this.pascal}}) -> Result<{{this.pascal}}, String> {
+    let resp = Request::post(&format!("{}/api/v1/{{this.snake}}", API_BASE))
+        .json(payload)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    read_json(resp).await
+}
+
+pub async fn update_{{this.snake}}(id: &str, payload: &Update{{this.pascal}}) -> Result<{{this.pascal}}, String> {
+    let resp = Request::put(&format!("{}/api/v1/{{this.snake}}/{}", API_BASE, id))
+        .json(payload)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    read_json(resp).await
+}
+
+pub async fn delete_{{this.snake}}(id: &str) -> Result<(), String> {
+    Request::delete(&format!("{}/api/v1/{{this.snake}}/{}", API_BASE, id))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+{{/each}}

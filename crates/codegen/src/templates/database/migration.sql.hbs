@@ -1,0 +1,28 @@
+{{#if (eq action "create")}}
+-- Migration: Create {{entity.name}} table
+CREATE TABLE {{lower entity.name}} (
+    {{#each entity.fields}}
+    {{lower @root.name}} {{@root.sql_type}}{{#if @root.primary_key}} PRIMARY KEY{{/if}}{{#if @root.not_null}} NOT NULL{{/if}}{{#if @root.unique}} UNIQUE{{/if}}{{#if @root.default}} DEFAULT {{@root.default}}{{/if}},
+    {{/each}}
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+{{#if entity.indexes}}
+{{#each entity.indexes}}
+CREATE INDEX {{lower @root.name}}_idx ON {{lower entity.name}} ({{@root.columns}});
+{{/each}}
+{{/if}}
+
+{{#if entity.relations}}
+{{#each entity.relations}}
+ALTER TABLE {{lower entity.name}} ADD CONSTRAINT fk_{{lower entity.name}}_{{@root.name}}
+    FOREIGN KEY ({{@root.from_field}}) REFERENCES {{@root.to_table}} ({{@root.to_field}})
+    ON DELETE {{@root.on_delete}} ON UPDATE {{@root.on_update}};
+{{/each}}
+{{/if}}
+
+{{else}}
+-- Migration: Drop {{entity.name}} table
+DROP TABLE IF EXISTS {{lower entity.name}} CASCADE;
+{{/if}}

@@ -1,0 +1,26 @@
+[package]
+name = "nocode-bpmn"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "No-Code IDE BPMN integration"
+
+[dependencies]
+nocode-model = { path = "../model" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+indexmap = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+roxmltree = "0.20"
+napi = { workspace = true, optional = true }
+napi-derive = { workspace = true, optional = true }
+tokio = { workspace = true }
+
+[features]
+default = []
+# Enable the NAPI-RS bridge. Turn this on when building the crate as a Node
+# addon (`cargo build --features node` with `crate-type = ["cdylib"]`).
+node = ["dep:napi", "dep:napi-derive"]

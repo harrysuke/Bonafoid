@@ -1,0 +1,21 @@
+//! Data-transfer types mirroring the backend entities.
+//!
+//! Auto-generated from the project model. Do not edit by hand.
+
+use serde::{Deserialize, Serialize};
+{{#each entities}}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct {{this.pascal}} {
+{{#each this.fields}}    pub {{this.rust_ident}}: {{this.wasm_field_type}},
+{{/each}}}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Create{{this.pascal}} {
+{{#each this.fields}}{{#unless this.is_primary_key}}    pub {{this.rust_ident}}: {{this.wasm_field_type}},
+{{/unless}}{{/each}}}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Update{{this.pascal}} {
+{{#each this.fields}}{{#unless this.is_primary_key}}    pub {{this.rust_ident}}: Option<{{this.wasm_type}}>,
+{{/unless}}{{/each}}}
+{{/each}}

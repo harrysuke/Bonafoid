@@ -1,0 +1,32 @@
+//! Application configuration.
+
+/// Runtime configuration loaded from environment variables.
+#[derive(Debug, Clone)]
+pub struct AppConfig {
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub database_url: String,
+    pub cors_origins: Vec<String>,
+}
+
+impl AppConfig {
+    pub fn from_env() -> anyhow::Result<Self> {
+        dotenvy::dotenv().ok();
+
+        Ok(Self {
+            name: std::env::var("APP_NAME").unwrap_or_else(|_| "{{project.name}}".into()),
+            host: std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".into()),
+            port: std::env::var("PORT")
+                .unwrap_or_else(|_| "3000".into())
+                .parse()?,
+            database_url: std::env::var("DATABASE_URL")
+                .unwrap_or_else(|_| "{{project.database_url_literal}}".into()),
+            cors_origins: std::env::var("CORS_ORIGINS")
+                .unwrap_or_else(|_| "http://localhost:8080".into())
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect(),
+        })
+    }
+}

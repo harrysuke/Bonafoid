@@ -1,0 +1,42 @@
+# Rust
+/target/
+**/target/
+*.rs.bk
+*.pdb
+
+# Node
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+apps/ide-web/dist/
+apps/ide-tauri/dist/
+apps/ide-tauri/src-tauri/target/
+apps/generated-app/target/
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# Local env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# IDE server runtime state
+*.db
+*.db-shm
+*.db-wal
+data/
+workspaces/
+preview-workspaces/
+
+# Generated test artifacts
+/gen-out/

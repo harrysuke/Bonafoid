@@ -1,0 +1,21 @@
+[package]
+name = "nocode-generated-app"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Generated No-Code application"
+
+[dependencies]
+nocode-model = { path = "../../crates/model" }
+nocode-runtime = { path = "../../crates/runtime" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+sqlx = { workspace = true }
+sea-orm = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -1,0 +1,19 @@
+[package]
+name = "nocode-ide"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "No-Code IDE core library"
+
+[dependencies]
+nocode-model = { path = "../model" }
+nocode-codegen = { path = "../codegen" }
+nocode-bpmn = { path = "../bpmn" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+egui = { workspace = true }
+egui_extras = { workspace = true }

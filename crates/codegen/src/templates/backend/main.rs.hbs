@@ -1,0 +1,47 @@
+//! {{project.name}} — generated backend.
+
+use std::net::SocketAddr;
+
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
+
+mod config;
+mod db;
+mod error;
+mod handlers;
+mod models;
+mod routes;
+
+use config::AppConfig;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,tower_http=info".into()),
+        )
+        .init();
+
+    let config = AppConfig::from_env()?;
+
+    let db = db::init_db(&config.database_url).await?;
+    db::run_migrations(&db).await?;
+
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    let app = routes::create_routes(db)
+        .layer(cors)
+        .layer(TraceLayer::new_for_http());
+
+    let addr: SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
+    tracing::info!("{} listening on http://{}", config.name, addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}

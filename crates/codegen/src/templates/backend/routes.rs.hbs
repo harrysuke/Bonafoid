@@ -1,0 +1,41 @@
+//! HTTP routing for {{project.name}}.
+
+use axum::routing::get;
+use axum::Router;
+use sea_orm::DatabaseConnection;
+
+use crate::handlers;
+
+/// Build the application router with all entity endpoints.
+pub fn create_routes(db: DatabaseConnection) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/ready", get(ready))
+{{#each entities}}        .nest("/api/v1/{{this.snake}}", {{this.camel}}_routes())
+{{/each}}        .with_state(db)
+}
+
+async fn health() -> &'static str {
+    "OK"
+}
+
+async fn ready() -> &'static str {
+    "READY"
+}
+
+{{#each entities}}
+fn {{this.camel}}_routes() -> Router<DatabaseConnection> {
+    Router::new()
+        .route(
+            "/",
+            get(handlers::{{this.snake}}::list).post(handlers::{{this.snake}}::create),
+        )
+        .route(
+            "/:id",
+            get(handlers::{{this.snake}}::get)
+                .put(handlers::{{this.snake}}::update)
+                .delete(handlers::{{this.snake}}::delete),
+        )
+}
+
+{{/each}}

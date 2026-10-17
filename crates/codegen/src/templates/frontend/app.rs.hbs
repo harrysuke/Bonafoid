@@ -1,0 +1,22 @@
+//! Root [`App`] component and client-side router.
+
+use leptos::prelude::*;
+use leptos_router::components::{Route, Router, Routes};
+use leptos_router::path;
+
+use crate::components::Layout;
+use crate::pages;
+
+#[component]
+pub fn App() -> impl IntoView {
+    view! {
+        <Router>
+            <Layout>
+                <Routes fallback=|| view! { <p class="text-slate-500">"Page not found"</p> }>
+                    <Route path=path!("/") view=pages::home::Home />
+{{#each entities}}                    <Route path=path!("/{{this.snake}}") view=pages::{{this.snake}}::List />
+{{/each}}                </Routes>
+            </Layout>
+        </Router>
+    }
+}

@@ -1,0 +1,66 @@
+warning: unused import: `crate::workflow::WorkflowId`
+ --> D:\nocode-ide\crates\model\src\form.rs:7:5
+  |
+7 | use crate::workflow::WorkflowId;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `indexmap::IndexMap`
+ --> D:\nocode-ide\crates\model\src\entity.rs:5:5
+  |
+5 | use indexmap::IndexMap;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: variant `SSL_TLS` should have an upper camel case name
+   --> D:\nocode-ide\crates\model\src\project.rs:569:5
+    |
+569 |     SSL_TLS,
+    |     ^^^^^^^ help: convert the identifier to upper camel case: `SslTls`
+    |
+    = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: ambiguous glob re-exports
+  --> D:\nocode-ide\crates\model\src\lib.rs:10:9
+   |
+10 | pub use form::*;
+   |         ^^^^^^^ the name `FieldId` in the type namespace is first re-exported here
+11 | pub use workflow::*;
+12 | pub use entity::*;
+   |         --------- but the name `FieldId` in the type namespace is also re-exported here
+   |
+   = note: `#[warn(ambiguous_glob_reexports)]` on by default
+
+warning: ambiguous glob re-exports
+  --> D:\nocode-ide\crates\model\src\lib.rs:10:9
+   |
+10 | pub use form::*;
+   |         ^^^^^^^ the name `FieldId` in the value namespace is first re-exported here
+11 | pub use workflow::*;
+12 | pub use entity::*;
+   |         --------- but the name `FieldId` in the value namespace is also re-exported here
+
+warning: ambiguous glob re-exports
+  --> D:\nocode-ide\crates\model\src\lib.rs:11:9
+   |
+11 | pub use workflow::*;
+   |         ^^^^^^^^^^^ the name `RetryConfig` in the type namespace is first re-exported here
+...
+15 | pub use project::*;
+   |         ---------- but the name `RetryConfig` in the type namespace is also re-exported here
+
+warning: unused variable: `backend`
+   --> src\main.rs:113:17
+    |
+113 |             let backend = generate_backend(&project, &output).await?;
+    |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_backend`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `frontend`
+   --> src\main.rs:120:17
+    |
+120 |             let frontend = generate_frontend(&project, &output).await?;
+    |                 ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_frontend`
+
+Wrote JSON Schema to D:\nocode-ide\packages/ide-core/src/types/model.schema.json
