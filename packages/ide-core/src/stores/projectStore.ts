@@ -729,7 +729,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     removePage: (id) => {
       const current = get().project;
       if (!current || !current.pages[id]) return;
-      const { [id]: removed, ...pages } = current.pages;
+      const { [id]: _removed, ...pages } = current.pages;
       commit({ ...current, pages, updated_at: new Date().toISOString() });
     },
 
@@ -892,7 +892,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     removeWorkflow: (id) => {
       const current = get().project;
       if (!current || !current.workflows[id]) return;
-      const { [id]: removed, ...workflows } = current.workflows;
+      const { [id]: _removed, ...workflows } = current.workflows;
       commit({ ...current, workflows, updated_at: new Date().toISOString() });
     },
 

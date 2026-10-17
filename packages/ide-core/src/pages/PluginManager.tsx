@@ -68,7 +68,7 @@ export function PluginManager() {
             {['installed', 'marketplace', 'develop'].map((tab) => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab as any)}
+                onClick={() => setActiveTab(tab as 'installed' | 'marketplace' | 'develop')}
                 className={`w-full text-left p-3 rounded-lg transition-colors ${
                   activeTab === tab
                     ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300'

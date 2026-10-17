@@ -11,6 +11,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext ts,tsx",
     "gen:types": "node scripts/gen-model-types.mjs",
     "check:types": "node scripts/gen-model-types.mjs --check"
   },

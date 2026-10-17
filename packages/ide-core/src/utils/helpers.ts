@@ -92,7 +92,7 @@ export function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-export function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): (...args: Parameters<T>) => void {
+export function debounce<T extends (...args: never[]) => unknown>(fn: T, ms: number): (...args: Parameters<T>) => void {
   let timeoutId: ReturnType<typeof setTimeout>;
   return (...args: Parameters<T>) => {
     clearTimeout(timeoutId);
@@ -100,7 +100,7 @@ export function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): 
   };
 }
 
-export function throttle<T extends (...args: any[]) => any>(fn: T, ms: number): (...args: Parameters<T>) => void {
+export function throttle<T extends (...args: never[]) => unknown>(fn: T, ms: number): (...args: Parameters<T>) => void {
   let lastCall = 0;
   return (...args: Parameters<T>) => {
     const now = Date.now();
@@ -119,7 +119,7 @@ export function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
-export function isEmpty(value: any): boolean {
+export function isEmpty(value: unknown): boolean {
   if (value === null || value === undefined) return true;
   if (typeof value === 'string') return value.trim() === '';
   if (Array.isArray(value)) return value.length === 0;
@@ -127,13 +127,13 @@ export function isEmpty(value: any): boolean {
   return false;
 }
 
-export function omit<T extends Record<string, any>, K extends keyof T>(obj: T, keys: K[]): Omit<T, K> {
+export function omit<T extends Record<string, unknown>, K extends keyof T>(obj: T, keys: K[]): Omit<T, K> {
   const result = { ...obj };
   keys.forEach((key) => delete result[key]);
   return result;
 }
 
-export function pick<T extends Record<string, any>, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> {
+export function pick<T extends Record<string, unknown>, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> {
   const result = {} as Pick<T, K>;
   keys.forEach((key) => { result[key] = obj[key]; });
   return result;
@@ -148,7 +148,7 @@ export function groupBy<T>(array: T[], key: keyof T | ((item: T) => string)): Re
   }, {} as Record<string, T[]>);
 }
 
-export function sortBy<T>(array: T[], key: keyof T | ((item: T) => any), order: 'asc' | 'desc' = 'asc'): T[] {
+export function sortBy<T>(array: T[], key: keyof T | ((item: T) => string | number), order: 'asc' | 'desc' = 'asc'): T[] {
   return [...array].sort((a, b) => {
     const aVal = typeof key === 'function' ? key(a) : a[key];
     const bVal = typeof key === 'function' ? key(b) : b[key];
@@ -207,12 +207,12 @@ export function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-export function downloadJSON(data: any, filename: string): void {
+export function downloadJSON(data: unknown, filename: string): void {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   downloadBlob(blob, filename);
 }
 
-export function downloadCSV(data: any[], filename: string): void {
+export function downloadCSV(data: Record<string, unknown>[], filename: string): void {
   if (data.length === 0) return;
   const headers = Object.keys(data[0]);
   const rows = data.map((row) => headers.map((h) => JSON.stringify(row[h])).join(','));

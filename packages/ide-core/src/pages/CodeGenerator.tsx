@@ -380,7 +380,7 @@ const counts: Record<string, Record<string, number>> = {
 function getFileCount(selected: string[], type: string): number {
   return selected.reduce((sum: number, t: string) => {
     const key = t as keyof typeof counts;
-    const sub = counts[key] as any;
-    return sum + (sub?.[type] || 0);
+    const sub = counts[key] as Record<string, number> | undefined;
+    return sum + (sub?.[type] ?? 0);
   }, 0);
 }
