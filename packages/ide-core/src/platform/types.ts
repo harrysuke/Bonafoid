@@ -39,6 +39,50 @@ export interface PlatformProject {
   updatedAt?: string;
 }
 
+/** Lifecycle of a hosted preview build (mirrors the server's `BuildState`). */
+export type PreviewBuildState =
+  | 'queued'
+  | 'generating'
+  | 'building_backend'
+  | 'building_frontend'
+  | 'ready'
+  | 'cancelled'
+  | 'failed';
+
+/** Which artifacts a preview build should produce. */
+export type PreviewBuildTarget = 'all' | 'backend' | 'frontend';
+
+/** One build as the IDE sees it. */
+export interface PreviewBuild {
+  id: string;
+  project_id: string;
+  state: PreviewBuildState;
+  target: PreviewBuildTarget;
+  error: string | null;
+  workspace: string;
+  logs: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** A running preview backend. */
+export interface PreviewRun {
+  build_id: string;
+  port: number;
+  pid: number | null;
+  status: 'starting' | 'running' | 'stopped' | 'exited' | 'failed';
+  requests: number;
+}
+
+/** Host toolchain availability for previews. */
+export interface PreviewCapabilities {
+  cargo: boolean;
+  trunk: boolean;
+  root: string;
+  max_parallel: number;
+  timeout_secs: number;
+}
+
 export interface PlatformApi {
   /** Which host is running the IDE. */
   readonly kind: 'tauri' | 'web';
@@ -114,4 +158,37 @@ export interface PlatformApi {
 
   /** Delete a project from the host store. */
   deleteProject?(id: string): Promise<void>;
+
+  /**
+   * Start a hosted preview build. Absent when the host cannot build previews
+   * (the desktop shell generates locally instead).
+   */
+  previewBuild?(
+    projectId: string,
+    target?: PreviewBuildTarget,
+  ): Promise<PreviewBuild>;
+
+  /** Poll a build for state + logs. */
+  previewStatus?(buildId: string): Promise<PreviewBuild>;
+
+  /** Cancel a build and delete its workspace. */
+  previewCancel?(buildId: string): Promise<void>;
+
+  /** Builds the host knows about (newest first). */
+  previewBuilds?(): Promise<PreviewBuild[]>;
+
+  /** Host toolchain probe, so the UI can explain a missing `trunk`. */
+  previewCapabilities?(): Promise<PreviewCapabilities>;
+
+  /** Start the generated backend of a ready build. */
+  previewRun?(buildId: string): Promise<PreviewRun>;
+
+  /** Stop a running preview backend. */
+  previewStop?(buildId: string): Promise<void>;
+
+  /** Running previews owned by the caller. */
+  previewRuns?(): Promise<PreviewRun[]>;
+
+  /** Public URL of a ready build's frontend (iframe source). */
+  previewUrl?(buildId: string): string;
 }

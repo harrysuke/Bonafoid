@@ -7,4 +7,5 @@ export { PageBuilder } from './PageBuilder';
 export { ThemeBuilder } from './ThemeBuilder';
 export { PluginManager } from './PluginManager';
 export { CodeGenerator } from './CodeGenerator';
+export { PreviewPanel } from './PreviewPanel';
 export { Settings } from './Settings';

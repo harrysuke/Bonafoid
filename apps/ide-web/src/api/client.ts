@@ -317,3 +317,75 @@ export const serverApi = {
   health: (): Promise<{ status: string; service: string }> => request('/health'),
   ready: (): Promise<{ status: string; database: string }> => request('/ready'),
 };
+
+/* ------------------------------------------------------------------ *
+ * Hosted preview builds
+ * ------------------------------------------------------------------ */
+
+export interface PreviewBuild {
+  id: string;
+  project_id: string;
+  state:
+    | 'queued'
+    | 'generating'
+    | 'building_backend'
+    | 'building_frontend'
+    | 'ready'
+    | 'cancelled'
+    | 'failed';
+  target: 'all' | 'backend' | 'frontend';
+  error: string | null;
+  workspace: string;
+  dist_dir: string;
+  logs: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PreviewRun {
+  build_id: string;
+  port: number;
+  pid: number | null;
+  status: 'starting' | 'running' | 'stopped' | 'exited' | 'failed';
+  requests: number;
+}
+
+export interface PreviewCapabilities {
+  cargo: boolean;
+  trunk: boolean;
+  root: string;
+  max_parallel: number;
+  timeout_secs: number;
+}
+
+/** Public URL of a preview build's frontend (relative to the API base). */
+export function previewUrl(buildId: string): string {
+  return `${API_BASE}/preview/${buildId}/`;
+}
+
+export const previewApi = {
+  capabilities: (): Promise<PreviewCapabilities> =>
+    request<PreviewCapabilities>('/api/v1/preview/capabilities'),
+
+  start: (projectId: string, target: 'all' | 'backend' | 'frontend' = 'all'): Promise<PreviewBuild> =>
+    request<PreviewBuild>(`/api/v1/projects/${projectId}/preview/build`, {
+      method: 'POST',
+      body: { target },
+    }),
+
+  status: (buildId: string): Promise<PreviewBuild> =>
+    request<PreviewBuild>(`/api/v1/builds/${buildId}`),
+
+  list: (): Promise<PreviewBuild[]> => request<PreviewBuild[]>('/api/v1/builds'),
+
+  cancel: (buildId: string): Promise<void> =>
+    request<void>(`/api/v1/builds/${buildId}`, { method: 'DELETE' }),
+
+  run: (buildId: string): Promise<PreviewRun> =>
+    request<PreviewRun>(`/api/v1/builds/${buildId}/run`, { method: 'POST' }),
+
+  stop: (buildId: string): Promise<void> =>
+    request<PreviewRun>(`/api/v1/builds/${buildId}/stop`, { method: 'POST' }).then(() => undefined),
+
+  runs: (): Promise<PreviewRun[]> => request<PreviewRun[]>('/api/v1/runs'),
+};

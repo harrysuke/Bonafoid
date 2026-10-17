@@ -19,6 +19,11 @@ export type {
   PlatformProject,
   BpmnValidationReport,
   BpmnValidationIssue,
+  PreviewBuild,
+  PreviewBuildState,
+  PreviewBuildTarget,
+  PreviewRun,
+  PreviewCapabilities,
 } from './platform/types';
 
 export { useProjectStore, type FieldPatch, type RelationPatch } from './stores/projectStore';

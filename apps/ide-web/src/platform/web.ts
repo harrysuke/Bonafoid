@@ -18,8 +18,9 @@ import type {
   GenerationReport,
   PlatformApi,
   PlatformProject,
+  PreviewBuildTarget,
 } from '@nocode/ide-core';
-import { bpmnApi, generationApi, projectsApi } from '../api/client';
+import { bpmnApi, generationApi, previewApi, previewUrl, projectsApi } from '../api/client';
 import type { ProjectDetail } from '../api/client';
 
 /** Working copy of the project currently open in the browser. */
@@ -180,6 +181,42 @@ export const webPlatform: PlatformApi = {
       workingCopy = null;
       workingCopyRevision = 0;
     }
+  },
+
+  async previewBuild(projectId: string, target: PreviewBuildTarget = 'all') {
+    return previewApi.start(projectId, target);
+  },
+
+  async previewStatus(buildId: string) {
+    return previewApi.status(buildId);
+  },
+
+  async previewCancel(buildId: string): Promise<void> {
+    await previewApi.cancel(buildId);
+  },
+
+  async previewBuilds() {
+    return previewApi.list();
+  },
+
+  async previewCapabilities() {
+    return previewApi.capabilities();
+  },
+
+  async previewRun(buildId: string) {
+    return previewApi.run(buildId);
+  },
+
+  async previewStop(buildId: string): Promise<void> {
+    await previewApi.stop(buildId);
+  },
+
+  async previewRuns() {
+    return previewApi.runs();
+  },
+
+  previewUrl(buildId: string): string {
+    return previewUrl(buildId);
   },
 };
 

@@ -54,6 +54,12 @@ import type {
   Workflow as GeneratedWorkflow,
   WorkflowNodeType,
 } from '../types/model.generated';
+import type {
+  PreviewBuild,
+  PreviewBuildTarget,
+  PreviewCapabilities,
+  PreviewRun,
+} from '../platform/types';
 
 const AUTOSAVE_DELAY = 1500;
 
@@ -153,6 +159,20 @@ interface ProjectState {
 
   markDirty: () => void;
   autosave: () => Promise<void>;
+
+  /* Hosted preview (build -> run -> iframe). */
+  previewBuild: PreviewBuild | null;
+  previewBuilds: PreviewBuild[];
+  previewRun: PreviewRun | null;
+  previewCapabilities: PreviewCapabilities | null;
+  previewPolling: boolean;
+  previewError: string | null;
+  startPreviewBuild: (target?: PreviewBuildTarget) => Promise<void>;
+  refreshPreviewBuild: () => Promise<void>;
+  cancelPreviewBuild: () => Promise<void>;
+  runPreview: () => Promise<void>;
+  stopPreview: () => Promise<void>;
+  loadPreviewCapabilities: () => Promise<void>;
 }
 
 function parse(json: string): Project {
@@ -175,6 +195,16 @@ function defaultEntityOptions(): EntityOptions {
 function primaryKeyFieldId(entity: Entity): string {
   const constraint = entity.constraints.find((c) => c.constraint_type === 'primary_key');
   return constraint?.fields[0] ?? entity.fields[0]?.id ?? '';
+}
+
+/** Build states after which no further polling is useful. */
+function isTerminalPreviewState(state: PreviewBuild['state']): boolean {
+  return state === 'ready' || state === 'failed' || state === 'cancelled';
+}
+
+/** Uniform error text for host/API failures. */
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => {
@@ -271,6 +301,13 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     isDirty: false,
     loading: false,
     error: null,
+
+    previewBuild: null,
+    previewBuilds: [],
+    previewRun: null,
+    previewCapabilities: null,
+    previewPolling: false,
+    previewError: null,
 
     init: async () => {
       set({ loading: true, error: null });
@@ -1042,6 +1079,104 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const current = get().project;
       if (!current) return;
       commit(current);
+    },
+
+    /* ------------------------------------------------------------------ *
+     * Hosted preview
+     * ------------------------------------------------------------------ */
+
+    startPreviewBuild: async (target = 'all') => {
+      const platform = getPlatform();
+      const { projectPath } = get();
+      const projectId = projectPath ? projectPath.replace('api://projects/', '') : null;
+      if (!platform.previewBuild || !projectId) {
+        set({ previewError: 'This host cannot build previews (open a project first).' });
+        return;
+      }
+      set({ previewPolling: true, previewError: null });
+      try {
+        const build = await platform.previewBuild(projectId, target);
+        set({ previewBuild: build, previewBuilds: [build, ...get().previewBuilds] });
+        void get().refreshPreviewBuild();
+      } catch (error) {
+        set({ previewPolling: false, previewError: describeError(error) });
+      }
+    },
+
+    refreshPreviewBuild: async () => {
+      const platform = getPlatform();
+      const build = get().previewBuild;
+      if (!build || !platform.previewStatus) return;
+      try {
+        const next = await platform.previewStatus(build.id);
+        set({
+          previewBuild: next,
+          previewBuilds: get().previewBuilds.map((candidate) =>
+            candidate.id === next.id ? next : candidate,
+          ),
+        });
+        if (isTerminalPreviewState(next.state)) {
+          set({ previewPolling: false });
+          if (next.state === 'ready' && platform.previewRun) {
+            try {
+              const run = await platform.previewRun(next.id);
+              set({ previewRun: run });
+            } catch (error) {
+              // A build can be ready yet unrunnable (no DB configured); the
+              // panel surfaces this rather than failing the build.
+              set({ previewRun: null, previewError: describeError(error) });
+            }
+          }
+        }
+      } catch (error) {
+        set({ previewPolling: false, previewError: describeError(error) });
+      }
+    },
+
+    cancelPreviewBuild: async () => {
+      const platform = getPlatform();
+      const build = get().previewBuild;
+      if (!build || !platform.previewCancel) return;
+      try {
+        await platform.previewCancel(build.id);
+        set({ previewBuild: null, previewRun: null, previewPolling: false });
+      } catch (error) {
+        set({ previewError: describeError(error) });
+      }
+    },
+
+    runPreview: async () => {
+      const platform = getPlatform();
+      const build = get().previewBuild;
+      if (!build || !platform.previewRun) return;
+      set({ previewError: null });
+      try {
+        set({ previewRun: await platform.previewRun(build.id) });
+      } catch (error) {
+        set({ previewError: describeError(error) });
+      }
+    },
+
+    stopPreview: async () => {
+      const platform = getPlatform();
+      const build = get().previewBuild;
+      if (!build || !platform.previewStop) return;
+      try {
+        await platform.previewStop(build.id);
+        set({ previewRun: null });
+      } catch (error) {
+        set({ previewError: describeError(error) });
+      }
+    },
+
+    loadPreviewCapabilities: async () => {
+      const platform = getPlatform();
+      if (!platform.previewCapabilities) return;
+      try {
+        set({ previewCapabilities: await platform.previewCapabilities() });
+      } catch {
+        // Capability probing is advisory; ignore transport failures.
+      }
     },
 
     autosave: async () => {
