@@ -1,4 +1,7 @@
 use crate::auth::{self, JwtKeys};
+use crate::preview::preview_server_router;
+use crate::preview::runs::RunConfig;
+use crate::preview::{BuildManager, PreviewConfig, RunManager};
 use anyhow::{Context, Result};
 use axum::{extract::State, routing::get, Json, Router};
 use sea_orm::{ConnectionTrait, DatabaseConnection};
@@ -40,11 +43,30 @@ impl ServerConfig {
 pub struct AppState {
     pub db: DatabaseConnection,
     pub keys: Arc<JwtKeys>,
+    /// Registry of hosted preview builds (workspaces, state, logs).
+    pub preview: Arc<BuildManager>,
+    /// Running preview backends and their ports.
+    pub runs: Arc<RunManager>,
 }
 
 impl AppState {
     pub fn new(db: DatabaseConnection, keys: Arc<JwtKeys>) -> Self {
-        Self { db, keys }
+        Self {
+            db,
+            keys,
+            preview: Arc::new(BuildManager::new(PreviewConfig::from_env())),
+            runs: Arc::new(RunManager::new(RunConfig::from_env())),
+        }
+    }
+
+    /// Construct the state with explicit preview/run configurations (tests).
+    pub fn with_preview(db: DatabaseConnection, keys: Arc<JwtKeys>, config: PreviewConfig) -> Self {
+        Self {
+            db,
+            keys,
+            preview: Arc::new(BuildManager::new(config)),
+            runs: Arc::new(RunManager::new(RunConfig::from_env())),
+        }
     }
 }
 
@@ -79,6 +101,8 @@ pub fn build_router(state: AppState, web_dist: &str) -> Router {
         .merge(crate::projects::projects_router())
         .merge(crate::generation::generation_router())
         .merge(crate::bpmn::bpmn_router())
+        .merge(crate::preview::preview_router())
+        .merge(preview_server_router())
         .fallback_service(spa)
         .with_state(state)
 }
@@ -90,10 +114,25 @@ pub async fn serve(config: ServerConfig, state: AppState) -> Result<()> {
         .await
         .with_context(|| format!("failed to bind {addr}"))?;
     tracing::info!(%addr, web_dist = %config.web_dist, "ide server listening");
-    axum::serve(listener, build_router(state, &config.web_dist))
-        .await
-        .context("ide server error")?;
-    Ok(())
+
+    let router = build_router(state.clone(), &config.web_dist);
+
+    // Idle teardown for hosted previews so a long-lived server does not
+    // accumulate generated backend processes.
+    let idle = state.runs.clone();
+    let reaper = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            ticker.tick().await;
+            idle.reap_idle().await;
+        }
+    });
+
+    let result = axum::serve(listener, router).await;
+
+    reaper.abort();
+    state.runs.stop_all().await;
+    result.context("ide server error")
 }
 
 async fn health() -> Json<HealthResponse> {
