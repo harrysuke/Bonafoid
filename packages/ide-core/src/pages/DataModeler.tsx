@@ -93,8 +93,6 @@ export function DataModeler() {
           <Button variant="secondary" size="sm" onClick={() => setShowAddEntity(true)}>
             <Plus className="w-4 h-4 mr-1" /> Add Entity
           </Button>
-          <Button variant="secondary" size="sm">Export SQL</Button>
-          <Button variant="primary" size="sm">Generate Migrations</Button>
         </div>
       </div>
 
@@ -288,18 +286,48 @@ export function DataModeler() {
           )}
         </div>
 
-        {/* Right Panel - SQL Preview */}
+        {/* Right Panel - Schema summary */}
         <div className="w-80 border-l border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-4 overflow-y-auto">
-          <h3 className="font-semibold text-gray-900 dark:text-white mb-4">SQL Preview</h3>
-          <div className="bg-gray-900 dark:bg-gray-950 rounded-lg p-4 font-mono text-xs text-green-400 overflow-x-auto max-h-96 overflow-y-auto">
-            {selectedEntity ? (
-              `CREATE TABLE ${selectedEntity.name.toLowerCase()} (\n${selectedEntity.fields.map(f =>
-                `  ${f.name} ${f.type.toUpperCase()}${f.primaryKey ? ' PRIMARY KEY' : ''}${f.required ? ' NOT NULL' : ''}${f.unique ? ' UNIQUE' : ''}`
-              ).join(',\n')}\n);`
-            ) : (
-              'Select an entity to see SQL preview'
-            )}
-          </div>
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Schema</h3>
+          {selectedEntity ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-gray-500 dark:text-gray-400">
+                    <th className="py-1 pr-2 font-medium">Field</th>
+                    <th className="py-1 pr-2 font-medium">Type</th>
+                    <th className="py-1 font-medium">Flags</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
+                  {selectedEntity.fields.map((f) => (
+                    <tr key={f.id} className="text-gray-700 dark:text-gray-300">
+                      <td className="py-1 pr-2 font-mono">{f.name}</td>
+                      <td className="py-1 pr-2 font-mono">{f.type}</td>
+                      <td className="py-1 font-mono text-[10px]">
+                        {[
+                          f.primaryKey && 'PK',
+                          f.required && 'NOT NULL',
+                          f.unique && 'UNIQUE',
+                        ]
+                          .filter(Boolean)
+                          .join(' ') || '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+                DDL and migrations are emitted by the code generator, which maps
+                each field type onto the project's database driver. Run Generate
+                Code to produce them.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Select an entity to see its fields.
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -17,6 +17,7 @@ export { configurePlatform, getPlatform, hasPlatform } from './platform/registry
 export type {
   PlatformApi,
   PlatformProject,
+  PlatformUser,
   BpmnValidationReport,
   BpmnValidationIssue,
   PreviewBuild,

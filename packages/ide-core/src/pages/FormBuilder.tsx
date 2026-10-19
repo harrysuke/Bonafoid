@@ -97,8 +97,6 @@ export function FormBuilder() {
           <Button variant="ghost" size="sm" onClick={() => setPreviewMode(!previewMode)}>
             {previewMode ? 'Edit' : 'Preview'}
           </Button>
-          <Button variant="secondary" size="sm">Save Draft</Button>
-          <Button variant="primary" size="sm">Publish</Button>
         </div>
       </div>
 
@@ -209,8 +207,10 @@ export function FormBuilder() {
                     </div>
                   ))}
                   <div className="flex gap-4 pt-4 border-t border-gray-200 dark:border-slate-700">
-                    <Button variant="secondary">Cancel</Button>
-                    <Button variant="primary">Submit</Button>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Preview only. Submissions are handled by the generated
+                      application, not by the IDE.
+                    </p>
                   </div>
                 </form>
               </div>

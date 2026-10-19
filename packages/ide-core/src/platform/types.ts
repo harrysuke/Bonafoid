@@ -120,6 +120,12 @@ export interface WorkflowRunSummary {
   variables: Record<string, unknown>;
 }
 
+/** The signed-in account, when the host has one. */
+export interface PlatformUser {
+  id: string;
+  email: string;
+}
+
 export interface PlatformApi {
   /** Which host is running the IDE. */
   readonly kind: 'tauri' | 'web';
@@ -238,4 +244,13 @@ export interface PlatformApi {
     variables?: Record<string, unknown>,
     autoCompleteTasks?: boolean,
   ): Promise<WorkflowRunSummary>;
+
+  /**
+   * The signed-in account. Optional: the desktop host opens local projects
+   * without an account. Used for the header identity and the logout action.
+   */
+  currentUser?(): PlatformUser | null;
+
+  /** End the session. No-op where there is no session to end. */
+  logout?(): Promise<void>;
 }

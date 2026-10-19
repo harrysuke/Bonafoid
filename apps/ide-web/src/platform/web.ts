@@ -18,8 +18,10 @@ import type {
   GenerationReport,
   PlatformApi,
   PlatformProject,
+  PlatformUser,
   PreviewBuildTarget,
 } from '@nocode/ide-core';
+import { currentUser as sessionUser, logout as endSession } from '../auth/session';
 import { bpmnApi, generationApi, previewApi, previewUrl, projectsApi } from '../api/client';
 import type { ProjectDetail } from '../api/client';
 
@@ -225,6 +227,15 @@ export const webPlatform: PlatformApi = {
     autoCompleteTasks = false,
   ) {
     return bpmnApi.run(workflowJson, variables, autoCompleteTasks);
+  },
+
+  currentUser(): PlatformUser | null {
+    const user = sessionUser();
+    return user ? { id: user.id, email: user.email } : null;
+  },
+
+  async logout(): Promise<void> {
+    await endSession();
   },
 };
 

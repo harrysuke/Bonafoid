@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Menu, ChevronLeft, ChevronRight, Home,
@@ -6,6 +6,7 @@ import {
   Puzzle, Code, Settings, LogOut, Sun, Moon, ChevronDown,
   FilePlus, FolderOpen, Save, Table2, Monitor
 } from 'lucide-react';
+import { getPlatform } from '../platform/registry';
 import { useUIStore } from '../stores/uiStore';
 import { useProjectStore } from '../stores/projectStore';
 
@@ -52,17 +53,35 @@ export function Layout() {
     if (name) await newProject(name);
   };
 
+  // The account menu shows a real identity where the host has one (web) and
+  // says so plainly where it does not (desktop).
+  const platform = getPlatform();
+  const user = platform.currentUser?.() ?? null;
+  const identity = user?.email ?? null;
+  const initial = (identity ?? '?').charAt(0).toUpperCase();
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
-  const handleGenerate = async () => {
-    try {
-      setActivePanel('generate');
-      navigate('/generate');
-    } catch (error) {
-      console.error('Generate failed:', error);
-    }
+  // Close the account menu on an outside click. This used to be an injected
+  // <script> looking for an id ("user-dropdown") that no element had, so the
+  // menu stayed open until the button was clicked again.
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!showUserMenu) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [showUserMenu]);
+
+  const handleGenerate = () => {
+    setActivePanel('generate');
+    navigate('/generate');
   };
 
   return (
@@ -217,7 +236,7 @@ export function Layout() {
                 {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
               </button>
               
-              <div className="relative" id="user-menu">
+              <div className="relative" id="user-menu" ref={userMenuRef}>
                 <button
                   className="flex items-center gap-2 p-2 rounded-lg text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700"
                   onClick={(e) => {
@@ -226,24 +245,45 @@ export function Layout() {
                   }}
                 >
                   <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
-                    <span className="text-sm font-medium text-primary-700 dark:text-primary-300">U</span>
+                    <span className="text-sm font-medium text-primary-700 dark:text-primary-300">
+                      {initial}
+                    </span>
                   </div>
-                  <span className="hidden sm:block text-sm font-medium text-gray-700 dark:text-gray-300">User</span>
+                  <span className="hidden sm:block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {identity ?? 'Local project'}
+                  </span>
                   <ChevronDown className="w-4 h-4" />
                 </button>
-                
+
                 {showUserMenu && (
                   <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 py-1 z-50">
                     <div className="px-4 py-2 border-b border-gray-100 dark:border-slate-700">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">User</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Developer</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">
+                        {user?.email ?? 'Not signed in'}
+                      </p>
                     </div>
-                    <button className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        navigate('/settings');
+                      }}
+                    >
                       <Settings className="w-4 h-4" /> Settings
                     </button>
-                    <button className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2">
-                      <LogOut className="w-4 h-4" /> Logout
-                    </button>
+                    {platform.logout && (
+                      <button
+                        type="button"
+                        className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          void platform.logout?.().then(() => navigate('/login'));
+                        }}
+                      >
+                        <LogOut className="w-4 h-4" /> Logout
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -256,19 +296,6 @@ export function Layout() {
           <Outlet />
         </main>
       </div>
-
-      {/* Close dropdown on outside click */}
-      <script dangerouslySetInnerHTML={{
-        __html: `
-          document.addEventListener('click', function(e) {
-            const dropdown = document.getElementById('user-dropdown');
-            const menu = document.getElementById('user-menu');
-            if (dropdown && menu && !menu.contains(e.target)) {
-              dropdown.classList.add('hidden');
-            }
-          });
-        `
-      }} />
     </div>
   );
 }

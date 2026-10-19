@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { getPlatform } from '../platform/registry';
-import { generateId } from '../utils/helpers';
+import { generateId, slugify } from '../utils/helpers';
 import {
   editorTypeToEntityFieldType,
   editorTypeToRelationType,
@@ -105,6 +105,11 @@ export interface ThemeMetaPatch {
   description?: string;
 }
 
+export interface ProjectMetaPatch {
+  name?: string;
+  description?: string;
+}
+
 interface ProjectState {
   project: Project | null;
   projectPath: string | null;
@@ -119,6 +124,8 @@ interface ProjectState {
   saveProject: () => Promise<void>;
   saveProjectAs: () => Promise<void>;
   setDbDriver: (driver: string) => Promise<void>;
+  setDatabaseUrl: (url: string) => void;
+  updateProjectMeta: (patch: ProjectMetaPatch) => void;
   setFrontendFramework: (framework: string) => Promise<void>;
   generate: (outputDir: string) => Promise<GenerationReport>;
 
@@ -469,6 +476,35 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       } catch (e) {
         set({ error: (e as Error).message });
       }
+    },
+
+    // A local mutation, like every builder action: the whole project is PUT on
+    // save, so this needs no platform round trip.
+    setDatabaseUrl: (url) => {
+      const current = get().project;
+      if (!current) return;
+      commit({
+        ...current,
+        settings: {
+          ...current.settings,
+          database: { ...current.settings.database, url },
+        },
+        updated_at: new Date().toISOString(),
+      });
+    },
+
+    updateProjectMeta: (patch) => {
+      const current = get().project;
+      if (!current) return;
+      const name = patch.name?.trim();
+      commit({
+        ...current,
+        name: name || current.name,
+        slug: name ? slugify(name) : current.slug,
+        description:
+          patch.description === undefined ? current.description : patch.description,
+        updated_at: new Date().toISOString(),
+      });
     },
 
     generate: async (outputDir) => {
