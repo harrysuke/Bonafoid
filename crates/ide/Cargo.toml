@@ -9,6 +9,7 @@ description = "No-Code IDE core library"
 nocode-model = { path = "../model" }
 nocode-codegen = { path = "../codegen" }
 nocode-bpmn = { path = "../bpmn" }
+indexmap = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

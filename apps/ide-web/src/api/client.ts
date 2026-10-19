@@ -61,6 +61,39 @@ export interface ValidationReport {
   issues: ValidationIssue[];
 }
 
+export interface WorkflowRunStep {
+  node_id: string;
+  node_name: string;
+  node_type: string;
+  outcome: string;
+}
+
+export interface WorkflowOpenTask {
+  id: string;
+  node_name: string;
+  status: string;
+}
+
+export interface WorkflowRunEvent {
+  event_type: string;
+  node_name?: string;
+  detail?: string;
+}
+
+export interface WorkflowRunSummary {
+  instance_id: string;
+  workflow_id: string;
+  workflow_name: string;
+  status: string;
+  completed: boolean;
+  auto_completed_tasks: boolean;
+  steps: WorkflowRunStep[];
+  open_tasks: WorkflowOpenTask[];
+  events: WorkflowRunEvent[];
+  tokens_waiting: string[];
+  variables: Record<string, unknown>;
+}
+
 /** JSON API error carrying the server's stable code and message. */
 export class ApiRequestError extends Error {
   readonly status: number;
@@ -310,6 +343,20 @@ export const bpmnApi = {
     request<ValidationReport>('/api/v1/bpmn/validate', {
       method: 'POST',
       body: { workflow: JSON.parse(workflowJson) as unknown },
+    }),
+
+  run: (
+    workflowJson: string,
+    variables: Record<string, unknown> = {},
+    autoCompleteTasks = false,
+  ): Promise<WorkflowRunSummary> =>
+    request<WorkflowRunSummary>('/api/v1/bpmn/run', {
+      method: 'POST',
+      body: {
+        workflow: JSON.parse(workflowJson) as unknown,
+        variables,
+        auto_complete_tasks: autoCompleteTasks,
+      },
     }),
 };
 

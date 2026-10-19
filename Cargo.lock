@@ -1835,6 +1835,7 @@ dependencies = [
  "chrono",
  "egui",
  "egui_extras",
+ "indexmap",
  "nocode-bpmn",
  "nocode-codegen",
  "nocode-model",

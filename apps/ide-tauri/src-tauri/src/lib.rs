@@ -1,6 +1,9 @@
 use tauri::{Manager, State};
 
-use nocode_ide::{export_bpmn_xml, import_bpmn, validate_workflow, GenerationReport, IdeService, WorkflowValidation};
+use nocode_ide::{
+    export_bpmn_xml, import_bpmn, run_workflow, validate_workflow, GenerationReport, IdeService,
+    RunOptions, RunSummary, WorkflowValidation,
+};
 
 #[tauri::command]
 async fn new_project(name: String, state: State<'_, IdeService>) -> Result<String, String> {
@@ -74,6 +77,22 @@ async fn bpmn_validate(workflow_json: String) -> Result<WorkflowValidation, Stri
     validate_workflow(&workflow_json)
 }
 
+#[tauri::command]
+async fn workflow_run(
+    workflow_json: String,
+    variables: Option<serde_json::Value>,
+    auto_complete_tasks: Option<bool>,
+) -> Result<RunSummary, String> {
+    run_workflow(
+        &workflow_json,
+        variables.unwrap_or(serde_json::Value::Null),
+        RunOptions {
+            auto_complete_tasks: auto_complete_tasks.unwrap_or(false),
+            max_rounds: None,
+        },
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -105,6 +124,7 @@ pub fn run() {
             bpmn_import,
             bpmn_export,
             bpmn_validate,
+            workflow_run,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

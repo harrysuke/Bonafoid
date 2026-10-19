@@ -15,6 +15,7 @@ import type {
   BpmnValidationReport,
   GenerationReport,
   PlatformApi,
+  WorkflowRunSummary,
 } from '@nocode/ide-core';
 
 const isTauri =
@@ -121,5 +122,18 @@ export const tauriPlatform: PlatformApi = {
   async bpmnValidate(workflowJson: string): Promise<BpmnValidationReport> {
     assertTauri();
     return invoke<BpmnValidationReport>('bpmn_validate', { workflowJson });
+  },
+
+  async workflowRun(
+    workflowJson: string,
+    variables: Record<string, unknown> = {},
+    autoCompleteTasks = false,
+  ): Promise<WorkflowRunSummary> {
+    assertTauri();
+    return invoke<WorkflowRunSummary>('workflow_run', {
+      workflowJson,
+      variables,
+      autoCompleteTasks,
+    });
   },
 };

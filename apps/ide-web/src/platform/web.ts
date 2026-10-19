@@ -218,6 +218,14 @@ export const webPlatform: PlatformApi = {
   previewUrl(buildId: string): string {
     return previewUrl(buildId);
   },
+
+  async workflowRun(
+    workflowJson: string,
+    variables: Record<string, unknown> = {},
+    autoCompleteTasks = false,
+  ) {
+    return bpmnApi.run(workflowJson, variables, autoCompleteTasks);
+  },
 };
 
 /** Apply an in-place edit to the working copy and return its JSON. */

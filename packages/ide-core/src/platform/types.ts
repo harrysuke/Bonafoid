@@ -83,6 +83,43 @@ export interface PreviewCapabilities {
   timeout_secs: number;
 }
 
+/** One node visited during a workflow run. */
+export interface WorkflowRunStep {
+  node_id: string;
+  node_name: string;
+  node_type: string;
+  outcome: string;
+}
+
+/** A user task a run created and has not completed. */
+export interface WorkflowOpenTask {
+  id: string;
+  node_name: string;
+  status: string;
+}
+
+/** One engine history entry. */
+export interface WorkflowRunEvent {
+  event_type: string;
+  node_name?: string;
+  detail?: string;
+}
+
+/** Result of executing a workflow with the token engine. */
+export interface WorkflowRunSummary {
+  instance_id: string;
+  workflow_id: string;
+  workflow_name: string;
+  status: string;
+  completed: boolean;
+  auto_completed_tasks: boolean;
+  steps: WorkflowRunStep[];
+  open_tasks: WorkflowOpenTask[];
+  events: WorkflowRunEvent[];
+  tokens_waiting: string[];
+  variables: Record<string, unknown>;
+}
+
 export interface PlatformApi {
   /** Which host is running the IDE. */
   readonly kind: 'tauri' | 'web';
@@ -191,4 +228,14 @@ export interface PlatformApi {
 
   /** Public URL of a ready build's frontend (iframe source). */
   previewUrl?(buildId: string): string;
+
+  /**
+   * Execute a workflow with the token engine. `autoCompleteTasks` completes
+   * user tasks so the instance runs to the end (a simulation, not real work).
+   */
+  workflowRun?(
+    workflowJson: string,
+    variables?: Record<string, unknown>,
+    autoCompleteTasks?: boolean,
+  ): Promise<WorkflowRunSummary>;
 }

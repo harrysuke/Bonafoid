@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, FileDown, GitBranch, Play, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, FileDown, GitBranch, Play, Square, Trash2, Upload } from 'lucide-react';
 import {
   Background,
   ConnectionLineType,
@@ -27,7 +27,7 @@ import {
 } from '../utils/workflowModel';
 import type { FlowNodeData, NodePaletteCategory } from '../utils/workflowModel';
 import type { Workflow, WorkflowNodeType } from '../types/model.generated';
-import type { BpmnValidationReport } from '../platform/types';
+import type { BpmnValidationReport, WorkflowRunSummary } from '../platform/types';
 
 function ProcessNode({ data }: NodeProps<FlowNodeData>) {
   return (
@@ -74,6 +74,8 @@ export function WorkflowBuilder() {
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<BpmnValidationReport | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [runSummary, setRunSummary] = useState<WorkflowRunSummary | null>(null);
+  const [variablesDraft, setVariablesDraft] = useState('{}');
 
   const workflows = useMemo(() => (project ? Object.values(project.workflows) : []), [project]);
   const workflow = useMemo<Workflow | null>(() => {
@@ -178,6 +180,42 @@ export function WorkflowBuilder() {
     }
   };
 
+  /** Execute the workflow with the token engine. */
+  const runWorkflow = async (autoComplete: boolean) => {
+    if (!workflow) return;
+    const platform = getPlatform();
+    if (!platform.workflowRun) {
+      setMessage('This host cannot run workflows.');
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      // Variables come from the editor-shaped JSON field; a parse error is
+      // reported instead of silently running with none.
+      let variables: Record<string, unknown> = {};
+      if (variablesDraft.trim()) {
+        try {
+          variables = JSON.parse(variablesDraft) as Record<string, unknown>;
+        } catch {
+          setMessage('Variables must be a JSON object.');
+          setBusy(false);
+          return;
+        }
+      }
+      const summary = await platform.workflowRun(JSON.stringify(workflow), variables, autoComplete);
+      setRunSummary(summary);
+      setMessage(
+        `${summary.completed ? 'Completed' : 'Running'} · ${summary.steps.length} node(s) visited, ${summary.open_tasks.length} open task(s).`,
+      );
+    } catch (error) {
+      setRunSummary(null);
+      setMessage(`Run failed: ${describe(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runExport = async () => {
     if (!workflow) return;
     setBusy(true);
@@ -225,7 +263,13 @@ export function WorkflowBuilder() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" size="sm" onClick={() => { setReport(null); void runValidate(); }} disabled={!workflow || busy}>
-            <Play className="w-4 h-4 mr-1" /> Validate
+            <CheckCircle2 className="w-4 h-4 mr-1" /> Validate
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => void runWorkflow(false)} disabled={!workflow || busy}>
+            <Play className="w-4 h-4 mr-1" /> Run
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => void runWorkflow(true)} disabled={!workflow || busy}>
+            <Square className="w-4 h-4 mr-1" /> Run to end
           </Button>
           <Button variant="secondary" size="sm" onClick={() => { setBpmnXml(''); setBpmnMode('import'); }} disabled={!workflow || busy}>
             <Upload className="w-4 h-4 mr-1" /> Import BPMN
@@ -234,6 +278,18 @@ export function WorkflowBuilder() {
             <Download className="w-4 h-4 mr-1" /> Export BPMN
           </Button>
         </div>
+      </div>
+
+      <div className="px-4 py-2 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          Run variables (JSON object)
+          <input
+            value={variablesDraft}
+            onChange={(event) => setVariablesDraft(event.target.value)}
+            spellCheck={false}
+            className="flex-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1 font-mono text-xs text-gray-900 dark:text-white"
+          />
+        </label>
       </div>
 
       {message && (
@@ -255,6 +311,66 @@ export function WorkflowBuilder() {
       {report?.valid && (
         <div className="px-4 py-2 flex items-center gap-2 text-sm border-b border-gray-200 dark:border-slate-700 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">
           <CheckCircle2 className="w-4 h-4" /> Workflow is valid.
+        </div>
+      )}
+
+      {runSummary && (
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 space-y-2">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="font-medium text-gray-900 dark:text-white">
+              Run {runSummary.completed ? 'completed' : 'is running'}
+            </span>
+            <span className="text-xs font-mono text-gray-400 dark:text-gray-500">
+              instance {runSummary.instance_id.slice(0, 8)} · status {runSummary.status}
+            </span>
+            {runSummary.auto_completed_tasks && (
+              <span className="text-xs text-amber-700 dark:text-amber-300">
+                user tasks were auto-completed (simulation)
+              </span>
+            )}
+          </div>
+
+          {runSummary.open_tasks.length > 0 && (
+            <p className="text-xs text-gray-600 dark:text-gray-300">
+              Waiting on:{' '}
+              {runSummary.open_tasks.map((task) => task.node_name).join(', ')}
+            </p>
+          )}
+
+          {runSummary.steps.length > 0 && (
+            <ol className="flex flex-wrap items-center gap-1 text-xs">
+              {runSummary.steps.map((step, index) => (
+                <li key={step.node_id} className="flex items-center gap-1">
+                  {index > 0 && <span className="text-gray-300 dark:text-gray-600">→</span>}
+                  <span
+                    className={`rounded px-1.5 py-0.5 ${
+                      step.outcome === 'open'
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
+                        : step.outcome === 'waiting'
+                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200'
+                          : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
+                    }`}
+                    title={`${step.node_type} · ${step.outcome}`}
+                  >
+                    {step.node_name}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+
+          <details>
+            <summary className="cursor-pointer text-xs text-gray-500 dark:text-gray-400">
+              Variables + history ({runSummary.events.length} events)
+            </summary>
+            <pre className="mt-2 max-h-40 overflow-auto rounded bg-gray-50 dark:bg-slate-900 p-2 text-[11px] font-mono text-gray-700 dark:text-gray-300">
+              {JSON.stringify(
+                { variables: runSummary.variables, events: runSummary.events },
+                null,
+                2,
+              )}
+            </pre>
+          </details>
         </div>
       )}
 

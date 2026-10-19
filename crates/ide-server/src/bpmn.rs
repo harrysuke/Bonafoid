@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use nocode_bpmn::engine::{BpmnEngine, ValidationIssue};
 use nocode_bpmn::xml::{export_bpmn, parse_bpmn};
+use nocode_ide::bpmn::{run_workflow, RunOptions, RunSummary};
 use nocode_model::Workflow;
 
 use crate::auth::AuthUser;
@@ -51,12 +52,28 @@ pub struct ExportBpmnResponse {
     pub xml: String,
 }
 
+/// Body of `POST /api/v1/bpmn/run`.
+#[derive(Debug, Deserialize)]
+pub struct RunWorkflowRequest {
+    pub workflow: Workflow,
+    /// Initial process variables (a JSON object).
+    #[serde(default)]
+    pub variables: Option<serde_json::Value>,
+    /// Complete user tasks automatically so the instance runs to the end.
+    #[serde(default)]
+    pub auto_complete_tasks: Option<bool>,
+    /// Safety net against loops created by auto-completion.
+    #[serde(default)]
+    pub max_rounds: Option<u32>,
+}
+
 /// The BPMN routes, merged into the main router.
 pub fn bpmn_router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/bpmn/validate", post(validate))
         .route("/api/v1/bpmn/import", post(import))
         .route("/api/v1/bpmn/export", post(export))
+        .route("/api/v1/bpmn/run", post(run))
 }
 
 /// `POST /api/v1/bpmn/validate` — structurally validate a workflow.
@@ -87,4 +104,26 @@ async fn export(
     let xml =
         export_bpmn(&body.workflow).map_err(|error| ApiError::BadRequest(error.to_string()))?;
     Ok(Json(ExportBpmnResponse { xml }))
+}
+
+/// `POST /api/v1/bpmn/run` — execute a workflow with the token engine.
+///
+/// The simulation is opt-in: without `auto_complete_tasks` the instance starts
+/// and parks on its first user task, which is what the IDE's "Run" shows.
+async fn run(
+    _user: AuthUser,
+    Json(body): Json<RunWorkflowRequest>,
+) -> Result<Json<RunSummary>, ApiError> {
+    let workflow_json = serde_json::to_string(&body.workflow)
+        .map_err(|error| ApiError::BadRequest(format!("cannot serialize workflow: {error}")))?;
+    let summary = run_workflow(
+        &workflow_json,
+        body.variables.unwrap_or(serde_json::Value::Null),
+        RunOptions {
+            auto_complete_tasks: body.auto_complete_tasks.unwrap_or(false),
+            max_rounds: body.max_rounds,
+        },
+    )
+    .map_err(ApiError::BadRequest)?;
+    Ok(Json(summary))
 }

@@ -209,4 +209,105 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
+
+    /// Start -> user task -> gateway -> end, used by the `/bpmn/run` test.
+    const RUN_WORKFLOW: &str = r#"{
+      "id": "55555555-5555-4555-8555-555555555555",
+      "name": "Approval",
+      "version": "1.0.0",
+      "variables": [], "signals": [], "timers": [],
+      "nodes": [
+        {"id":"66666666-6666-4666-8666-666666666666","name":"Start","node_type":{"type":"StartEvent","config":{"event_type":"none"}},"position":{"x":0.0,"y":0.0},"config":{"boundary_events":[],"execution_listeners":[],"inputs":{},"outputs":{},"properties":{}}},
+        {"id":"77777777-7777-4777-8777-777777777777","name":"Review","node_type":{"type":"UserTask","config":{"assignee":null,"candidate_groups":[],"due_date":null,"form_id":null}},"position":{"x":1.0,"y":0.0},"config":{"boundary_events":[],"execution_listeners":[],"inputs":{},"outputs":{},"properties":{}}},
+        {"id":"88888888-8888-4888-8888-888888888888","name":"End","node_type":{"type":"EndEvent","config":{"event_type":"none"}},"position":{"x":2.0,"y":0.0},"config":{"boundary_events":[],"execution_listeners":[],"inputs":{},"outputs":{},"properties":{}}}
+      ],
+      "edges": [
+        {"id":"e1000000-0000-4000-8000-000000000001","source":"66666666-6666-4666-8666-666666666666","target":"77777777-7777-4777-8777-777777777777","style":{"animated":false}},
+        {"id":"e1000000-0000-4000-8000-000000000002","source":"77777777-7777-4777-8777-777777777777","target":"88888888-8888-4888-8888-888888888888","style":{"animated":false}}
+      ],
+      "settings": {"async_continuations":false,"exclusive_gateway_default":true,"history_level":"full","is_executable":true,"variables_serialization":"json"},
+      "created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"
+    }"#;
+
+    fn bearer() -> String {
+        let claims = crate::auth::jwt::Claims::access(
+            "user-1",
+            "run@example.com",
+            "jti",
+            crate::auth::jwt::now_secs(),
+        );
+        format!("Bearer {}", test_keys().encode(&claims).unwrap())
+    }
+
+    #[tokio::test]
+    async fn bpmn_run_parks_on_the_first_user_task() {
+        let body = serde_json::json!({
+            "workflow": serde_json::from_str::<serde_json::Value>(RUN_WORKFLOW).unwrap(),
+            "variables": { "amount": 10 },
+        });
+        let response = test_router()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/bpmn/run")
+                    .header("authorization", bearer())
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let summary: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(summary["completed"], serde_json::json!(false));
+        assert_eq!(summary["status"], serde_json::json!("running"));
+        assert_eq!(summary["open_tasks"][0]["node_name"], serde_json::json!("Review"));
+        assert_eq!(summary["variables"]["amount"], serde_json::json!(10));
+    }
+
+    #[tokio::test]
+    async fn bpmn_run_requires_authentication() {
+        let response = test_router()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/bpmn/run")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn bpmn_run_rejects_non_object_variables() {
+        let body = serde_json::json!({
+            "workflow": serde_json::from_str::<serde_json::Value>(RUN_WORKFLOW).unwrap(),
+            "variables": "nope",
+        });
+        let response = test_router()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/bpmn/run")
+                    .header("authorization", bearer())
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
 }

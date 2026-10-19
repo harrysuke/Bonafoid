@@ -24,6 +24,10 @@ export type {
   PreviewBuildTarget,
   PreviewRun,
   PreviewCapabilities,
+  WorkflowRunSummary,
+  WorkflowRunStep,
+  WorkflowOpenTask,
+  WorkflowRunEvent,
 } from './platform/types';
 
 export { useProjectStore, type FieldPatch, type RelationPatch } from './stores/projectStore';
