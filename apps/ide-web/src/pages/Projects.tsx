@@ -62,7 +62,9 @@ export function Projects() {
   const removeProject = async (id: string) => {
     setBusyId(id);
     try {
-      await projectsApi.remove(id);
+      // Through the platform adapter, not projectsApi directly: it also clears
+      // the working copy when the deleted project is the one currently open.
+      await getPlatform().deleteProject?.(id);
       await refresh();
     } catch (caught) {
       setError(caught instanceof ApiRequestError ? caught.message : 'Could not delete the project.');

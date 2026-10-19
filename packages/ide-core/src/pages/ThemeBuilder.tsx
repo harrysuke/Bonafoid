@@ -43,6 +43,7 @@ export function ThemeBuilder() {
   const updateThemeMeta = useProjectStore((s) => s.updateThemeMeta);
   const setActiveTheme = useProjectStore((s) => s.setActiveTheme);
   const setThemeColor = useProjectStore((s) => s.setThemeColor);
+  const setThemeShade = useProjectStore((s) => s.setThemeShade);
   const setThemeFontFamily = useProjectStore((s) => s.setThemeFontFamily);
   const setThemeFontSize = useProjectStore((s) => s.setThemeFontSize);
 
@@ -202,18 +203,31 @@ export function ThemeBuilder() {
                       </div>
                       <div className="grid grid-cols-10 gap-2">
                         {COLOR_SHADES.map((shade) => (
-                          <div
+                          <label
                             key={shade}
                             title={`${role} ${shade}: ${shadeOf(tokens, role, shade)}`}
-                            className="aspect-square rounded-lg border border-gray-200 dark:border-slate-700"
+                            className="relative aspect-square rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden cursor-pointer"
                             style={{ backgroundColor: shadeOf(tokens, role, shade) }}
                           >
-                            <div className="flex h-full items-end justify-center pb-1 text-[10px] text-white/90">
+                            <input
+                              type="color"
+                              aria-label={`${role} ${shade}`}
+                              value={normalizeHex(shadeOf(tokens, role, shade))}
+                              onChange={(e) =>
+                                setThemeShade(selected.id, role as ColorRole, shade, e.target.value)
+                              }
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            />
+                            <span className="absolute inset-x-0 bottom-1 text-center text-[10px] text-white/90 pointer-events-none">
                               {shade}
-                            </div>
-                          </div>
+                            </span>
+                          </label>
                         ))}
                       </div>
+                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        Changing the base regenerates the scale; click a swatch to
+                        override one shade.
+                      </p>
                     </Card>
                   ))}
 

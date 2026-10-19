@@ -31,7 +31,13 @@ import type {
 } from '../types/project';
 import { newListPage } from '../utils/listModel';
 import type { ListPageKind } from '../utils/listModel';
-import { newPage, newPageAction, newPageComponent, pagePathFromName } from '../utils/pageModel';
+import {
+  canAddComponent,
+  newPage,
+  newPageAction,
+  newPageComponent,
+  pagePathFromName,
+} from '../utils/pageModel';
 import type { PageMetaPatch, PageComponentPatch } from '../utils/pageModel';
 import {
   newTheme,
@@ -206,6 +212,7 @@ interface ProjectState {
   runPreview: () => Promise<void>;
   stopPreview: () => Promise<void>;
   loadPreviewCapabilities: () => Promise<void>;
+  refreshPreviewBuilds: () => Promise<void>;
 }
 
 function parse(json: string): Project {
@@ -897,6 +904,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     addPageComponent: (pageId, type) => {
       const page = readPage(pageId);
       if (!page) return '';
+      // Overlays and repeating templates are not builder-addable; refuse
+      // rather than substituting a different component.
+      if (!canAddComponent(type)) return '';
       const component = newPageComponent(type);
       applyPage(pageId, {
         ...page,
@@ -1360,6 +1370,19 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         set({ previewCapabilities: await platform.previewCapabilities() });
       } catch {
         // Capability probing is advisory; ignore transport failures.
+      }
+    },
+
+    // The build list currently only holds builds started in this session, so
+    // reloading the IDE loses the history. Pull the server's list when it
+    // exposes one.
+    refreshPreviewBuilds: async () => {
+      const platform = getPlatform();
+      if (!platform.previewBuilds) return;
+      try {
+        set({ previewBuilds: await platform.previewBuilds() });
+      } catch {
+        // History is advisory; a failure here must not break the panel.
       }
     },
 

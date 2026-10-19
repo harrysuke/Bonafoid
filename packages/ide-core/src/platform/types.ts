@@ -229,9 +229,6 @@ export interface PlatformApi {
   /** Stop a running preview backend. */
   previewStop?(buildId: string): Promise<void>;
 
-  /** Running previews owned by the caller. */
-  previewRuns?(): Promise<PreviewRun[]>;
-
   /** Public URL of a ready build's frontend (iframe source). */
   previewUrl?(buildId: string): string;
 

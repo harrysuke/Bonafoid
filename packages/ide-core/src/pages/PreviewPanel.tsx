@@ -63,6 +63,7 @@ export function PreviewPanel() {
   const runPreview = useProjectStore((s) => s.runPreview);
   const stopPreview = useProjectStore((s) => s.stopPreview);
   const loadPreviewCapabilities = useProjectStore((s) => s.loadPreviewCapabilities);
+  const refreshPreviewBuilds = useProjectStore((s) => s.refreshPreviewBuilds);
 
   const [target, setTarget] = useState<PreviewBuildTarget>('all');
   const [showLogs, setShowLogs] = useState(true);
@@ -73,7 +74,8 @@ export function PreviewPanel() {
 
   useEffect(() => {
     void loadPreviewCapabilities();
-  }, [loadPreviewCapabilities]);
+    void refreshPreviewBuilds();
+  }, [loadPreviewCapabilities, refreshPreviewBuilds]);
 
   // Poll while a build is in flight; the store stops when state is terminal.
   useEffect(() => {

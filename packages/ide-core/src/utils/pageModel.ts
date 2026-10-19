@@ -96,6 +96,7 @@ export const PALETTE: PaletteItem[] = [
   { type: 'Loading', category: 'feedback', label: 'Loading' },
   { type: 'Skeleton', category: 'feedback', label: 'Skeleton' },
   { type: 'Spin', category: 'feedback', label: 'Spin' },
+  { type: 'QRCode', category: 'feedback', label: 'QR code' },
   // Navigation
   { type: 'Link', category: 'navigation', label: 'Link' },
   { type: 'Breadcrumb', category: 'navigation', label: 'Breadcrumb' },
@@ -339,8 +340,15 @@ export function buildComponentType(type: ComponentType['type']): ComponentType {
     case 'Custom':
       return { type, config: { component_name: '', props: {} } };
     default:
-      // Overlays and templates are not palette-droppable.
-      return { type: 'Container', config: { children: [] } };
+      // Overlays (Modal/Drawer/Tooltip/Popover/Dropdown) and repeating
+      // templates (List) are deliberately not palette-droppable: they need a
+      // live trigger component or a record template the builder does not have
+      // yet. Returning a silent Container here would let a hand-edited config
+      // produce a page with a dangling trigger id, so this throws instead.
+      throw new Error(
+        `${String(type)} cannot be added from the page builder: it needs a live ` +
+          'trigger component or a record template. Use the List builder for List.',
+      );
   }
 }
 
@@ -355,6 +363,11 @@ export function newPageComponent(type: ComponentType['type']): PageComponent {
     events: [],
     style_overrides: {},
   };
+}
+
+/** True when the page builder can create this component type. */
+export function canAddComponent(type: ComponentType['type']): boolean {
+  return PALETTE.some((item) => item.type === type);
 }
 
 export function newPageComponentWithId(type: ComponentType['type'], id: string): PageComponent {

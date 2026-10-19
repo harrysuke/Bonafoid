@@ -9,6 +9,7 @@ import {
 import { getPlatform } from '../platform/registry';
 import { useUIStore } from '../stores/uiStore';
 import { useProjectStore } from '../stores/projectStore';
+import { Toaster } from './Toaster';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
@@ -296,6 +297,8 @@ export function Layout() {
           <Outlet />
         </main>
       </div>
+
+      <Toaster />
     </div>
   );
 }

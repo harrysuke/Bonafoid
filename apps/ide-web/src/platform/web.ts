@@ -213,10 +213,6 @@ export const webPlatform: PlatformApi = {
     await previewApi.stop(buildId);
   },
 
-  async previewRuns() {
-    return previewApi.runs();
-  },
-
   previewUrl(buildId: string): string {
     return previewUrl(buildId);
   },
