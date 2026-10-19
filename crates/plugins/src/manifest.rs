@@ -71,7 +71,7 @@ fn default_entry_point() -> String {
 }
 
 /// Optional overrides for the sandbox limits applied when running a plugin.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 pub struct PluginResources {
     /// Instruction budget (fuel). `None` uses the host default.
     #[serde(default)]
@@ -79,15 +79,6 @@ pub struct PluginResources {
     /// Maximum linear memory in mebibytes.
     #[serde(default)]
     pub memory_mb: Option<u32>,
-}
-
-impl Default for PluginResources {
-    fn default() -> Self {
-        Self {
-            fuel: None,
-            memory_mb: None,
-        }
-    }
 }
 
 impl PluginManifest {

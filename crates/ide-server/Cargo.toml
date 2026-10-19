@@ -21,8 +21,13 @@ anyhow = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 async-trait = { workspace = true }
-sqlx = { workspace = true }
 sea-orm = { workspace = true }
+# Not referenced by name anywhere in this crate, but required: SeaORM's
+# `sqlx-*` driver features do not select an async runtime, so without this the
+# pooled driver panics at runtime with "either the `runtime-async-std` or
+# `runtime-tokio` feature must be enabled". The drivers themselves come from
+# SeaORM's features.
+sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio"] }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

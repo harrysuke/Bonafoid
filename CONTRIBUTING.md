@@ -54,14 +54,11 @@ cargo test --workspace --lib
   - `plugins` — plugin runtime and manifests
   - `bpmn` — BPMN token engine, expression evaluator, BPMN-XML import/export
   - `ide` — shared IDE services (extracted from Tauri commands)
-  - `runtime` — runtime server used by generated applications
 - `apps/`
   - `ide-tauri` — desktop IDE (Tauri v2 shell + React frontend)
-  - `ide-native` — native (egui) IDE runner
-  - `generated-app` — template crate for generated backends
-  - `ide-web` — web IDE (server-backed; planned)
+  - `ide-web` — web IDE (server-backed)
 - `packages/`
-  - `ide-core` — shared UI/logic shared between desktop and web (planned)
+  - `ide-core` — shared UI/logic shared between desktop and web
 - `xtask/` — developer CLI (`new`, `generate`)
 - `docs/` — specification, architecture, data models, and wireframes
 

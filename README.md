@@ -16,11 +16,10 @@ crates/
   plugins/    wasmtime-based plugin host
   bpmn/       BPMN 2.0 engine (+ optional NAPI bridge)
   ide/        egui IDE core (state, commands, backend, app shell)
-  runtime/    Serving runtime for generated applications
+  ide-server/ Web IDE server (Axum + SeaORM): auth, projects, BPMN, previews
 apps/
-  ide-tauri/  React + Tauri v2 desktop IDE
-  ide-native/ Native egui IDE runner (eframe)
-  generated-app/ Example generated application (Axum server)
+  ide-web/    Browser IDE (React + Vite, served by ide-server)
+  ide-tauri/  Desktop IDE (React + Tauri v2)
 xtask/        Build / code-generation CLI
 ```
 
@@ -86,21 +85,16 @@ npm run tauri:dev
 `npm run dev` alone starts just the Vite web frontend on http://localhost:1420.
 `npm run tauri:build` produces a bundled desktop binary.
 
-## Run the native egui IDE
+## Run the web IDE server
 
 ```powershell
-cargo run --manifest-path apps/ide-native/Cargo.toml
+npm run build:web
+cargo run -p nocode-ide-server
+# then open http://127.0.0.1:8081
 ```
 
-## Run the generated-app runtime server
-
-```powershell
-cargo run -p nocode-generated-app
-# then
-curl http://localhost:8080/health
-```
-
-The port can be overridden with the `PORT` environment variable.
+The server hosts the IDE at `/` and the hosted preview/proxy under
+`/preview/{buildId}`. See the completion plan for the full quickstart.
 
 ## Run a generated application (backend + Leptos frontend)
 

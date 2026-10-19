@@ -40,3 +40,7 @@ preview-workspaces/
 
 # Generated test artifacts
 /gen-out/
+
+# Stray build/diagnostic output
+*.log
+jwt_keys/

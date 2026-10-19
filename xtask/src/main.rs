@@ -60,7 +60,7 @@ enum Commands {
     
     /// Build the frontend for web deployment
     BuildWeb {
-        #[arg(short, long, default_value = "./apps/generated-app/frontend")]
+        #[arg(short, long, default_value = "./generated/frontend")]
         frontend_dir: PathBuf,
     },
 

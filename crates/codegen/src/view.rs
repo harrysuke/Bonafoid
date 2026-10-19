@@ -833,7 +833,6 @@ pub fn theme_view(project: &Project) -> Value {
         "background": tokens.colors.background,
         "text": tokens.colors.text,
         "border": tokens.colors.border,
-        "action": tokens.colors.action,
         "fonts": Value::Object(fonts),
         "font_sizes": tokens.typography.font_sizes,
         "radii": tokens.borders.radii,
@@ -845,7 +844,6 @@ pub fn theme_view(project: &Project) -> Value {
         },
         "breakpoints": tokens.breakpoints,
         "spacing": Value::Object(spacing),
-        "spacing_base": tokens.spacing.base,
         "css_vars": css_vars,
         "fonts_css": {
             "sans": families.sans,

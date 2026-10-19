@@ -57,22 +57,14 @@ pub struct RunRecord {
 /// Configuration for the run manager.
 #[derive(Debug, Clone)]
 pub struct RunConfig {
-    /// First port tried; subsequent runs scan upwards and wrap.
-    pub base_port: u16,
     /// Hard cap on concurrently running previews.
     pub max_runs: usize,
     /// Stop a preview after this long without traffic.
     pub idle_timeout: Duration,
-    /// How long to wait for the spawned app to open its port.
-    pub startup_timeout: Duration,
 }
 
 impl RunConfig {
     pub fn from_env() -> Self {
-        let base_port = std::env::var("IDE_PREVIEW_PORT_BASE")
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(8100);
         let max_runs = std::env::var("IDE_PREVIEW_MAX_RUNS")
             .ok()
             .and_then(|value| value.parse().ok())
@@ -81,15 +73,9 @@ impl RunConfig {
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(900);
-        let startup_secs = std::env::var("IDE_PREVIEW_STARTUP_SECS")
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(30);
         Self {
-            base_port,
             max_runs: max_runs.max(1),
             idle_timeout: Duration::from_secs(idle_secs),
-            startup_timeout: Duration::from_secs(startup_secs),
         }
     }
 }
@@ -426,10 +412,8 @@ mod tests {
 
     fn manager() -> Arc<RunManager> {
         Arc::new(RunManager::new(RunConfig {
-            base_port: 0,
             max_runs: 2,
             idle_timeout: Duration::from_secs(60),
-            startup_timeout: Duration::from_secs(2),
         }))
     }
 
@@ -535,11 +519,9 @@ mod tests {
     #[tokio::test]
     async fn idle_previews_are_reaped() {
         let manager = Arc::new(RunManager::new(RunConfig {
-            base_port: 0,
             max_runs: 4,
             // Zero means "already idle".
             idle_timeout: Duration::from_secs(0),
-            startup_timeout: Duration::from_secs(2),
         }));
         let (program, args) = sleeper();
         let _ = manager

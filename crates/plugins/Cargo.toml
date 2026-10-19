@@ -13,6 +13,5 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 indexmap = { workspace = true }
 wasmtime = { workspace = true }
-wit-bindgen = { workspace = true }
 toml = "0.8"
 tokio = { workspace = true }

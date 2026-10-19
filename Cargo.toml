@@ -6,11 +6,9 @@ members = [
     "crates/codegen",
     "crates/plugins",
     "crates/bpmn",
-    "crates/runtime",
     "crates/ide-server",
-    "apps/generated-app",
 ]
-exclude = ["xtask", "apps/ide-tauri", "apps/ide-native"]
+exclude = ["xtask", "apps/ide-tauri"]
 
 [workspace.dependencies]
 # Core
@@ -42,7 +40,6 @@ tauri_plugin_shell = "2.0"
 
 # Web/Backend
 axum = { version = "0.7", features = ["ws", "json", "multipart", "form"] }
-sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "sqlite", "mysql", "chrono", "uuid", "migrate"] }
 sea-orm = { version = "0.12", features = ["sqlx-postgres", "sqlx-sqlite", "sqlx-mysql", "chrono", "uuid", "macros"] }
 utoipa = { version = "4.0", features = ["axum_extras", "chrono", "uuid"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "fs", "add-extension"] }
@@ -55,15 +52,10 @@ leptos_router = { version = "0.7", features = ["axum"] }
 leptos_use = "0.7"
 
 # Codegen
-quote = "1.0"
-syn = { version = "2.0", features = ["full", "extra-traits"] }
-proc-macro2 = "1.0"
 handlebars = "5.0"
-prettyplease = "0.2"
 
 # Plugins
 wasmtime = { version = "20.0", features = ["component-model", "async"] }
-wit-bindgen = { version = "0.35", features = [] }
 
 # BPMN
 napi = { version = "2.0", features = ["napi6"] }

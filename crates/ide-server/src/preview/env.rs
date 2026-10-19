@@ -92,6 +92,7 @@ pub fn isolate(command: &mut Command) -> &mut Command {
 ///
 /// `cmd.exe` defines `PROMPT` internally (`$P$G`), which is why it shows up in
 /// `cmd /C set` on Windows.
+#[cfg(test)]
 const SYNTHESIZED_BY_CHILD: &[&str] = &["PROMPT"];
 
 #[cfg(test)]
