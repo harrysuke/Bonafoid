@@ -108,6 +108,23 @@ pub struct RunManager {
     shutting_down: AtomicBool,
 }
 
+/// Everything [`RunManager::start`] needs to spawn a preview backend.
+///
+/// A struct rather than eight positional arguments: `build_id`, `user_id`
+/// and `project_id` are all `&str` and easy to transpose. `program`/`args`
+/// are separate so tests can spawn a trivial long-lived process instead of a
+/// real generated binary.
+pub struct RunRequest<'a> {
+    pub build_id: &'a str,
+    pub user_id: &'a str,
+    pub project_id: &'a str,
+    pub program: PathBuf,
+    pub args: &'a [String],
+    pub working_dir: PathBuf,
+    /// Added on top of the inherited allowlist (see [`crate::preview::env`]).
+    pub env: Vec<(String, String)>,
+}
+
 impl RunManager {
     pub fn new(config: RunConfig) -> Self {
         Self {
@@ -142,7 +159,7 @@ impl RunManager {
             .filter(|record| record.user_id == user_id)
             .cloned()
             .collect();
-        list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        list.sort_by_key(|record| std::cmp::Reverse(record.started_at));
         list
     }
 
@@ -178,22 +195,20 @@ impl RunManager {
             .is_ok()
     }
 
-    /// Start the generated backend for `build_id`.
+    /// Start the generated backend described by `request`.
     ///
-    /// `program`/`args` are passed separately so tests can spawn a trivial
-    /// long-lived process instead of a real generated binary. Returns the
-    /// record in `Starting` state; call [`RunManager::refresh`] to learn
-    /// whether it came up.
-    pub async fn start(
-        self: &Arc<Self>,
-        build_id: &str,
-        user_id: &str,
-        project_id: &str,
-        program: PathBuf,
-        args: &[String],
-        working_dir: PathBuf,
-        env: Vec<(String, String)>,
-    ) -> Result<RunRecord, String> {
+    /// Returns the record in `Starting` state; call [`RunManager::refresh`] to
+    /// learn whether it came up.
+    pub async fn start(self: &Arc<Self>, request: RunRequest<'_>) -> Result<RunRecord, String> {
+        let RunRequest {
+            build_id,
+            user_id,
+            project_id,
+            program,
+            args,
+            working_dir,
+            env,
+        } = request;
         if self.shutting_down.load(Ordering::SeqCst) {
             return Err("server is shutting down".into());
         }
@@ -226,6 +241,9 @@ impl RunManager {
             .ok_or_else(|| "no free TCP port available".to_string())?;
 
         let mut command = Command::new(&program);
+        // The child runs generated code: give it a cleared environment, never
+        // the IDE server's own (which holds DATABASE_URL, JWT_KEYS_DIR, ...).
+        crate::preview::env::isolate(&mut command);
         command
             .args(args)
             .current_dir(&working_dir)
@@ -429,17 +447,17 @@ mod tests {
 
         // An explicit path gets the friendly pre-check.
         let error = manager
-            .start(
-                "b1",
-                "u1",
-                "p1",
-                std::env::current_dir()
+            .start(RunRequest {
+                build_id: "b1",
+                user_id: "u1",
+                project_id: "p1",
+                program: std::env::current_dir()
                     .unwrap()
                     .join("definitely-missing-binary"),
-                &[],
-                std::env::temp_dir(),
-                Vec::new(),
-            )
+                args: &[],
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
             .await
             .expect_err("missing binary must fail");
         assert!(error.contains("does not exist"), "unexpected: {error}");
@@ -447,15 +465,15 @@ mod tests {
 
         // A bare name is resolved through PATH, so the spawn error surfaces.
         let error = manager
-            .start(
-                "b1b",
-                "u1",
-                "p1",
-                PathBuf::from("definitely-missing-binary"),
-                &[],
-                std::env::temp_dir(),
-                Vec::new(),
-            )
+            .start(RunRequest {
+                build_id: "b1b",
+                user_id: "u1",
+                project_id: "p1",
+                program: PathBuf::from("definitely-missing-binary"),
+                args: &[],
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
             .await
             .expect_err("missing binary must fail");
         assert!(
@@ -470,15 +488,15 @@ mod tests {
         let manager = manager();
         let (program, args) = sleeper();
         let record = manager
-            .start(
-                "b2",
-                "u1",
-                "p1",
-                program,
-                &args,
-                std::env::temp_dir(),
-                Vec::new(),
-            )
+            .start(RunRequest {
+                build_id: "b2",
+                user_id: "u1",
+                project_id: "p1",
+                program: program.clone(),
+                args: &args,
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
             .await
             .expect("start");
         assert!(matches!(record.status, RunStatus::Starting));
@@ -498,15 +516,15 @@ mod tests {
         let manager = manager();
         let (program, args) = sleeper();
         let _ = manager
-            .start(
-                "b3",
-                "u1",
-                "p1",
-                program,
-                &args,
-                std::env::temp_dir(),
-                Vec::new(),
-            )
+            .start(RunRequest {
+                build_id: "b3",
+                user_id: "u1",
+                project_id: "p1",
+                program: program.clone(),
+                args: &args,
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
             .await;
         manager.touch("b3");
         manager.touch("b3");
@@ -525,15 +543,15 @@ mod tests {
         }));
         let (program, args) = sleeper();
         let _ = manager
-            .start(
-                "b4",
-                "u1",
-                "p1",
-                program,
-                &args,
-                std::env::temp_dir(),
-                Vec::new(),
-            )
+            .start(RunRequest {
+                build_id: "b4",
+                user_id: "u1",
+                project_id: "p1",
+                program: program.clone(),
+                args: &args,
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
             .await;
         let reaped = manager.reap_idle().await;
         assert_eq!(reaped, vec!["b4".to_string()]);

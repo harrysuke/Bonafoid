@@ -138,14 +138,19 @@ async fn drive(
         manager.advance(&build_id, BuildState::BuildingBackend);
         manager.append_logs(&build_id, vec!["building backend (cargo build)…".into()]);
         let manifest = record.workspace.join("backend").join("Cargo.toml");
+        // cargo runs the generated crate's build scripts, which is arbitrary
+        // code: isolate it from the server environment like a preview run.
+        let mut cargo = Command::new("cargo");
+        crate::preview::env::isolate(&mut cargo);
+        cargo
+            .arg("build")
+            .arg("--manifest-path")
+            .arg(&manifest)
+            .env("CARGO_TARGET_DIR", &config.cargo_target_dir);
         run_command(
             Arc::clone(&manager),
             &build_id,
-            Command::new("cargo")
-                .arg("build")
-                .arg("--manifest-path")
-                .arg(&manifest)
-                .env("CARGO_TARGET_DIR", &config.cargo_target_dir),
+            &mut cargo,
             record.workspace.join("backend"),
         )
         .await?;
@@ -179,6 +184,7 @@ async fn drive(
         manager.advance(&build_id, BuildState::BuildingFrontend);
         manager.append_logs(&build_id, vec!["building frontend (trunk build)…".into()]);
         let mut trunk = Command::new("trunk");
+        crate::preview::env::isolate(&mut trunk);
         trunk
             .arg("build")
             .arg("--release")
@@ -330,6 +336,7 @@ mod tests {
             max_parallel: 1,
             cargo_target_dir: std::env::temp_dir().join("nocode-preview-worker-target"),
             trunk_offline: false,
+            preview_database_url: None,
         }))
     }
 

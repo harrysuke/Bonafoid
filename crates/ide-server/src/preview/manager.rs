@@ -157,8 +157,14 @@ pub struct PreviewConfig {
     pub max_parallel: usize,
     /// Shared cargo target directory; keeps rebuilds fast.
     pub cargo_target_dir: PathBuf,
-    /// Pass 	runk build --offline (hosts without internet).
+    /// Pass trunk's --offline flag (hosts without internet).
     pub trunk_offline: bool,
+    /// `DATABASE_URL` handed to preview backends of non-SQLite projects.
+    ///
+    /// Never defaults to the project's own connection string: a preview runs
+    /// generated code, and that code must not be able to read or destroy
+    /// production data. Empty means "non-SQLite previews are refused".
+    pub preview_database_url: Option<String>,
 }
 
 impl PreviewConfig {
@@ -208,6 +214,10 @@ impl PreviewConfig {
                 )
             })
             .unwrap_or(false);
+        let preview_database_url = std::env::var("IDE_PREVIEW_DATABASE_URL")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         Self {
             root,
             api_base,
@@ -215,6 +225,7 @@ impl PreviewConfig {
             max_parallel: max_parallel.max(1),
             cargo_target_dir,
             trunk_offline,
+            preview_database_url,
         }
         .absolutize()
     }
@@ -291,7 +302,7 @@ impl BuildManager {
             .filter(|record| record.user_id == user_id)
             .cloned()
             .collect();
-        records.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        records.sort_by_key(|record| std::cmp::Reverse(record.created_at));
         records
     }
 
@@ -366,6 +377,7 @@ mod tests {
             max_parallel: 2,
             cargo_target_dir,
             trunk_offline: false,
+            preview_database_url: None,
         })
     }
 
@@ -447,6 +459,7 @@ mod tests {
             max_parallel: 1,
             cargo_target_dir: cwd.join("target-cache"),
             trunk_offline: false,
+            preview_database_url: None,
         };
         assert_eq!(already_absolute.absolutize().root, cwd);
 
@@ -457,6 +470,7 @@ mod tests {
             max_parallel: 1,
             cargo_target_dir: PathBuf::from("preview-workspaces/.cargo-target"),
             trunk_offline: false,
+            preview_database_url: None,
         }
         .absolutize();
         assert!(relative.root.is_absolute());

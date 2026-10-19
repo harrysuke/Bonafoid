@@ -33,6 +33,7 @@
 //! - `ALL /preview/{build_id}/api/*`             -> proxy to the running backend
 
 pub mod build;
+pub mod env;
 pub mod manager;
 pub mod runs;
 pub mod serve;
@@ -213,38 +214,87 @@ async fn start_run(
     })?;
 
     // The generated backend is compiled for the project's driver, so the run
-    // must speak the same one. SQLite previews get a throwaway database inside
-    // the build workspace; other drivers need the project's configured URL.
+    // must speak the same one. The preview's own credentials are used, never
+    // the project's: a preview executes generated code, and that code must not
+    // reach the production database.
     let project = require_project(&state.db, &user.id, &build.project_id).await?;
-    let database_url = match project.settings.database.driver {
-        nocode_model::DatabaseDriver::SQLite => "sqlite://preview.db?mode=rwc".to_string(),
-        _ => project.settings.database.url.trim().to_string(),
-    };
-    if database_url.is_empty() {
-        return Err(ApiError::Conflict(
-            "this project needs a database URL before it can run (Project Settings)".into(),
-        ));
-    }
+    let database_url = preview_database_url(
+        &project.settings.database.driver,
+        &project.settings.database.url,
+        state.preview.config().preview_database_url.as_deref(),
+    )
+    .map_err(ApiError::Conflict)?;
 
     let record = state
         .runs
-        .start(
-            &id,
-            &user.id,
-            &build.project_id,
-            binary,
-            &[],
-            build.workspace.clone(),
-            vec![
+        .start(runs::RunRequest {
+            build_id: &id,
+            user_id: &user.id,
+            project_id: &build.project_id,
+            program: binary,
+            args: &[],
+            working_dir: build.workspace.clone(),
+            env: vec![
                 ("DATABASE_URL".to_string(), database_url),
                 ("NOCODE_PREVIEW_BUILD".to_string(), id.clone()),
             ],
-        )
+        })
         .await
         .map_err(ApiError::Conflict)?;
 
     tracing::info!(build_id = %id, port = record.port, "preview backend starting");
     Ok(Json(record))
+}
+
+/// Human-readable driver name for error messages.
+fn driver_label(driver: &nocode_model::DatabaseDriver) -> &'static str {
+    match driver {
+        nocode_model::DatabaseDriver::Postgres => "PostgreSQL",
+        nocode_model::DatabaseDriver::MySQL => "MySQL",
+        nocode_model::DatabaseDriver::SQLite => "SQLite",
+        _ => "non-SQLite",
+    }
+}
+
+/// Database URL handed to a preview backend of `driver`.
+///
+/// SQLite previews get a throwaway database inside the build workspace, so they
+/// need no configuration. Every other driver requires an operator-provided
+/// `IDE_PREVIEW_DATABASE_URL`.
+///
+/// The project's own `project_url` is deliberately **not** a fallback: a preview
+/// runs generated code, and that code must never be handed production
+/// credentials. Pointing the preview database at the project's own database is
+/// refused too — for a preview, that is a configuration mistake with the worst
+/// possible consequence.
+fn preview_database_url(
+    driver: &nocode_model::DatabaseDriver,
+    project_url: &str,
+    configured: Option<&str>,
+) -> Result<String, String> {
+    if matches!(driver, nocode_model::DatabaseDriver::SQLite) {
+        return Ok("sqlite://preview.db?mode=rwc".to_string());
+    }
+
+    let Some(configured) = configured.map(str::trim).filter(|url| !url.is_empty()) else {
+        return Err(format!(
+            "previews for {} projects are disabled on this server: set \
+             IDE_PREVIEW_DATABASE_URL to a throwaway database. The project's own \
+             connection string is never handed to generated code.",
+            driver_label(driver)
+        ));
+    };
+
+    let project_url = project_url.trim();
+    if !project_url.is_empty() && configured == project_url {
+        return Err(
+            "IDE_PREVIEW_DATABASE_URL points at this project's own database. Previews run \
+             generated code, so they need a separate throwaway database."
+                .to_string(),
+        );
+    }
+
+    Ok(configured.to_string())
 }
 
 /// `POST /api/v1/builds/:id/stop` — stop the running backend and free its port.
@@ -295,9 +345,51 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
+    use nocode_model::DatabaseDriver;
     use std::sync::{Arc, OnceLock};
     use std::time::Duration;
     use tower::ServiceExt;
+
+    #[test]
+    fn sqlite_previews_get_a_throwaway_database() {
+        let url = preview_database_url(
+            &DatabaseDriver::SQLite,
+            "postgres://user:pw@prod.example/db",
+            None,
+        )
+        .expect("sqlite previews need no configuration");
+        assert_eq!(url, "sqlite://preview.db?mode=rwc");
+    }
+
+    #[test]
+    fn non_sqlite_previews_are_refused_without_an_explicit_database() {
+        let error = preview_database_url(
+            &DatabaseDriver::Postgres,
+            "postgres://user:pw@prod.example/db",
+            None,
+        )
+        .expect_err("production credentials must not reach generated code");
+        assert!(error.contains("IDE_PREVIEW_DATABASE_URL"), "{error}");
+    }
+
+    #[test]
+    fn non_sqlite_previews_use_the_configured_database() {
+        let url = preview_database_url(
+            &DatabaseDriver::Postgres,
+            "postgres://user:pw@prod.example/db",
+            Some("postgres://preview:pw@localhost:5432/preview"),
+        )
+        .expect("configured preview database is used");
+        assert_eq!(url, "postgres://preview:pw@localhost:5432/preview");
+    }
+
+    #[test]
+    fn a_preview_pointing_at_the_project_database_is_refused() {
+        let shared = "postgres://user:pw@prod.example/db";
+        let error = preview_database_url(&DatabaseDriver::Postgres, shared, Some(shared))
+            .expect_err("a preview must never run against the project's own database");
+        assert!(error.contains("throwaway"), "{error}");
+    }
 
     async fn test_router() -> Router {
         static KEYS: OnceLock<Arc<crate::auth::JwtKeys>> = OnceLock::new();
@@ -318,6 +410,7 @@ mod tests {
                 max_parallel: 1,
                 cargo_target_dir: std::env::temp_dir().join("nocode-preview-routes-target"),
                 trunk_offline: false,
+                preview_database_url: None,
             },
         );
         crate::server::build_router(state, "apps/ide-web/dist")
