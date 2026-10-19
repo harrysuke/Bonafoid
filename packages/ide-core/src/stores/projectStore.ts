@@ -529,7 +529,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     removeEntity: (id) => {
       const current = get().project;
-      if (!current) return;
+      // Guard like the other removals: without this, deleting an unknown id
+      // still commits, which marks the project dirty and triggers an autosave.
+      if (!current || !current.entities[id]) return;
       const entities: Record<EntityId, Entity> = {};
       for (const [key, entity] of Object.entries(current.entities)) {
         if (key === id) continue;

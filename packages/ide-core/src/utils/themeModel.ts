@@ -135,12 +135,22 @@ export function mixColor(hex: string, ratio: number): string {
  */
 export function buildColorScale(base: string): Record<string, string> {
   const scale: Record<string, string> = {};
-  COLOR_SHADES.forEach((shade) => {
-    // 500 is the base; each step away moves toward white (light shades) or
-    // black (dark shades), which keeps contrast roughly even across a ramp.
-    const distance = (500 - shade) / 100;
-    scale[String(shade)] = distance === 0 ? base : mixColor(base, distance * 0.55);
-  });
+  // Spread the mix across the whole range so no step saturates. Mixing by
+  // "steps away from 500" pushed 50/100/200 past white, which gave three
+  // identical shades at the light end of the ramp.
+  const lightest = COLOR_SHADES[0];
+  const darkest = COLOR_SHADES[COLOR_SHADES.length - 1];
+  for (const shade of COLOR_SHADES) {
+    if (shade === 500) {
+      scale[String(shade)] = base;
+    } else if (shade < 500) {
+      const towardWhite = ((500 - shade) / (500 - lightest)) * 0.9;
+      scale[String(shade)] = mixColor(base, towardWhite);
+    } else {
+      const towardBlack = ((shade - 500) / (darkest - 500)) * 0.85;
+      scale[String(shade)] = mixColor(base, -towardBlack);
+    }
+  }
   return scale;
 }
 

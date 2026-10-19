@@ -112,6 +112,19 @@ jobs:
       - run: npm ci
       - run: npm run typecheck --workspace @nocode/ide-core
 
+  frontend-test:
+    name: Frontend tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm test
+
   type-parity:
     name: Type parity (schemars -> TS)
     runs-on: ubuntu-latest

@@ -17,6 +17,7 @@
     "build:web": "npm run build --workspace @nocode/ide-web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspace @nocode/ide-core",
     "format": "npm run format --workspaces --if-present"
   },
   "engines": {
