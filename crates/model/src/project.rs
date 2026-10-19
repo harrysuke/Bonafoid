@@ -126,9 +126,13 @@ pub enum AuthProviderType {
     EmailPassword,
     PhoneOtp,
     MagicLink,
+    #[serde(rename = "oauth2", alias = "o_auth2")]
     OAuth2,
+    #[serde(rename = "oidc", alias = "o_i_d_c")]
     OIDC,
+    #[serde(rename = "saml", alias = "s_a_m_l")]
     SAML,
+    #[serde(rename = "ldap", alias = "l_d_a_p")]
     LDAP,
     Custom,
 }
@@ -222,8 +226,11 @@ pub struct SsoConfig {
 #[serde(rename_all = "snake_case")]
 pub enum SsoProvider {
     #[default]
+    #[serde(rename = "saml", alias = "s_a_m_l")]
     SAML,
+    #[serde(rename = "oidc", alias = "o_i_d_c")]
     OIDC,
+    #[serde(rename = "ldap", alias = "l_d_a_p")]
     LDAP,
     ActiveDirectory,
     Custom,
@@ -443,6 +450,7 @@ pub enum StorageDriver {
     #[default]
     Local,
     S3,
+    #[serde(rename = "gcs", alias = "g_c_s")]
     GCS,
     AzureBlob,
     Custom,
@@ -504,6 +512,7 @@ pub enum EmailDriver {
     Smtp,
     SendGrid,
     Mailgun,
+    #[serde(rename = "ses", alias = "s_e_s")]
     SES,
     #[default]
     Console,
@@ -535,9 +544,9 @@ pub struct SmtpConfig {
 pub enum SmtpEncryption {
     None,
     #[default]
-    #[serde(rename = "start_tls")]
+    #[serde(rename = "start_tls", alias = "start_t_l_s")]
     StartTls,
-    #[serde(rename = "ssl_tls")]
+    #[serde(rename = "ssl_tls", alias = "s_s_l__t_l_s")]
     SslTls,
 }
 
@@ -549,7 +558,9 @@ pub enum SmtpAuthType {
     #[default]
     Plain,
     Login,
+    #[serde(rename = "cram_md5", alias = "cram_m_d5")]
     CramMD5,
+    #[serde(rename = "xoauth2", alias = "x_o_auth2")]
     XOAuth2,
 }
 
@@ -774,5 +785,127 @@ impl Project {
             updated_at: now,
             published_at: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    /// Wire values of every enum whose Rust variants end in an acronym.
+    ///
+    /// `#[serde(rename_all = "snake_case")` splits a trailing acronym into one
+    /// snake_case letter per capital: `SAML` becomes `s_a_m_l`, `OIDC` becomes
+    /// `o_i_d_c`. Those strings reached the database and the TypeScript types
+    /// before this test existed, so the renames are pinned here.
+    #[test]
+    fn acronym_enums_serialize_readable_values() {
+        let cases: Vec<(Value, Value, &str)> = vec![
+            (json!(SsoProvider::SAML), json!("saml"), "SsoProvider::SAML"),
+            (json!(SsoProvider::OIDC), json!("oidc"), "SsoProvider::OIDC"),
+            (json!(SsoProvider::LDAP), json!("ldap"), "SsoProvider::LDAP"),
+            (
+                json!(AuthProviderType::OAuth2),
+                json!("oauth2"),
+                "AuthProviderType::OAuth2",
+            ),
+            (
+                json!(AuthProviderType::OIDC),
+                json!("oidc"),
+                "AuthProviderType::OIDC",
+            ),
+            (
+                json!(AuthProviderType::SAML),
+                json!("saml"),
+                "AuthProviderType::SAML",
+            ),
+            (
+                json!(AuthProviderType::LDAP),
+                json!("ldap"),
+                "AuthProviderType::LDAP",
+            ),
+            (
+                json!(StorageDriver::GCS),
+                json!("gcs"),
+                "StorageDriver::GCS",
+            ),
+            (json!(EmailDriver::SES), json!("ses"), "EmailDriver::SES"),
+            (
+                json!(SmtpAuthType::CramMD5),
+                json!("cram_md5"),
+                "SmtpAuthType::CramMD5",
+            ),
+            (
+                json!(SmtpAuthType::XOAuth2),
+                json!("xoauth2"),
+                "SmtpAuthType::XOAuth2",
+            ),
+            (
+                json!(SmtpEncryption::StartTls),
+                json!("start_tls"),
+                "SmtpEncryption::StartTls",
+            ),
+            (
+                json!(SmtpEncryption::SslTls),
+                json!("ssl_tls"),
+                "SmtpEncryption::SslTls",
+            ),
+            (
+                json!(DatabaseDriver::SQLite),
+                json!("sqlite"),
+                "DatabaseDriver::SQLite",
+            ),
+        ];
+
+        let mut wrong: Vec<String> = Vec::new();
+        for (value, expected, label) in cases {
+            let actual = serde_json::to_value(&value).expect("serialize");
+            if actual != expected {
+                wrong.push(format!("{label}: got {actual}, want {expected}"));
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+
+    /// Projects saved before the renames must still load.
+    ///
+    /// Every rename is paired with an `alias`, so a project.json written by an
+    /// older build still opens instead of failing to deserialize.
+    #[test]
+    fn legacy_mangled_values_still_deserialize() {
+        /// Assert that the named type still accepts each legacy string.
+        macro_rules! accepts {
+            ($ty:ty, $name:literal, $($value:literal),+ $(,)?) => {
+                for value in [$($value),+] {
+                    assert!(
+                        serde_json::from_value::<$ty>(Value::String(value.to_string())).is_ok(),
+                        "{} must still accept {}",
+                        $name,
+                        value
+                    );
+                }
+            };
+        }
+
+        accepts!(SsoProvider, "SsoProvider", "s_a_m_l", "o_i_d_c", "l_d_a_p");
+        accepts!(
+            AuthProviderType,
+            "AuthProviderType",
+            "o_auth2",
+            "o_i_d_c",
+            "s_a_m_l",
+            "l_d_a_p"
+        );
+        accepts!(StorageDriver, "StorageDriver", "g_c_s");
+        accepts!(EmailDriver, "EmailDriver", "s_e_s");
+        accepts!(SmtpAuthType, "SmtpAuthType", "x_o_auth2", "cram_m_d5");
+        accepts!(DatabaseDriver, "DatabaseDriver", "s_q_lite", "my_s_q_l");
+        accepts!(
+            SmtpEncryption,
+            "SmtpEncryption",
+            "start_t_l_s",
+            "s_s_l__t_l_s"
+        );
     }
 }

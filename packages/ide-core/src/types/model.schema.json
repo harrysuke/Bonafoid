@@ -1642,10 +1642,10 @@
         "email_password",
         "phone_otp",
         "magic_link",
-        "o_auth2",
-        "o_i_d_c",
-        "s_a_m_l",
-        "l_d_a_p",
+        "oauth2",
+        "oidc",
+        "saml",
+        "ldap",
         "custom"
       ]
     },
@@ -6291,7 +6291,7 @@
         "smtp",
         "send_grid",
         "mailgun",
-        "s_e_s",
+        "ses",
         "console",
         "null",
         "custom"
@@ -11077,8 +11077,8 @@
         "none",
         "plain",
         "login",
-        "cram_m_d5",
-        "x_o_auth2"
+        "cram_md5",
+        "xoauth2"
       ]
     },
     "SmtpConfig": {
@@ -11130,8 +11130,8 @@
       "type": "string",
       "enum": [
         "none",
-        "start_t_l_s",
-        "s_s_l__t_l_s"
+        "start_tls",
+        "ssl_tls"
       ]
     },
     "SocialAuthConfig": {
@@ -11286,9 +11286,9 @@
     "SsoProvider": {
       "type": "string",
       "enum": [
-        "s_a_m_l",
-        "o_i_d_c",
-        "l_d_a_p",
+        "saml",
+        "oidc",
+        "ldap",
         "active_directory",
         "custom"
       ]
@@ -11550,7 +11550,7 @@
       "enum": [
         "local",
         "s3",
-        "g_c_s",
+        "gcs",
         "azure_blob",
         "custom"
       ]

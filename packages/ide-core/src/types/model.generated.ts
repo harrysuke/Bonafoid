@@ -317,7 +317,7 @@ export interface AuthProvider {
   provider_type: AuthProviderType;
 }
 
-export type AuthProviderType = "email_password" | "phone_otp" | "magic_link" | "o_auth2" | "o_i_d_c" | "s_a_m_l" | "l_d_a_p" | "custom";
+export type AuthProviderType = "email_password" | "phone_otp" | "magic_link" | "oauth2" | "oidc" | "saml" | "ldap" | "custom";
 
 export type AutoGenerate = "uuid" | "uuid_v7" | "nanoid" | "increment" | "timestamp" | {
   custom: string;
@@ -1303,7 +1303,7 @@ export interface EmailConfig {
   templates: Record<string, EmailTemplate>;
 }
 
-export type EmailDriver = "smtp" | "send_grid" | "mailgun" | "s_e_s" | "console" | "null" | "custom";
+export type EmailDriver = "smtp" | "send_grid" | "mailgun" | "ses" | "console" | "null" | "custom";
 
 export interface EmailQueueConfig {
   backoff_seconds: number;
@@ -2367,7 +2367,7 @@ export interface SizingTokens {
   widths: WidthScale;
 }
 
-export type SmtpAuthType = "none" | "plain" | "login" | "cram_m_d5" | "x_o_auth2";
+export type SmtpAuthType = "none" | "plain" | "login" | "cram_md5" | "xoauth2";
 
 export interface SmtpConfig {
   auth_type: SmtpAuthType;
@@ -2410,7 +2410,7 @@ export interface SsoConfig {
   provider: SsoProvider;
 }
 
-export type SsoProvider = "s_a_m_l" | "o_i_d_c" | "l_d_a_p" | "active_directory" | "custom";
+export type SsoProvider = "saml" | "oidc" | "ldap" | "active_directory" | "custom";
 
 export type StartEventType = "none" | {
   message: {
@@ -2466,7 +2466,7 @@ export interface StorageConfig {
   s3: S3Config;
 }
 
-export type StorageDriver = "local" | "s3" | "g_c_s" | "azure_blob" | "custom";
+export type StorageDriver = "local" | "s3" | "gcs" | "azure_blob" | "custom";
 
 export interface TabConfig {
   closable: boolean;
