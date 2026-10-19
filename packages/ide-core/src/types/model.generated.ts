@@ -2380,7 +2380,7 @@ export interface SmtpConfig {
   username: string;
 }
 
-export type SmtpEncryption = "none" | "start_t_l_s" | "s_s_l__t_l_s";
+export type SmtpEncryption = "none" | "start_tls" | "ssl_tls";
 
 export interface SocialAuthConfig {
   apple?: OAuth2Config | null;

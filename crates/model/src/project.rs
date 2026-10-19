@@ -535,8 +535,8 @@ pub struct SmtpConfig {
 pub enum SmtpEncryption {
     None,
     #[default]
-    StartTLS,
-    // Wire format stays "ssl_tls"; the Rust identifier follows Rust naming.
+    #[serde(rename = "start_tls")]
+    StartTls,
     #[serde(rename = "ssl_tls")]
     SslTls,
 }

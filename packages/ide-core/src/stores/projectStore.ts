@@ -34,6 +34,15 @@ import type { ListPageKind } from '../utils/listModel';
 import { newPage, newPageAction, newPageComponent, pagePathFromName } from '../utils/pageModel';
 import type { PageMetaPatch, PageComponentPatch } from '../utils/pageModel';
 import {
+  newTheme,
+  normalizeTheme,
+  setColorBase,
+  setFontFamily,
+  setFontSize,
+  setScaleShade,
+} from '../utils/themeModel';
+import type { ColorRole, FontRole, FontSizeRole } from '../utils/themeModel';
+import {
   newWorkflow,
   newWorkflowEdge,
   newWorkflowNode,
@@ -51,6 +60,8 @@ import type {
   NodeId,
   Page as GeneratedPage,
   PageComponent as GeneratedPageComponent,
+  DesignTokens,
+  Theme as GeneratedTheme,
   Workflow as GeneratedWorkflow,
   WorkflowNodeType,
 } from '../types/model.generated';
@@ -87,6 +98,11 @@ export interface FormFieldPatch {
   required?: boolean;
   placeholder?: string;
   options?: string[];
+}
+
+export interface ThemeMetaPatch {
+  name?: string;
+  description?: string;
 }
 
 interface ProjectState {
@@ -156,6 +172,16 @@ interface ProjectState {
   updateWorkflowEdge: (workflowId: string, edgeId: string, patch: WorkflowEdgePatch) => void;
   removeWorkflowEdge: (workflowId: string, edgeId: string) => void;
   importWorkflow: (workflowJson: string) => string;
+
+  addTheme: (name: string) => string;
+  removeTheme: (id: string) => void;
+  updateThemeMeta: (themeId: string, patch: ThemeMetaPatch) => void;
+  setActiveTheme: (themeId: string) => void;
+  setThemeColor: (themeId: string, role: ColorRole, base: string) => void;
+  setThemeShade: (themeId: string, role: ColorRole, shade: number, value: string) => void;
+  setThemeFontFamily: (themeId: string, role: FontRole, value: string) => void;
+  setThemeFontSize: (themeId: string, role: FontSizeRole, value: string) => void;
+  duplicateTheme: (themeId: string) => string;
 
   markDirty: () => void;
   autosave: () => Promise<void>;
@@ -293,6 +319,37 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     if (!stored || typeof stored !== 'object') return null;
     const workflow = stored as unknown as GeneratedWorkflow;
     return Array.isArray(workflow.nodes) && Array.isArray(workflow.edges) ? workflow : null;
+  };
+
+  /** Theme mutations mirror the workflow helpers; same single cast boundary. */
+  const applyTheme = (themeId: string, theme: GeneratedTheme) => {
+    const current = get().project;
+    if (!current) return;
+    commit({
+      ...current,
+      themes: {
+        ...current.themes,
+        [themeId]: theme as unknown as Project['themes'][string],
+      },
+      updated_at: new Date().toISOString(),
+    });
+  };
+
+  const readTheme = (themeId: string): GeneratedTheme | null => {
+    const stored = get().project?.themes[themeId];
+    if (!stored || typeof stored !== 'object') return null;
+    return normalizeTheme(stored as unknown as GeneratedTheme);
+  };
+
+  /** Replace a theme's token tree, stamping `updated_at`. */
+  const applyThemeTokens = (themeId: string, mutate: (tokens: DesignTokens) => DesignTokens) => {
+    const theme = readTheme(themeId);
+    if (!theme) return;
+    applyTheme(themeId, {
+      ...theme,
+      tokens: mutate(theme.tokens),
+      updated_at: new Date().toISOString(),
+    });
   };
 
   return {
@@ -1073,6 +1130,95 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         updated_at: workflow.updated_at,
       });
       return workflow.id;
+    },
+
+    addTheme: (name) => {
+      const current = get().project;
+      if (!current) return '';
+      const trimmed = name.trim() || 'Untitled Theme';
+      const existing = Object.values(current.themes).length;
+      const theme = newTheme(existing === 0 ? trimmed : `${trimmed} ${existing + 1}`);
+      commit({
+        ...current,
+        themes: {
+          ...current.themes,
+          [theme.id]: theme as unknown as Project['themes'][string],
+        },
+        // The first theme becomes active so codegen always has tokens to read.
+        active_theme_id: current.active_theme_id ?? theme.id,
+        updated_at: theme.updated_at,
+      });
+      return theme.id;
+    },
+
+    removeTheme: (id) => {
+      const current = get().project;
+      if (!current || !current.themes[id]) return;
+      const { [id]: _removed, ...themes } = current.themes;
+      const remaining = Object.keys(themes);
+      commit({
+        ...current,
+        themes,
+        active_theme_id:
+          current.active_theme_id === id ? (remaining[0] ?? null) : current.active_theme_id,
+        updated_at: new Date().toISOString(),
+      });
+    },
+
+    updateThemeMeta: (themeId, patch) => {
+      const theme = readTheme(themeId);
+      if (!theme) return;
+      applyTheme(themeId, {
+        ...theme,
+        name: patch.name?.trim() || theme.name,
+        description: patch.description === undefined ? theme.description : patch.description,
+        updated_at: new Date().toISOString(),
+      });
+    },
+
+    setActiveTheme: (themeId) => {
+      const current = get().project;
+      if (!current || !current.themes[themeId]) return;
+      commit({ ...current, active_theme_id: themeId, updated_at: new Date().toISOString() });
+    },
+
+    setThemeColor: (themeId, role, base) => {
+      applyThemeTokens(themeId, (tokens) => setColorBase(tokens, role, base));
+    },
+
+    setThemeShade: (themeId, role, shade, value) => {
+      applyThemeTokens(themeId, (tokens) => setScaleShade(tokens, role, shade, value));
+    },
+
+    setThemeFontFamily: (themeId, role, value) => {
+      applyThemeTokens(themeId, (tokens) => setFontFamily(tokens, role, value));
+    },
+
+    setThemeFontSize: (themeId, role, value) => {
+      applyThemeTokens(themeId, (tokens) => setFontSize(tokens, role, value));
+    },
+
+    duplicateTheme: (themeId) => {
+      const current = get().project;
+      const theme = readTheme(themeId);
+      if (!current || !theme) return '';
+      const now = new Date().toISOString();
+      const copy: GeneratedTheme = {
+        ...theme,
+        id: generateId(),
+        name: `${theme.name} Copy`,
+        created_at: now,
+        updated_at: now,
+      };
+      commit({
+        ...current,
+        themes: {
+          ...current.themes,
+          [copy.id]: copy as unknown as Project['themes'][string],
+        },
+        updated_at: now,
+      });
+      return copy.id;
     },
 
     markDirty: () => {

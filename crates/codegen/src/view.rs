@@ -11,8 +11,8 @@
 //! item *is* the field view, so templates can reference `{{name}}` directly.
 
 use nocode_model::{
-    AutoGenerate, DatabaseDriver, Entity, EntityField, EntityFieldType, EntityRelation, FieldType,
-    Form, FormField, Page, Project, Workflow,
+    AutoGenerate, ColorScale, DatabaseDriver, Entity, EntityField, EntityFieldType, EntityRelation,
+    FieldType, Form, FormField, Page, Project, Workflow,
 };
 use serde_json::{json, Value};
 
@@ -687,6 +687,174 @@ pub fn workflow_view(workflow: &Workflow) -> Value {
 
 pub fn workflows_view(project: &Project) -> Vec<Value> {
     project.workflows.values().map(workflow_view).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Theme view
+// ---------------------------------------------------------------------------
+
+/// The project's active theme, flattened for the Tailwind/CSS templates.
+///
+/// Falls back to an empty `is_default` view when the project has no themes, so
+/// generated apps still build with Tailwind's stock palette.
+pub fn theme_view(project: &Project) -> Value {
+    let active = project
+        .active_theme_id
+        .as_ref()
+        .and_then(|id| project.themes.get(id))
+        .or_else(|| {
+            // Deterministic fallback: the alphabetically first theme keeps
+            // codegen output stable when active_theme_id is stale.
+            project.themes.values().min_by(|a, b| a.name.cmp(&b.name))
+        });
+
+    let Some(theme) = active else {
+        return json!({ "is_default": true, "name": "tailwind-default" });
+    };
+
+    let tokens = &theme.tokens;
+    let scale_of = |scale: &ColorScale| {
+        let mut map = serde_json::Map::new();
+        map.insert("base".to_string(), json!(scale.base));
+        let shades: serde_json::Map<String, Value> = scale
+            .scale
+            .iter()
+            .map(|(shade, value)| (shade.to_string(), json!(value)))
+            .collect();
+        map.insert("scale".to_string(), Value::Object(shades));
+        Value::Object(map)
+    };
+
+    let mut color_scales = serde_json::Map::new();
+    for (role, scale) in [
+        ("primary", &tokens.colors.primary),
+        ("secondary", &tokens.colors.secondary),
+        ("success", &tokens.colors.success),
+        ("warning", &tokens.colors.warning),
+        ("error", &tokens.colors.error),
+        ("info", &tokens.colors.info),
+        ("neutral", &tokens.colors.neutral),
+    ] {
+        color_scales.insert(role.to_string(), scale_of(scale));
+    }
+
+    let spacing: serde_json::Map<String, Value> = tokens
+        .spacing
+        .scale
+        .iter()
+        .map(|(step, value)| (step.to_string(), json!(value)))
+        .collect();
+
+    // CSS custom properties, flattened: handlebars-rust cannot reach a parent
+    // key from a nested `each`, so nested maps become a flat var list here.
+    let mut css_vars: Vec<Value> = Vec::new();
+    let mut push_var = |name: String, value: &str| {
+        css_vars.push(json!({ "var": name, "value": value }));
+    };
+    for (role, scale) in [
+        ("primary", &tokens.colors.primary),
+        ("secondary", &tokens.colors.secondary),
+        ("success", &tokens.colors.success),
+        ("warning", &tokens.colors.warning),
+        ("error", &tokens.colors.error),
+        ("info", &tokens.colors.info),
+        ("neutral", &tokens.colors.neutral),
+    ] {
+        push_var(format!("--nc-color-{role}"), &scale.base);
+        for (shade, value) in &scale.scale {
+            push_var(format!("--nc-color-{role}-{shade}"), value);
+        }
+    }
+    for (key, value) in serde_json::to_value(&tokens.colors.background)
+        .unwrap_or(Value::Null)
+        .as_object()
+        .into_iter()
+        .flat_map(|map| map.iter())
+    {
+        push_var(
+            format!("--nc-background-{key}"),
+            value.as_str().unwrap_or_default(),
+        );
+    }
+    for (key, value) in serde_json::to_value(&tokens.colors.text)
+        .unwrap_or(Value::Null)
+        .as_object()
+        .into_iter()
+        .flat_map(|map| map.iter())
+    {
+        push_var(
+            format!("--nc-text-{key}"),
+            value.as_str().unwrap_or_default(),
+        );
+    }
+    for (key, value) in serde_json::to_value(&tokens.colors.border)
+        .unwrap_or(Value::Null)
+        .as_object()
+        .into_iter()
+        .flat_map(|map| map.iter())
+    {
+        push_var(
+            format!("--nc-border-{key}"),
+            value.as_str().unwrap_or_default(),
+        );
+    }
+    push_var("--nc-radius-md".to_string(), &tokens.borders.radii.md);
+    push_var("--nc-radius-lg".to_string(), &tokens.borders.radii.lg);
+    push_var("--nc-shadow-sm".to_string(), &tokens.shadows.sm);
+    push_var("--nc-shadow-md".to_string(), &tokens.shadows.md);
+
+    let dark_tokens = theme.dark_mode.enabled.then(|| {
+        let colors = theme.dark_mode.tokens.as_ref().map(|dark| {
+            json!({
+                "background": dark.colors.background,
+                "text": dark.colors.text,
+                "border": dark.colors.border,
+            })
+        });
+        json!({
+            "selector": theme.dark_mode.selector,
+            "colors": colors,
+        })
+    });
+
+    let families = &tokens.typography.font_families;
+    let mut fonts = serde_json::Map::new();
+    fonts.insert("sans".to_string(), json!(families.sans));
+    fonts.insert("serif".to_string(), json!(families.serif));
+    fonts.insert("mono".to_string(), json!(families.mono));
+    if let Some(display) = &families.display {
+        fonts.insert("display".to_string(), json!(display));
+    }
+
+    json!({
+        "is_default": false,
+        "name": theme.name,
+        "color_scales": Value::Object(color_scales),
+        "background": tokens.colors.background,
+        "text": tokens.colors.text,
+        "border": tokens.colors.border,
+        "action": tokens.colors.action,
+        "fonts": Value::Object(fonts),
+        "font_sizes": tokens.typography.font_sizes,
+        "radii": tokens.borders.radii,
+        "shadows": {
+            "sm": tokens.shadows.sm,
+            "md": tokens.shadows.md,
+            "lg": tokens.shadows.lg,
+            "xl": tokens.shadows.xl,
+        },
+        "breakpoints": tokens.breakpoints,
+        "spacing": Value::Object(spacing),
+        "spacing_base": tokens.spacing.base,
+        "css_vars": css_vars,
+        "fonts_css": {
+            "sans": families.sans,
+            "serif": families.serif,
+            "mono": families.mono,
+        },
+        "global_styles": theme.global_styles,
+        "dark": dark_tokens,
+    })
 }
 
 // ---------------------------------------------------------------------------

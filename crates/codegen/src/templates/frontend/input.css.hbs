@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+{{#unless theme.is_default}}
+/* Design tokens from the active theme "{{theme.name}}". */
+:root {
+{{#each theme.css_vars}}
+  {{this.var}}: {{this.value}};
+{{/each}}
+  --nc-font-sans: {{theme.fonts_css.sans}};
+  --nc-font-serif: {{theme.fonts_css.serif}};
+  --nc-font-mono: {{theme.fonts_css.mono}};
+}
+{{#if theme.dark}}
+{{#if theme.dark.colors}}
+{{theme.dark.selector}} {
+  --nc-background-primary: {{theme.dark.colors.background.primary}};
+  --nc-text-primary: {{theme.dark.colors.text.primary}};
+  --nc-border-primary: {{theme.dark.colors.border.primary}};
+}
+{{/if}}
+{{/if}}
+{{#if theme.global_styles}}
+/* global_styles from the theme */
+{{theme.global_styles}}
+{{/if}}
+{{/unless}}

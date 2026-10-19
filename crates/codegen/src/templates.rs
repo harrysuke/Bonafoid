@@ -408,6 +408,81 @@ mod tests {
         assert!(!database.unwrap().schema_sql.is_empty());
     }
 
+    /// The active theme must reach the generated Tailwind config and CSS.
+    #[tokio::test]
+    async fn active_theme_tokens_reach_the_frontend_assets() {
+        use nocode_model::theme::{ColorScale, Theme};
+
+        let mut project = populated_project();
+        let mut theme = Theme::new("Brand");
+        theme.tokens.colors.primary = ColorScale {
+            base: "#ff00aa".to_string(),
+            scale: [(500, "#ff00aa".to_string())].into_iter().collect(),
+            contrast_text: Some("#ffffff".to_string()),
+        };
+        theme.tokens.typography.font_families.sans = "Brand Sans".to_string();
+        theme.global_styles = "body { letter-spacing: 0.01em; }".to_string();
+        let theme_id = theme.id.clone();
+        project.themes.insert(theme_id.clone(), theme);
+        project.active_theme_id = Some(theme_id);
+
+        let frontend = crate::frontend::generate_frontend(&project, &std::env::temp_dir())
+            .await
+            .expect("frontend generation runs");
+
+        let tailwind = frontend
+            .files
+            .get(&std::path::PathBuf::from("tailwind.config.js"))
+            .expect("tailwind config generated");
+        assert!(
+            tailwind.contains("\"#ff00aa\""),
+            "primary base missing from tailwind config:\n{tailwind}"
+        );
+        assert!(
+            tailwind.contains("\"Brand Sans\""),
+            "font family missing from tailwind config"
+        );
+
+        let css = frontend
+            .files
+            .get(&std::path::PathBuf::from("style/input.css"))
+            .expect("input.css generated");
+        assert!(
+            css.contains("--nc-color-primary-500: #ff00aa"),
+            "primary shade missing from css:\n{css}"
+        );
+        assert!(
+            css.contains("--nc-font-sans: Brand Sans"),
+            "font variable missing from css"
+        );
+        assert!(
+            css.contains("letter-spacing: 0.01em"),
+            "global styles missing from css"
+        );
+    }
+
+    /// Without a theme the frontend still builds, using Tailwind's palette.
+    #[tokio::test]
+    async fn projects_without_a_theme_keep_the_default_palette() {
+        let project = populated_project();
+        assert!(project.active_theme_id.is_none());
+
+        let frontend = crate::frontend::generate_frontend(&project, &std::env::temp_dir())
+            .await
+            .expect("frontend generation runs");
+
+        let tailwind = frontend
+            .files
+            .get(&std::path::PathBuf::from("tailwind.config.js"))
+            .expect("tailwind config generated");
+        assert!(tailwind.contains("extend: {}"), "tailwind default kept");
+        let css = frontend
+            .files
+            .get(&std::path::PathBuf::from("style/input.css"))
+            .expect("input.css generated");
+        assert!(!css.contains("--nc-color"), "no token vars without a theme");
+    }
+
     #[test]
     fn schema_sql_is_generated_for_each_driver() {
         use nocode_model::DatabaseDriver;

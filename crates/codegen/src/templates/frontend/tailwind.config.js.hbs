@@ -1,0 +1,67 @@
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: ["./index.html", "./src/**/*.rs"],
+  theme: {
+{{#if theme.is_default}}
+    // No active theme on the project: Tailwind keeps its stock palette.
+    extend: {},
+{{else}}
+    extend: {
+{{#each theme.color_scales}}
+      {{@key}}: {
+        DEFAULT: {{json this.base}},
+{{#each this.scale}}
+        {{@key}}: {{json this}},
+{{/each}}
+      },
+{{/each}}
+      background: {
+{{#each theme.background}}
+        {{@key}}: {{json this}},
+{{/each}}
+      },
+      text: {
+{{#each theme.text}}
+        {{@key}}: {{json this}},
+{{/each}}
+      },
+      border: {
+{{#each theme.border}}
+        {{@key}}: {{json this}},
+{{/each}}
+      },
+      fontFamily: {
+{{#each theme.fonts}}
+        {{@key}}: [{{json this}}],
+{{/each}}
+      },
+      fontSize: {
+{{#each theme.font_sizes}}
+        {{@key}}: {{json this}},
+{{/each}}
+      },
+      borderRadius: {
+{{#each theme.radii}}
+        {{@key}}: {{json this}},
+{{/each}}
+      },
+      boxShadow: {
+{{#each theme.shadows}}
+        {{@key}}: {{json this}},
+{{/each}}
+      },
+      spacing: {
+{{#each theme.spacing}}
+        {{@key}}: {{json this}},
+{{/each}}
+      },
+      screens: {
+{{#each theme.breakpoints}}
+        {{@key}}: {{json this}},
+{{/each}}
+      },
+    },
+{{/if}}
+  },
+  plugins: [],
+};

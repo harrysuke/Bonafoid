@@ -20,7 +20,8 @@ pub async fn generate_frontend(
     let project_ctx = view::project_view(project, &driver);
     let entities = view::entities_view(project, &driver);
 
-    let ctx = json!({ "project": &project_ctx, "entities": &entities });
+    let theme = view::theme_view(project);
+    let ctx = json!({ "project": &project_ctx, "entities": &entities, "theme": &theme });
 
     let mut files = HashMap::new();
 
@@ -35,7 +36,7 @@ pub async fn generate_frontend(
     );
     files.insert(
         PathBuf::from("tailwind.config.js"),
-        include_str!("templates/frontend/tailwind.config.js").to_string(),
+        reg.render("frontend/tailwind_config", &ctx)?,
     );
     files.insert(
         PathBuf::from("index.html"),
@@ -43,7 +44,7 @@ pub async fn generate_frontend(
     );
     files.insert(
         PathBuf::from("style/input.css"),
-        include_str!("templates/frontend/input.css").to_string(),
+        reg.render("frontend/input_css", &ctx)?,
     );
 
     // Crate root + shared modules
@@ -105,6 +106,14 @@ fn register_templates(reg: &mut Handlebars) -> Result<()> {
     reg.register_template_string(
         "frontend/cargo_toml",
         include_str!("templates/frontend/Cargo.toml.hbs"),
+    )?;
+    reg.register_template_string(
+        "frontend/tailwind_config",
+        include_str!("templates/frontend/tailwind.config.js.hbs"),
+    )?;
+    reg.register_template_string(
+        "frontend/input_css",
+        include_str!("templates/frontend/input.css.hbs"),
     )?;
     reg.register_template_string(
         "frontend/index_html",
