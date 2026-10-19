@@ -52,16 +52,13 @@ impl DesktopOutput {
     /// Files to write, relative to the `desktop` directory.
     pub fn files(&self) -> HashMap<PathBuf, String> {
         let mut files = HashMap::new();
+        files.insert(PathBuf::from("tauri.conf.json"), self.tauri_config.clone());
         files.insert(
-            PathBuf::from("tauri.conf.json"),
-            self.tauri_config.clone(),
+            PathBuf::from("src-tauri/Cargo.toml"),
+            self.cargo_toml.clone(),
         );
-        files.insert(PathBuf::from("src-tauri/Cargo.toml"), self.cargo_toml.clone());
         files.insert(PathBuf::from("src-tauri/build.rs"), self.build_rs.clone());
-        files.insert(
-            PathBuf::from("src-tauri/src/main.rs"),
-            self.main_rs.clone(),
-        );
+        files.insert(PathBuf::from("src-tauri/src/main.rs"), self.main_rs.clone());
         files.insert(
             PathBuf::from("src-tauri/capabilities/default.json"),
             self.capabilities.clone(),
@@ -331,7 +328,10 @@ mod tests {
     fn desktop_cargo_uses_tauri_two() {
         let project = sample_project();
         let output = generate_targets(&project);
-        assert!(output.desktop.cargo_toml.contains("tauri = { version = \"2\""));
+        assert!(output
+            .desktop
+            .cargo_toml
+            .contains("tauri = { version = \"2\""));
         assert!(output.desktop.main_rs.contains("tauri::Builder::default()"));
     }
 

@@ -268,7 +268,10 @@ mod tests {
         .unwrap();
         assert_eq!(summary["completed"], serde_json::json!(false));
         assert_eq!(summary["status"], serde_json::json!("running"));
-        assert_eq!(summary["open_tasks"][0]["node_name"], serde_json::json!("Review"));
+        assert_eq!(
+            summary["open_tasks"][0]["node_name"],
+            serde_json::json!("Review")
+        );
         assert_eq!(summary["variables"]["amount"], serde_json::json!(10));
     }
 

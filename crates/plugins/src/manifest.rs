@@ -158,7 +158,9 @@ impl PluginManifest {
             )));
         }
         if self.entry_point.trim().is_empty() {
-            return Err(PluginError::Validation("entry_point must not be empty".into()));
+            return Err(PluginError::Validation(
+                "entry_point must not be empty".into(),
+            ));
         }
 
         // Reject duplicate permissions.

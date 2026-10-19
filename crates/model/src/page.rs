@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
-use uuid::Uuid;
+use crate::form::FormId;
+use crate::workflow::{HttpMethod, WorkflowId};
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
-use crate::form::FormId;
-use crate::workflow::{WorkflowId, HttpMethod};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Page {
@@ -183,72 +183,318 @@ impl Default for ComponentId {
 #[serde(tag = "type", content = "config")]
 pub enum ComponentType {
     // Layout
-    Container { children: Vec<ComponentId> },
-    Grid { columns: u8, gap: String, children: Vec<ComponentId> },
-    Flex { direction: String, gap: String, children: Vec<ComponentId> },
-    Tabs { tabs: Vec<TabConfig>, children: Vec<ComponentId> },
-    Accordion { items: Vec<AccordionItem>, children: Vec<ComponentId> },
-    Card { header: Option<String>, footer: Option<String>, children: Vec<ComponentId> },
-    Modal { trigger: ComponentId, children: Vec<ComponentId> },
-    Drawer { trigger: ComponentId, position: String, children: Vec<ComponentId> },
-    Tooltip { trigger: ComponentId, content: String, position: String },
-    Popover { trigger: ComponentId, content: Vec<ComponentId>, position: String },
+    Container {
+        children: Vec<ComponentId>,
+    },
+    Grid {
+        columns: u8,
+        gap: String,
+        children: Vec<ComponentId>,
+    },
+    Flex {
+        direction: String,
+        gap: String,
+        children: Vec<ComponentId>,
+    },
+    Tabs {
+        tabs: Vec<TabConfig>,
+        children: Vec<ComponentId>,
+    },
+    Accordion {
+        items: Vec<AccordionItem>,
+        children: Vec<ComponentId>,
+    },
+    Card {
+        header: Option<String>,
+        footer: Option<String>,
+        children: Vec<ComponentId>,
+    },
+    Modal {
+        trigger: ComponentId,
+        children: Vec<ComponentId>,
+    },
+    Drawer {
+        trigger: ComponentId,
+        position: String,
+        children: Vec<ComponentId>,
+    },
+    Tooltip {
+        trigger: ComponentId,
+        content: String,
+        position: String,
+    },
+    Popover {
+        trigger: ComponentId,
+        content: Vec<ComponentId>,
+        position: String,
+    },
 
     // Data Display
-    Table { columns: Vec<TableColumn>, data_source: String, pagination: PaginationConfig, sorting: bool, filtering: bool, selection: SelectionConfig },
-    List { item_template: ComponentId, data_source: String, empty_state: Option<ComponentId> },
-    DetailView { fields: Vec<DetailField>, data_source: String },
-    Chart { chart_type: ChartType, data_source: String, config: ChartConfig },
-    StatCard { value: String, label: String, trend: Option<TrendConfig>, icon: Option<String> },
-    ProgressBar { value: String, max: String, format: String, color: Option<String> },
-    Avatar { src: String, alt: String, size: String, shape: String },
-    Badge { content: String, color: String, variant: String },
-    Tag { content: String, color: String, closable: bool },
-    Divider { orientation: String, dashed: bool, text: Option<String> },
+    Table {
+        columns: Vec<TableColumn>,
+        data_source: String,
+        pagination: PaginationConfig,
+        sorting: bool,
+        filtering: bool,
+        selection: SelectionConfig,
+    },
+    List {
+        item_template: ComponentId,
+        data_source: String,
+        empty_state: Option<ComponentId>,
+    },
+    DetailView {
+        fields: Vec<DetailField>,
+        data_source: String,
+    },
+    Chart {
+        chart_type: ChartType,
+        data_source: String,
+        config: ChartConfig,
+    },
+    StatCard {
+        value: String,
+        label: String,
+        trend: Option<TrendConfig>,
+        icon: Option<String>,
+    },
+    ProgressBar {
+        value: String,
+        max: String,
+        format: String,
+        color: Option<String>,
+    },
+    Avatar {
+        src: String,
+        alt: String,
+        size: String,
+        shape: String,
+    },
+    Badge {
+        content: String,
+        color: String,
+        variant: String,
+    },
+    Tag {
+        content: String,
+        color: String,
+        closable: bool,
+    },
+    Divider {
+        orientation: String,
+        dashed: bool,
+        text: Option<String>,
+    },
 
     // Data Input
-    Form { form_id: FormId, submit_action: String, reset_action: Option<String> },
-    FormField { field_id: String, label: String, required: bool },
-    Button { label: String, variant: ButtonVariant, size: ButtonSize, icon: Option<String>, loading: bool, disabled: bool, action: String },
-    ButtonGroup { buttons: Vec<ButtonConfig>, variant: ButtonVariant },
-    Link { label: String, href: String, target: String, icon: Option<String> },
-    Breadcrumb { items: Vec<BreadcrumbItem> },
-    Pagination { total: String, page_size: u32, show_size_changer: bool, show_quick_jumper: bool },
-    Steps { items: Vec<StepItem>, current: u32, direction: String },
-    Tree { data_source: String, field_names: TreeFieldNames, checkable: bool, draggable: bool },
+    Form {
+        form_id: FormId,
+        submit_action: String,
+        reset_action: Option<String>,
+    },
+    FormField {
+        field_id: String,
+        label: String,
+        required: bool,
+    },
+    Button {
+        label: String,
+        variant: ButtonVariant,
+        size: ButtonSize,
+        icon: Option<String>,
+        loading: bool,
+        disabled: bool,
+        action: String,
+    },
+    ButtonGroup {
+        buttons: Vec<ButtonConfig>,
+        variant: ButtonVariant,
+    },
+    Link {
+        label: String,
+        href: String,
+        target: String,
+        icon: Option<String>,
+    },
+    Breadcrumb {
+        items: Vec<BreadcrumbItem>,
+    },
+    Pagination {
+        total: String,
+        page_size: u32,
+        show_size_changer: bool,
+        show_quick_jumper: bool,
+    },
+    Steps {
+        items: Vec<StepItem>,
+        current: u32,
+        direction: String,
+    },
+    Tree {
+        data_source: String,
+        field_names: TreeFieldNames,
+        checkable: bool,
+        draggable: bool,
+    },
 
     // Feedback
-    Alert { message: String, r#type: AlertType, closable: bool, show_icon: bool },
-    Message { content: String, r#type: AlertType, duration: u32 },
-    Notification { title: String, content: String, r#type: AlertType, duration: u32 },
-    Loading { spinning: bool, tip: Option<String>, delay: u32 },
-    Skeleton { active: bool, avatar: bool, title: bool, paragraph: bool, rows: u32 },
-    Spin { spinning: bool, size: String, tip: Option<String> },
+    Alert {
+        message: String,
+        r#type: AlertType,
+        closable: bool,
+        show_icon: bool,
+    },
+    Message {
+        content: String,
+        r#type: AlertType,
+        duration: u32,
+    },
+    Notification {
+        title: String,
+        content: String,
+        r#type: AlertType,
+        duration: u32,
+    },
+    Loading {
+        spinning: bool,
+        tip: Option<String>,
+        delay: u32,
+    },
+    Skeleton {
+        active: bool,
+        avatar: bool,
+        title: bool,
+        paragraph: bool,
+        rows: u32,
+    },
+    Spin {
+        spinning: bool,
+        size: String,
+        tip: Option<String>,
+    },
 
     // Navigation
-    Menu { items: Vec<MenuItem>, mode: MenuMode, theme: String },
-    Dropdown { trigger: ComponentId, items: Vec<MenuItem>, placement: String },
-    Anchor { links: Vec<AnchorLink>, affix: bool },
-    BackTop { visibility_height: u32 },
+    Menu {
+        items: Vec<MenuItem>,
+        mode: MenuMode,
+        theme: String,
+    },
+    Dropdown {
+        trigger: ComponentId,
+        items: Vec<MenuItem>,
+        placement: String,
+    },
+    Anchor {
+        links: Vec<AnchorLink>,
+        affix: bool,
+    },
+    BackTop {
+        visibility_height: u32,
+    },
 
     // Other
-    Html { content: String, sanitize: bool },
-    Iframe { src: String, width: String, height: String, sandbox: Vec<String> },
-    Image { src: String, alt: String, width: Option<String>, height: Option<String>, fallback: Option<String>, preview: bool },
-    Video { src: String, poster: String, controls: bool, autoplay: bool, loop_play: bool },
-    Audio { src: String, controls: bool, autoplay: bool, loop_play: bool },
-    FileUpload { action: String, accept: String, multiple: bool, directory: bool, drag: bool, list_type: String },
-    ColorPicker { format: String, alpha: bool, preset_colors: Vec<String> },
-    DatePicker { format: String, show_time: bool, range: bool, disabled_date: Option<String> },
-    TimePicker { format: String, use12_hours: bool, step: TimeStep },
-    Rate { count: u32, allow_half: bool, allow_clear: bool, character: String },
-    Slider { min: f64, max: f64, step: f64, range: bool, marks: IndexMap<String, String>, tooltip: bool },
-    Transfer { data_source: String, titles: Vec<String>, operations: Vec<String>, filterable: bool },
-    Cascader { data_source: String, field_names: CascaderFieldNames, expand_trigger: String, change_on_select: bool },
-    TreeSelect { data_source: String, field_names: TreeSelectFieldNames, tree_default_expand_all: bool, show_search: bool },
-    Mention { suggestions: Vec<String>, prefix: String, split: String },
-    QRCode { value: String, size: u32, level: String, icon: Option<String> },
-    Custom { component_name: String, props: IndexMap<String, serde_json::Value> },
+    Html {
+        content: String,
+        sanitize: bool,
+    },
+    Iframe {
+        src: String,
+        width: String,
+        height: String,
+        sandbox: Vec<String>,
+    },
+    Image {
+        src: String,
+        alt: String,
+        width: Option<String>,
+        height: Option<String>,
+        fallback: Option<String>,
+        preview: bool,
+    },
+    Video {
+        src: String,
+        poster: String,
+        controls: bool,
+        autoplay: bool,
+        loop_play: bool,
+    },
+    Audio {
+        src: String,
+        controls: bool,
+        autoplay: bool,
+        loop_play: bool,
+    },
+    FileUpload {
+        action: String,
+        accept: String,
+        multiple: bool,
+        directory: bool,
+        drag: bool,
+        list_type: String,
+    },
+    ColorPicker {
+        format: String,
+        alpha: bool,
+        preset_colors: Vec<String>,
+    },
+    DatePicker {
+        format: String,
+        show_time: bool,
+        range: bool,
+        disabled_date: Option<String>,
+    },
+    TimePicker {
+        format: String,
+        use12_hours: bool,
+        step: TimeStep,
+    },
+    Rate {
+        count: u32,
+        allow_half: bool,
+        allow_clear: bool,
+        character: String,
+    },
+    Slider {
+        min: f64,
+        max: f64,
+        step: f64,
+        range: bool,
+        marks: IndexMap<String, String>,
+        tooltip: bool,
+    },
+    Transfer {
+        data_source: String,
+        titles: Vec<String>,
+        operations: Vec<String>,
+        filterable: bool,
+    },
+    Cascader {
+        data_source: String,
+        field_names: CascaderFieldNames,
+        expand_trigger: String,
+        change_on_select: bool,
+    },
+    TreeSelect {
+        data_source: String,
+        field_names: TreeSelectFieldNames,
+        tree_default_expand_all: bool,
+        show_search: bool,
+    },
+    Mention {
+        suggestions: Vec<String>,
+        prefix: String,
+        split: String,
+    },
+    QRCode {
+        value: String,
+        size: u32,
+        level: String,
+        icon: Option<String>,
+    },
+    Custom {
+        component_name: String,
+        props: IndexMap<String, serde_json::Value>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -638,17 +884,54 @@ pub struct DataSource {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "type", content = "config")]
 pub enum DataSourceType {
-    Api { endpoint: String, method: HttpMethod, headers: IndexMap<String, String>, params: IndexMap<String, String>, body: Option<String> },
-    GraphQL { endpoint: String, query: String, variables: IndexMap<String, String> },
-    WebSocket { url: String, protocols: Vec<String>, message_handler: String },
-    Database { entity_id: crate::entity::EntityId, query: DatabaseQuery },
-    Static { data: serde_json::Value },
-    Computed { expression: String, dependencies: Vec<String> },
-    Store { store_id: String, keys: Vec<String> },
-    UrlParam { param: String, transform: Option<String> },
-    LocalStorage { key: String, default: Option<serde_json::Value> },
-    SessionStorage { key: String, default: Option<serde_json::Value> },
-    Cookie { name: String, default: Option<serde_json::Value> },
+    Api {
+        endpoint: String,
+        method: HttpMethod,
+        headers: IndexMap<String, String>,
+        params: IndexMap<String, String>,
+        body: Option<String>,
+    },
+    GraphQL {
+        endpoint: String,
+        query: String,
+        variables: IndexMap<String, String>,
+    },
+    WebSocket {
+        url: String,
+        protocols: Vec<String>,
+        message_handler: String,
+    },
+    Database {
+        entity_id: crate::entity::EntityId,
+        query: DatabaseQuery,
+    },
+    Static {
+        data: serde_json::Value,
+    },
+    Computed {
+        expression: String,
+        dependencies: Vec<String>,
+    },
+    Store {
+        store_id: String,
+        keys: Vec<String>,
+    },
+    UrlParam {
+        param: String,
+        transform: Option<String>,
+    },
+    LocalStorage {
+        key: String,
+        default: Option<serde_json::Value>,
+    },
+    SessionStorage {
+        key: String,
+        default: Option<serde_json::Value>,
+    },
+    Cookie {
+        name: String,
+        default: Option<serde_json::Value>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -767,44 +1050,154 @@ impl Default for ActionId {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "type", content = "config")]
 pub enum ActionConfig {
-    Navigate { path: String, replace: bool, state: Option<serde_json::Value> },
-    Redirect { url: String, external: bool },
+    Navigate {
+        path: String,
+        replace: bool,
+        state: Option<serde_json::Value>,
+    },
+    Redirect {
+        url: String,
+        external: bool,
+    },
     Reload,
     Back,
     Forward,
-    Go { delta: i32 },
-    OpenModal { modal_id: ComponentId, props: IndexMap<String, serde_json::Value> },
-    CloseModal { modal_id: ComponentId },
-    SubmitForm { form_id: ComponentId, validate: bool, on_success: Vec<ActionId>, on_error: Vec<ActionId> },
-    ResetForm { form_id: ComponentId },
-    SetFormValues { form_id: ComponentId, values: IndexMap<String, serde_json::Value> },
-    SetFieldValue { form_id: ComponentId, field: String, value: serde_json::Value },
-    ValidateForm { form_id: ComponentId },
-    CallApi { data_source_id: String, params: IndexMap<String, String>, on_success: Vec<ActionId>, on_error: Vec<ActionId> },
-    ExecuteWorkflow { workflow_id: WorkflowId, variables: IndexMap<String, String>, on_complete: Vec<ActionId>, on_error: Vec<ActionId> },
-    SetState { key: String, value: serde_json::Value, scope: StateScope },
-    GetState { key: String, scope: StateScope, default: Option<serde_json::Value> },
-    DeleteState { key: String, scope: StateScope },
-    ClearState { scope: StateScope },
-    EmitEvent { event_name: String, payload: serde_json::Value, target: EventTarget },
-    SubscribeEvent { event_name: String, handler: ActionId },
-    UnsubscribeEvent { event_name: String },
-    CopyToClipboard { text: String, success_message: Option<String> },
-    Download { url: String, filename: String },
+    Go {
+        delta: i32,
+    },
+    OpenModal {
+        modal_id: ComponentId,
+        props: IndexMap<String, serde_json::Value>,
+    },
+    CloseModal {
+        modal_id: ComponentId,
+    },
+    SubmitForm {
+        form_id: ComponentId,
+        validate: bool,
+        on_success: Vec<ActionId>,
+        on_error: Vec<ActionId>,
+    },
+    ResetForm {
+        form_id: ComponentId,
+    },
+    SetFormValues {
+        form_id: ComponentId,
+        values: IndexMap<String, serde_json::Value>,
+    },
+    SetFieldValue {
+        form_id: ComponentId,
+        field: String,
+        value: serde_json::Value,
+    },
+    ValidateForm {
+        form_id: ComponentId,
+    },
+    CallApi {
+        data_source_id: String,
+        params: IndexMap<String, String>,
+        on_success: Vec<ActionId>,
+        on_error: Vec<ActionId>,
+    },
+    ExecuteWorkflow {
+        workflow_id: WorkflowId,
+        variables: IndexMap<String, String>,
+        on_complete: Vec<ActionId>,
+        on_error: Vec<ActionId>,
+    },
+    SetState {
+        key: String,
+        value: serde_json::Value,
+        scope: StateScope,
+    },
+    GetState {
+        key: String,
+        scope: StateScope,
+        default: Option<serde_json::Value>,
+    },
+    DeleteState {
+        key: String,
+        scope: StateScope,
+    },
+    ClearState {
+        scope: StateScope,
+    },
+    EmitEvent {
+        event_name: String,
+        payload: serde_json::Value,
+        target: EventTarget,
+    },
+    SubscribeEvent {
+        event_name: String,
+        handler: ActionId,
+    },
+    UnsubscribeEvent {
+        event_name: String,
+    },
+    CopyToClipboard {
+        text: String,
+        success_message: Option<String>,
+    },
+    Download {
+        url: String,
+        filename: String,
+    },
     Print,
-    OpenWindow { url: String, name: String, features: String },
+    OpenWindow {
+        url: String,
+        name: String,
+        features: String,
+    },
     CloseWindow,
-    FocusElement { selector: String },
-    ScrollTo { selector: String, behavior: ScrollBehavior, block: ScrollAlignment },
-    RunScript { script: String, args: Vec<serde_json::Value> },
-    EvalExpression { expression: String, result_var: String },
-    Delay { ms: u32 },
-    Batch { actions: Vec<ActionId>, parallel: bool },
-    Conditional { condition: String, then_actions: Vec<ActionId>, else_actions: Vec<ActionId> },
-    Loop { collection: String, item_var: String, index_var: Option<String>, body: Vec<ActionId> },
-    TryCatch { try_actions: Vec<ActionId>, catch_actions: Vec<ActionId>, finally_actions: Vec<ActionId> },
-    Log { level: LogLevel, message: String, metadata: IndexMap<String, serde_json::Value> },
-    ReportError { message: String, code: Option<String>, context: IndexMap<String, serde_json::Value> },
+    FocusElement {
+        selector: String,
+    },
+    ScrollTo {
+        selector: String,
+        behavior: ScrollBehavior,
+        block: ScrollAlignment,
+    },
+    RunScript {
+        script: String,
+        args: Vec<serde_json::Value>,
+    },
+    EvalExpression {
+        expression: String,
+        result_var: String,
+    },
+    Delay {
+        ms: u32,
+    },
+    Batch {
+        actions: Vec<ActionId>,
+        parallel: bool,
+    },
+    Conditional {
+        condition: String,
+        then_actions: Vec<ActionId>,
+        else_actions: Vec<ActionId>,
+    },
+    Loop {
+        collection: String,
+        item_var: String,
+        index_var: Option<String>,
+        body: Vec<ActionId>,
+    },
+    TryCatch {
+        try_actions: Vec<ActionId>,
+        catch_actions: Vec<ActionId>,
+        finally_actions: Vec<ActionId>,
+    },
+    Log {
+        level: LogLevel,
+        message: String,
+        metadata: IndexMap<String, serde_json::Value>,
+    },
+    ReportError {
+        message: String,
+        code: Option<String>,
+        context: IndexMap<String, serde_json::Value>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

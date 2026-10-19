@@ -5,12 +5,12 @@
 //! only adapts those calls to the plain `String`-in / `String`-out shape the
 //! JavaScript shells use, so no host needs direct access to the crate types.
 
+use indexmap::IndexMap;
 use nocode_bpmn::engine::{
     BpmnEngine, InstanceStatus, Severity, TaskStatus, TokenStatus, ValidationIssue,
 };
 use nocode_bpmn::xml::{export_bpmn, parse_bpmn};
 use nocode_model::Workflow;
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 /// Result of a workflow validation pass, in the shape the IDE frontend reads.
@@ -50,7 +50,8 @@ fn parse_workflow(workflow_json: &str) -> Result<Workflow, String> {
 /// Parse BPMN 2.0 XML into a `Workflow` and return its canonical JSON.
 pub fn import_bpmn(xml: &str, name: &str) -> Result<String, String> {
     let workflow = parse_bpmn(xml, name).map_err(|error| error.to_string())?;
-    serde_json::to_string(&workflow).map_err(|error| format!("failed to serialize workflow: {error}"))
+    serde_json::to_string(&workflow)
+        .map_err(|error| format!("failed to serialize workflow: {error}"))
 }
 
 /// Serialize a `Workflow` (given as JSON) into BPMN 2.0 XML.
@@ -65,7 +66,11 @@ pub fn validate_workflow(workflow_json: &str) -> Result<WorkflowValidation, Stri
     let result = BpmnEngine::new().validate(&workflow);
     Ok(WorkflowValidation {
         valid: result.is_valid(),
-        issues: result.issues.into_iter().map(ValidationIssueDto::from).collect(),
+        issues: result
+            .issues
+            .into_iter()
+            .map(ValidationIssueDto::from)
+            .collect(),
     })
 }
 
@@ -169,8 +174,18 @@ pub fn run_workflow(
         }
     }
 
-    supplied.extend(instance.variables.iter().map(|(k, v)| (k.clone(), v.clone())));
-    Ok(summarize(&workflow, &instance, options.auto_complete_tasks, supplied))
+    supplied.extend(
+        instance
+            .variables
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
+    Ok(summarize(
+        &workflow,
+        &instance,
+        options.auto_complete_tasks,
+        supplied,
+    ))
 }
 
 fn summarize(
@@ -207,7 +222,10 @@ fn summarize(
             "passed"
         };
 
-        if let Some(existing) = steps.iter_mut().find(|step| step.node_id == node_id.to_string()) {
+        if let Some(existing) = steps
+            .iter_mut()
+            .find(|step| step.node_id == node_id.to_string())
+        {
             existing.outcome = outcome.to_string();
         } else {
             steps.push(RunStep {
@@ -428,7 +446,11 @@ mod tests {
         assert_eq!(summary.open_tasks.len(), 1, "review task should be open");
         assert_eq!(summary.open_tasks[0].node_name, "Review");
         // The run visited the start event and parked at the user task.
-        let names: Vec<&str> = summary.steps.iter().map(|step| step.node_name.as_str()).collect();
+        let names: Vec<&str> = summary
+            .steps
+            .iter()
+            .map(|step| step.node_name.as_str())
+            .collect();
         assert!(names.contains(&"Start"), "steps: {names:?}");
         assert!(names.contains(&"Review"), "steps: {names:?}");
     }
@@ -446,12 +468,23 @@ mod tests {
         .expect("run succeeds");
 
         assert!(summary.auto_completed_tasks);
-        assert!(summary.completed, "instance should finish: {}", summary.status);
+        assert!(
+            summary.completed,
+            "instance should finish: {}",
+            summary.status
+        );
         assert!(summary.open_tasks.is_empty());
-        let names: Vec<&str> = summary.steps.iter().map(|step| step.node_name.as_str()).collect();
+        let names: Vec<&str> = summary
+            .steps
+            .iter()
+            .map(|step| step.node_name.as_str())
+            .collect();
         assert!(names.contains(&"Approved"), "steps: {names:?}");
         assert!(!names.contains(&"Rejected"), "steps: {names:?}");
-        assert_eq!(summary.variables.get("approved"), Some(&serde_json::json!(true)));
+        assert_eq!(
+            summary.variables.get("approved"),
+            Some(&serde_json::json!(true))
+        );
     }
 
     #[test]
@@ -462,7 +495,10 @@ mod tests {
             RunOptions::default(),
         )
         .expect_err("non-object variables must fail");
-        assert!(error.contains("variables must be an object"), "got: {error}");
+        assert!(
+            error.contains("variables must be an object"),
+            "got: {error}"
+        );
     }
 
     #[test]

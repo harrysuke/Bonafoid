@@ -18,7 +18,8 @@ use crate::xml;
 
 /// Parse a JSON workflow definition.
 fn parse_workflow(json: &str) -> napi::Result<Workflow> {
-    serde_json::from_str(json).map_err(|e| napi::Error::from_reason(format!("invalid workflow: {e}")))
+    serde_json::from_str(json)
+        .map_err(|e| napi::Error::from_reason(format!("invalid workflow: {e}")))
 }
 
 /// Serialize any value to a JSON string.
@@ -95,8 +96,8 @@ pub fn terminate_process(instance_json: String) -> napi::Result<String> {
 /// Import a BPMN 2.0 XML document into a workflow JSON definition.
 #[napi]
 pub fn import_bpmn_xml(xml_str: String, name: String) -> napi::Result<String> {
-    let workflow = xml::parse_bpmn(&xml_str, &name)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let workflow =
+        xml::parse_bpmn(&xml_str, &name).map_err(|e| napi::Error::from_reason(e.to_string()))?;
     to_json(&workflow)
 }
 

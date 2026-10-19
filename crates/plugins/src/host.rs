@@ -275,7 +275,11 @@ impl PluginHost {
             let plugin = plugins
                 .get(id)
                 .ok_or_else(|| PluginError::NotFound(id.to_string()))?;
-            (plugin.module.clone(), plugin.manifest.clone(), plugin.enabled)
+            (
+                plugin.module.clone(),
+                plugin.manifest.clone(),
+                plugin.enabled,
+            )
         };
 
         if !enabled {
@@ -308,7 +312,11 @@ impl PluginHost {
             let plugin = plugins
                 .get(id)
                 .ok_or_else(|| PluginError::NotFound(id.to_string()))?;
-            (plugin.module.clone(), plugin.manifest.clone(), plugin.enabled)
+            (
+                plugin.module.clone(),
+                plugin.manifest.clone(),
+                plugin.enabled,
+            )
         };
 
         if !enabled {
@@ -428,7 +436,8 @@ mod tests {
     #[test]
     fn installs_and_runs() {
         let (host, module) = host_and_module();
-        host.install(manifest("com.test.hello"), module, None).unwrap();
+        host.install(manifest("com.test.hello"), module, None)
+            .unwrap();
 
         assert_eq!(host.list(), vec!["com.test.hello".to_string()]);
         let outcome = host.call_export("com.test.hello", "greet").unwrap();
@@ -438,7 +447,8 @@ mod tests {
     #[test]
     fn runs_i32_export_and_meters_fuel() {
         let (host, module) = host_and_module();
-        host.install(manifest("com.test.hello"), module, None).unwrap();
+        host.install(manifest("com.test.hello"), module, None)
+            .unwrap();
         let outcome = host.call_i32("com.test.hello", "bump", 0).unwrap();
         assert_eq!(outcome.result, Some(1));
         assert!(outcome.fuel_used > 0);
@@ -460,14 +470,17 @@ mod tests {
         let (host, module) = host_and_module();
         host.install(manifest("com.test.hello"), module.clone(), None)
             .unwrap();
-        let err = host.install(manifest("com.test.hello"), module, None).unwrap_err();
+        let err = host
+            .install(manifest("com.test.hello"), module, None)
+            .unwrap_err();
         assert!(matches!(err, PluginError::AlreadyInstalled(_)));
     }
 
     #[test]
     fn disable_blocks_execution() {
         let (host, module) = host_and_module();
-        host.install(manifest("com.test.hello"), module, None).unwrap();
+        host.install(manifest("com.test.hello"), module, None)
+            .unwrap();
         host.set_enabled("com.test.hello", false).unwrap();
         assert!(host.call_export("com.test.hello", "greet").is_err());
     }
@@ -475,7 +488,8 @@ mod tests {
     #[test]
     fn uninstall_removes_plugin() {
         let (host, module) = host_and_module();
-        host.install(manifest("com.test.hello"), module, None).unwrap();
+        host.install(manifest("com.test.hello"), module, None)
+            .unwrap();
         host.uninstall("com.test.hello").unwrap();
         assert!(host.list().is_empty());
         assert!(host.uninstall("com.test.hello").is_err());

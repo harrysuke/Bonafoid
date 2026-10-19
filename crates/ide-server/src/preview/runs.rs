@@ -202,9 +202,7 @@ impl RunManager {
             .lock()
             .unwrap()
             .values()
-            .filter(|record| {
-                matches!(record.status, RunStatus::Starting | RunStatus::Running)
-            })
+            .filter(|record| matches!(record.status, RunStatus::Starting | RunStatus::Running))
             .count()
             >= self.config.max_runs
         {
@@ -216,7 +214,10 @@ impl RunManager {
         // Bare program names (`cmd.exe`, `sh`) are resolved through PATH when
         // spawned, so only probe the filesystem for an explicit path.
         if program.components().count() > 1 && !program.exists() {
-            return Err(format!("backend binary {} does not exist", program.display()));
+            return Err(format!(
+                "backend binary {} does not exist",
+                program.display()
+            ));
         }
 
         let port = self
@@ -280,7 +281,10 @@ impl RunManager {
             records.get(build_id).map(|record| record.port)
         }?;
 
-        if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .is_ok()
+        {
             if let Some(record) = self.records.lock().unwrap().get_mut(build_id) {
                 if record.status == RunStatus::Starting {
                     record.status = RunStatus::Running;
@@ -317,7 +321,12 @@ impl RunManager {
     async fn take_exit_code(&self, build_id: &str) -> Option<i32> {
         let mut processes = self.processes.lock().unwrap();
         let process = processes.get_mut(build_id)?;
-        process.child.try_wait().ok().flatten().and_then(|s| s.code())
+        process
+            .child
+            .try_wait()
+            .ok()
+            .flatten()
+            .and_then(|s| s.code())
     }
 
     /// Stop every running preview of one project.
@@ -449,7 +458,10 @@ mod tests {
             )
             .await
             .expect_err("missing binary must fail");
-        assert!(error.contains("cannot start backend"), "unexpected: {error}");
+        assert!(
+            error.contains("cannot start backend"),
+            "unexpected: {error}"
+        );
         assert!(manager.get("b1b").is_none());
     }
 
@@ -458,7 +470,15 @@ mod tests {
         let manager = manager();
         let (program, args) = sleeper();
         let record = manager
-            .start("b2", "u1", "p1", program, &args, std::env::temp_dir(), Vec::new())
+            .start(
+                "b2",
+                "u1",
+                "p1",
+                program,
+                &args,
+                std::env::temp_dir(),
+                Vec::new(),
+            )
             .await
             .expect("start");
         assert!(matches!(record.status, RunStatus::Starting));
@@ -478,7 +498,15 @@ mod tests {
         let manager = manager();
         let (program, args) = sleeper();
         let _ = manager
-            .start("b3", "u1", "p1", program, &args, std::env::temp_dir(), Vec::new())
+            .start(
+                "b3",
+                "u1",
+                "p1",
+                program,
+                &args,
+                std::env::temp_dir(),
+                Vec::new(),
+            )
             .await;
         manager.touch("b3");
         manager.touch("b3");
@@ -497,7 +525,15 @@ mod tests {
         }));
         let (program, args) = sleeper();
         let _ = manager
-            .start("b4", "u1", "p1", program, &args, std::env::temp_dir(), Vec::new())
+            .start(
+                "b4",
+                "u1",
+                "p1",
+                program,
+                &args,
+                std::env::temp_dir(),
+                Vec::new(),
+            )
             .await;
         let reaped = manager.reap_idle().await;
         assert_eq!(reaped, vec!["b4".to_string()]);
@@ -510,10 +546,7 @@ mod tests {
         {
             (
                 PathBuf::from("cmd.exe"),
-                vec![
-                    "/C".to_string(),
-                    "ping -n 60 127.0.0.1 > nul".to_string(),
-                ],
+                vec!["/C".to_string(), "ping -n 60 127.0.0.1 > nul".to_string()],
             )
         }
         #[cfg(not(windows))]

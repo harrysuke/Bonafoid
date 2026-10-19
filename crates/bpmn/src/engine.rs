@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use nocode_model::{
-    EdgeId, NodeId, ServiceTaskImplementation, StartEventType, Workflow, WorkflowNode,
-    WorkflowNodeType, WorkflowId,
+    EdgeId, NodeId, ServiceTaskImplementation, StartEventType, Workflow, WorkflowId, WorkflowNode,
+    WorkflowNodeType,
 };
 
 use crate::error::{BpmnError, Result};
@@ -253,7 +253,11 @@ impl BpmnEngine {
                 .iter()
                 .filter(|e| e.source == node.id)
                 .collect();
-            let incoming = workflow.edges.iter().filter(|e| e.target == node.id).count();
+            let incoming = workflow
+                .edges
+                .iter()
+                .filter(|e| e.target == node.id)
+                .count();
 
             if !matches!(node.node_type, WorkflowNodeType::EndEvent { .. }) && outgoing.is_empty() {
                 result.error(
@@ -602,7 +606,8 @@ impl BpmnEngine {
             }
 
             WorkflowNodeType::ExclusiveGateway { default_flow } => {
-                let chosen = self.select_exclusive(workflow, node, instance, default_flow.as_ref())?;
+                let chosen =
+                    self.select_exclusive(workflow, node, instance, default_flow.as_ref())?;
                 match chosen {
                     Some(target) => {
                         instance.tokens[token_idx].node_id = target;
@@ -772,12 +777,16 @@ fn describe_service_task(implementation: &ServiceTaskImplementation) -> String {
 mod tests {
     use super::*;
     use nocode_model::{
-        EndEventType, NodePosition, NodeConfig, RetryConfig, StartEventType, TaskType,
-        WorkflowEdge,
+        EndEventType, NodeConfig, NodePosition, RetryConfig, StartEventType, TaskType, WorkflowEdge,
     };
 
     fn start(name: &str) -> WorkflowNode {
-        node(name, WorkflowNodeType::StartEvent { event_type: StartEventType::None })
+        node(
+            name,
+            WorkflowNodeType::StartEvent {
+                event_type: StartEventType::None,
+            },
+        )
     }
 
     fn end(name: &str) -> WorkflowNode {
@@ -873,7 +882,10 @@ mod tests {
         let wf = workflow(vec![s.clone(), e.clone()], vec![edge(&s, &e)]);
         let instance = BpmnEngine::new().start(&wf, vars(&[])).unwrap();
         assert_eq!(instance.status, InstanceStatus::Completed);
-        assert!(instance.tokens.iter().all(|t| t.status == TokenStatus::Consumed));
+        assert!(instance
+            .tokens
+            .iter()
+            .all(|t| t.status == TokenStatus::Consumed));
     }
 
     #[test]
@@ -894,7 +906,12 @@ mod tests {
 
         let task_id = instance.tasks[0].id.clone();
         engine
-            .complete_task(&wf, &mut instance, &task_id, vars(&[("approved", serde_json::json!(true))]))
+            .complete_task(
+                &wf,
+                &mut instance,
+                &task_id,
+                vars(&[("approved", serde_json::json!(true))]),
+            )
             .unwrap();
         assert_eq!(instance.status, InstanceStatus::Completed);
         assert_eq!(instance.open_tasks().len(), 0);
@@ -919,7 +936,9 @@ mod tests {
         );
 
         let engine = BpmnEngine::new();
-        let high_instance = engine.start(&wf, vars(&[("amount", serde_json::json!(150))])).unwrap();
+        let high_instance = engine
+            .start(&wf, vars(&[("amount", serde_json::json!(150))]))
+            .unwrap();
         assert_eq!(high_instance.status, InstanceStatus::Completed);
         assert!(high_instance
             .history
@@ -930,7 +949,9 @@ mod tests {
             .iter()
             .any(|h| h.node_name.as_deref() == Some("Low")));
 
-        let low_instance = engine.start(&wf, vars(&[("amount", serde_json::json!(50))])).unwrap();
+        let low_instance = engine
+            .start(&wf, vars(&[("amount", serde_json::json!(50))]))
+            .unwrap();
         assert!(low_instance
             .history
             .iter()
@@ -944,7 +965,10 @@ mod tests {
         let default_end = end("Default");
 
         // Build the default edge first so the gateway can reference its id.
-        let probe = node("Decision", WorkflowNodeType::ExclusiveGateway { default_flow: None });
+        let probe = node(
+            "Decision",
+            WorkflowNodeType::ExclusiveGateway { default_flow: None },
+        );
         let mut e_cond = edge_cond(&probe, &low, Some("amount < 10"));
         let mut e_default = edge(&probe, &default_end);
 
@@ -1015,10 +1039,14 @@ mod tests {
         let wf = workflow(vec![s.clone(), e.clone()], vec![edge(&s, &e)]);
 
         let engine = BpmnEngine::new();
-        let off = engine.start(&wf, vars(&[("enabled", serde_json::json!(false))])).unwrap();
+        let off = engine
+            .start(&wf, vars(&[("enabled", serde_json::json!(false))]))
+            .unwrap();
         assert_eq!(off.status, InstanceStatus::Terminated);
 
-        let on = engine.start(&wf, vars(&[("enabled", serde_json::json!(true))])).unwrap();
+        let on = engine
+            .start(&wf, vars(&[("enabled", serde_json::json!(true))]))
+            .unwrap();
         assert_eq!(on.status, InstanceStatus::Completed);
     }
 
@@ -1093,15 +1121,23 @@ mod tests {
     #[test]
     fn generic_task_and_manual_task_flow_through() {
         let s = start("S");
-        let generic = node("G", WorkflowNodeType::Task { task_type: TaskType::Service });
+        let generic = node(
+            "G",
+            WorkflowNodeType::Task {
+                task_type: TaskType::Service,
+            },
+        );
         let manual = node("M", WorkflowNodeType::ManualTask);
         let e = end("E");
         let wf = workflow(
             vec![s.clone(), generic.clone(), manual.clone(), e.clone()],
-            vec![edge(&s, &generic), edge(&generic, &manual), edge(&manual, &e)],
+            vec![
+                edge(&s, &generic),
+                edge(&generic, &manual),
+                edge(&manual, &e),
+            ],
         );
         let instance = BpmnEngine::new().start(&wf, vars(&[])).unwrap();
         assert_eq!(instance.status, InstanceStatus::Completed);
     }
 }
-

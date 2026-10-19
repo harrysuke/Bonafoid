@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Theme {

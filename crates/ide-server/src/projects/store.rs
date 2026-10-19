@@ -10,7 +10,8 @@ use sea_orm::{
 
 use crate::error::ApiError;
 
-const SUMMARY_COLUMNS: &str = "id, name, slug, description, version, revision, created_at, updated_at";
+const SUMMARY_COLUMNS: &str =
+    "id, name, slug, description, version, revision, created_at, updated_at";
 
 /// Listing projection of a project row (no JSON document).
 #[derive(Debug, Clone)]
@@ -79,9 +80,7 @@ pub async fn get_project(
     user_id: &str,
     id: &str,
 ) -> Result<Option<ProjectRow>, ApiError> {
-    let sql = format!(
-        "SELECT {SUMMARY_COLUMNS}, data FROM projects WHERE id = ? AND user_id = ?"
-    );
+    let sql = format!("SELECT {SUMMARY_COLUMNS}, data FROM projects WHERE id = ? AND user_id = ?");
     let row = db
         .query_one(statement(&sql, vec![text(id), text(user_id)]))
         .await

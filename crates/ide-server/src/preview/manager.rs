@@ -201,7 +201,12 @@ impl PreviewConfig {
         });
         let cargo_target_dir = root.join(".cargo-target");
         let trunk_offline = std::env::var("IDE_PREVIEW_TRUNK_OFFLINE")
-            .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes"
+                )
+            })
             .unwrap_or(false);
         Self {
             root,
@@ -392,7 +397,10 @@ mod tests {
         let manager = manager();
         manager.enqueue("b2".into(), "p1".into(), "u1".into(), BuildTarget::Backend);
         manager.advance("b2", BuildState::BuildingBackend);
-        assert_eq!(manager.get("b2").unwrap().state, BuildState::BuildingBackend);
+        assert_eq!(
+            manager.get("b2").unwrap().state,
+            BuildState::BuildingBackend
+        );
 
         manager.finish_err("b2", "cargo failed".into());
         let record = manager.get("b2").unwrap();
@@ -409,7 +417,10 @@ mod tests {
         let manager = manager();
         manager.enqueue("b3".into(), "p1".into(), "u1".into(), BuildTarget::All);
         let total = MAX_LOG_LINES + 25;
-        manager.append_logs("b3", (0..total).map(|index| format!("line {index}")).collect());
+        manager.append_logs(
+            "b3",
+            (0..total).map(|index| format!("line {index}")).collect(),
+        );
         let record = manager.get("b3").unwrap();
         assert_eq!(record.logs.len(), MAX_LOG_LINES);
         // The oldest lines were dropped, the newest survive in order.

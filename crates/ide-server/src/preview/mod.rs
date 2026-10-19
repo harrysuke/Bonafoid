@@ -70,10 +70,7 @@ pub struct StartBuildRequest {
 /// The preview routes, merged into the main router.
 pub fn preview_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/api/v1/projects/:id/preview/build",
-            post(start_build),
-        )
+        .route("/api/v1/projects/:id/preview/build", post(start_build))
         .route("/api/v1/preview/capabilities", get(capabilities_handler))
         .route("/api/v1/builds", get(list_builds))
         .route("/api/v1/builds/:id", get(get_build).delete(cancel_build))
@@ -98,10 +95,7 @@ async fn start_build(
 
     // Cargo cannot relink a binary that is still executing, so a rebuild
     // always invalidates the project's running preview.
-    let stopped = state
-        .runs
-        .stop_for_project(&project.id.to_string())
-        .await;
+    let stopped = state.runs.stop_for_project(&project.id.to_string()).await;
 
     let record = state.preview.enqueue(
         build_id.clone(),
@@ -143,10 +137,7 @@ async fn capabilities_handler(
 }
 
 /// `GET /api/v1/builds` — builds owned by the caller, newest first.
-async fn list_builds(
-    State(state): State<AppState>,
-    user: AuthUser,
-) -> Json<Vec<BuildRecord>> {
+async fn list_builds(State(state): State<AppState>, user: AuthUser) -> Json<Vec<BuildRecord>> {
     Json(state.preview.list_for_user(&user.id))
 }
 
@@ -296,10 +287,7 @@ async fn stop_run(
 ///
 /// Each entry is refreshed first so a crashed preview shows up as `failed`
 /// instead of lingering in `starting`.
-async fn list_runs(
-    State(state): State<AppState>,
-    user: AuthUser,
-) -> Json<Vec<RunRecord>> {
+async fn list_runs(State(state): State<AppState>, user: AuthUser) -> Json<Vec<RunRecord>> {
     for record in state.runs.list_for_user(&user.id) {
         state.runs.refresh(&record.build_id).await;
     }
@@ -316,7 +304,9 @@ mod tests {
     async fn test_router() -> Router {
         static KEYS: OnceLock<Arc<crate::auth::JwtKeys>> = OnceLock::new();
         let keys = KEYS
-            .get_or_init(|| Arc::new(crate::auth::JwtKeys::generate_ephemeral().expect("test keys")))
+            .get_or_init(|| {
+                Arc::new(crate::auth::JwtKeys::generate_ephemeral().expect("test keys"))
+            })
             .clone();
         let db = crate::db::connect_sqlite_memory().await.expect("db");
         crate::migration::run(&db).await.expect("migrations");
@@ -361,7 +351,13 @@ mod tests {
         let csrf = cookies
             .iter()
             .find(|cookie| cookie.starts_with("nocode_csrf="))
-            .map(|cookie| cookie["nocode_csrf=".len()..].split(';').next().unwrap().to_string())
+            .map(|cookie| {
+                cookie["nocode_csrf=".len()..]
+                    .split(';')
+                    .next()
+                    .unwrap()
+                    .to_string()
+            })
             .expect("csrf cookie");
         (cookies.join("; "), csrf)
     }
@@ -444,7 +440,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(no_csrf.status(), 403, "missing CSRF header must be rejected");
+        assert_eq!(
+            no_csrf.status(),
+            403,
+            "missing CSRF header must be rejected"
+        );
 
         let accepted = app
             .clone()

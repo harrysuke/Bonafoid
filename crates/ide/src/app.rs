@@ -176,15 +176,14 @@ impl IdeApp {
                     self.state.new_project("Untitled Project");
                 }
                 "file.open" => {
-                    self.state
-                        .log_warn("Open project requires a host file dialog (not available in headless mode)");
+                    self.state.log_warn(
+                        "Open project requires a host file dialog (not available in headless mode)",
+                    );
                 }
-                "file.save" => {
-                    match self.state.save_project(None) {
-                        Ok(path) => self.state.log_info(&format!("Saved: {}", path.display())),
-                        Err(err) => self.state.log_error(err),
-                    }
-                }
+                "file.save" => match self.state.save_project(None) {
+                    Ok(path) => self.state.log_info(&format!("Saved: {}", path.display())),
+                    Err(err) => self.state.log_error(err),
+                },
                 "file.close" => {
                     self.state.close_project();
                 }
@@ -327,7 +326,8 @@ impl IdeApp {
 
     fn validate_workflows(&mut self) {
         if !self.state.has_active() {
-            self.state.log_warn("No active project to validate workflows");
+            self.state
+                .log_warn("No active project to validate workflows");
             return;
         }
         let mut messages: Vec<(String, String)> = Vec::new();
@@ -422,7 +422,11 @@ impl IdeApp {
     fn status_bar(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let status = if self.state.has_active() {
-                format!("{} — View: {}", self.state.project().unwrap().name, self.state.view.label())
+                format!(
+                    "{} — View: {}",
+                    self.state.project().unwrap().name,
+                    self.state.view.label()
+                )
             } else {
                 "No active project".to_string()
             };
@@ -553,7 +557,8 @@ impl IdeApp {
         let mut clicked: Option<nocode_model::WorkflowId> = None;
         if let Some(project) = self.state.project() {
             for (id, wf) in &project.workflows {
-                let selected = matches!(&self.state.selection, Some(Selection::Workflow(s)) if s == id);
+                let selected =
+                    matches!(&self.state.selection, Some(Selection::Workflow(s)) if s == id);
                 if ui.selectable_label(selected, &wf.name).clicked() {
                     clicked = Some(id.clone());
                 }
@@ -572,8 +577,7 @@ impl IdeApp {
         let mut clicked: Option<String> = None;
         if let Some(project) = self.state.project() {
             for entity in project.entities.values() {
-                let selected =
-                    matches!(&self.state.selection, Some(Selection::Entity(s)) if s == &entity.name);
+                let selected = matches!(&self.state.selection, Some(Selection::Entity(s)) if s == &entity.name);
                 if ui.selectable_label(selected, &entity.name).clicked() {
                     clicked = Some(entity.name.clone());
                 }
@@ -649,7 +653,8 @@ impl IdeApp {
     fn palette(&mut self, ui: &mut Ui) {
         ui.text_edit_singleline(&mut self.palette_query);
         let query = self.palette_query.clone();
-        let matches: Vec<&'static str> = self.commands.search(&query).iter().map(|c| c.id).collect();
+        let matches: Vec<&'static str> =
+            self.commands.search(&query).iter().map(|c| c.id).collect();
         for id in matches {
             let label = self.commands.find(id).map(|c| c.label).unwrap_or(id);
             if ui.button(label).clicked() {

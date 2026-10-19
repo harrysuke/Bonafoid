@@ -197,9 +197,7 @@ impl IdeService {
     }
 
     pub fn save_project(&self, path: &str) -> Result<(), String> {
-        let project = self
-            .current_project_clone()
-            .ok_or("No project loaded")?;
+        let project = self.current_project_clone().ok_or("No project loaded")?;
 
         let json = serde_json::to_string_pretty(&project).map_err(|e| e.to_string())?;
         std::fs::write(path, json).map_err(|e| e.to_string())?;
@@ -220,7 +218,9 @@ impl IdeService {
 
     pub fn get_current_project(&self) -> Result<Option<String>, String> {
         match self.current_project_clone() {
-            Some(project) => Ok(Some(serde_json::to_string(&project).map_err(|e| e.to_string())?)),
+            Some(project) => Ok(Some(
+                serde_json::to_string(&project).map_err(|e| e.to_string())?,
+            )),
             None => Ok(None),
         }
     }
@@ -240,14 +240,11 @@ impl IdeService {
     }
 
     pub async fn generate_code(&self, output_dir: &str) -> Result<GenerationReport, String> {
-        let project = self
-            .current_project_clone()
-            .ok_or("No project loaded")?;
+        let project = self.current_project_clone().ok_or("No project loaded")?;
 
-        let generated =
-            nocode_codegen::generate_project(&project, &PathBuf::from(output_dir))
-                .await
-                .map_err(|e| e.to_string())?;
+        let generated = nocode_codegen::generate_project(&project, &PathBuf::from(output_dir))
+            .await
+            .map_err(|e| e.to_string())?;
 
         Ok(GenerationReport {
             output_dir: output_dir.to_string(),
@@ -258,9 +255,7 @@ impl IdeService {
     }
 
     pub async fn generate_zip(&self) -> Result<Vec<u8>, String> {
-        let project = self
-            .current_project_clone()
-            .ok_or("No project loaded")?;
+        let project = self.current_project_clone().ok_or("No project loaded")?;
 
         let generated = nocode_codegen::generate_project_in_memory(&project)
             .await

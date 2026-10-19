@@ -166,7 +166,9 @@ fn tokenize(src: &str) -> Result<Vec<Token>> {
                 i += 1;
                 tokens.push(Token::Str(s));
             }
-            c if c.is_ascii_digit() || (c == '-' && matches!(chars.get(i + 1), Some(d) if d.is_ascii_digit())) => {
+            c if c.is_ascii_digit()
+                || (c == '-' && matches!(chars.get(i + 1), Some(d) if d.is_ascii_digit())) =>
+            {
                 let start = i;
                 i += 1;
                 while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
@@ -284,9 +286,7 @@ impl<'a> Parser<'a> {
                     _ => Err(BpmnError::Expression("expected `)`".into())),
                 }
             }
-            other => Err(BpmnError::Expression(format!(
-                "unexpected token {other:?}"
-            ))),
+            other => Err(BpmnError::Expression(format!("unexpected token {other:?}"))),
         }
     }
 }
@@ -365,10 +365,7 @@ mod tests {
         vars.insert("amount".to_string(), serde_json::json!(150));
         vars.insert("status".to_string(), serde_json::json!("approved"));
         vars.insert("vip".to_string(), serde_json::json!(true));
-        vars.insert(
-            "customer".to_string(),
-            serde_json::json!({"tier": "gold"}),
-        );
+        vars.insert("customer".to_string(), serde_json::json!({"tier": "gold"}));
         vars
     }
 
@@ -427,7 +424,10 @@ mod tests {
 
     #[test]
     fn evaluates_values() {
-        assert_eq!(evaluate_value("amount", &vars()).unwrap(), serde_json::json!(150));
+        assert_eq!(
+            evaluate_value("amount", &vars()).unwrap(),
+            serde_json::json!(150)
+        );
         assert_eq!(
             evaluate_value("'hello'", &vars()).unwrap(),
             serde_json::json!("hello")

@@ -130,7 +130,10 @@ mod tests {
     async fn creates_expected_tables() {
         let db = connect_sqlite_memory().await.unwrap();
         let names = table_names(&db).await;
-        assert!(names.contains(&"users".to_string()), "missing users: {names:?}");
+        assert!(
+            names.contains(&"users".to_string()),
+            "missing users: {names:?}"
+        );
         assert!(
             names.contains(&"projects".to_string()),
             "missing projects: {names:?}"
@@ -157,6 +160,10 @@ mod tests {
             .await
             .unwrap()
             .len();
-        assert_eq!(count, MIGRATIONS.len(), "migrations recorded more than once");
+        assert_eq!(
+            count,
+            MIGRATIONS.len(),
+            "migrations recorded more than once"
+        );
     }
 }

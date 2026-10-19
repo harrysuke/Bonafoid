@@ -184,9 +184,9 @@ impl IdeState {
             .active
             .as_ref()
             .ok_or_else(|| "no active project".to_string())?;
-        let target = path.or_else(|| self.active_path.clone()).ok_or_else(|| {
-            "no path specified; use `Save As` to choose a location".to_string()
-        })?;
+        let target = path
+            .or_else(|| self.active_path.clone())
+            .ok_or_else(|| "no path specified; use `Save As` to choose a location".to_string())?;
 
         let json = serde_json::to_string_pretty(project)
             .map_err(|e| format!("failed to serialize project: {e}"))?;

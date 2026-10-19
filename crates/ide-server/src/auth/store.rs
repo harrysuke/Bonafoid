@@ -43,9 +43,17 @@ fn map_user(row: &QueryResult) -> Result<UserRow> {
     Ok(UserRow {
         id: row.try_get("", "id").context("users.id")?,
         email: row.try_get("", "email").context("users.email")?,
-        password_hash: row.try_get("", "password_hash").context("users.password_hash")?,
-        is_active: row.try_get::<i64>("", "is_active").context("users.is_active")? != 0,
-        is_verified: row.try_get::<i64>("", "is_verified").context("users.is_verified")? != 0,
+        password_hash: row
+            .try_get("", "password_hash")
+            .context("users.password_hash")?,
+        is_active: row
+            .try_get::<i64>("", "is_active")
+            .context("users.is_active")?
+            != 0,
+        is_verified: row
+            .try_get::<i64>("", "is_verified")
+            .context("users.is_verified")?
+            != 0,
         created_at: row.try_get("", "created_at").context("users.created_at")?,
     })
 }

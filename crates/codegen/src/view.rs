@@ -59,7 +59,10 @@ pub fn snake(input: &str) -> String {
 }
 
 pub fn pascal(input: &str) -> String {
-    words(input).iter().map(|w| capitalize(w)).collect::<String>()
+    words(input)
+        .iter()
+        .map(|w| capitalize(w))
+        .collect::<String>()
 }
 
 pub fn camel(input: &str) -> String {
@@ -105,7 +108,9 @@ fn sql_type(ft: &EntityFieldType, driver: &DatabaseDriver) -> String {
             DatabaseDriver::SQLite => "REAL".to_string(),
             _ => "DOUBLE".to_string(),
         },
-        EntityFieldType::Decimal { precision, scale } => format!("DECIMAL({}, {})", precision, scale),
+        EntityFieldType::Decimal { precision, scale } => {
+            format!("DECIMAL({}, {})", precision, scale)
+        }
         EntityFieldType::Boolean => match driver {
             DatabaseDriver::SQLite => "INTEGER".to_string(),
             DatabaseDriver::MySQL => "TINYINT(1)".to_string(),
@@ -139,9 +144,9 @@ fn sql_type(ft: &EntityFieldType, driver: &DatabaseDriver) -> String {
 fn rust_type(ft: &EntityFieldType) -> &'static str {
     match ft {
         EntityFieldType::Uuid | EntityFieldType::Relation(_) => "Uuid",
-        EntityFieldType::String { .. }
-        | EntityFieldType::Text
-        | EntityFieldType::Enum { .. } => "String",
+        EntityFieldType::String { .. } | EntityFieldType::Text | EntityFieldType::Enum { .. } => {
+            "String"
+        }
         EntityFieldType::Integer => "i32",
         EntityFieldType::BigInteger => "i64",
         EntityFieldType::Float | EntityFieldType::Decimal { .. } => "f64",
@@ -474,10 +479,7 @@ pub fn entity_view(entity: &Entity, project: &Project, driver: &DatabaseDriver) 
         .and_then(|v| v.as_str())
         .unwrap_or("id")
         .to_string();
-    let pk_is_uuid = pk
-        .get("is_uuid")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    let pk_is_uuid = pk.get("is_uuid").and_then(|v| v.as_bool()).unwrap_or(true);
     let pk_is_integer = pk
         .get("is_integer")
         .and_then(|v| v.as_bool())
@@ -570,7 +572,9 @@ fn form_ts_type(ft: &FieldType) -> &'static str {
     match ft {
         FieldType::Number { .. } | FieldType::Integer { .. } => "number",
         FieldType::Boolean => "boolean",
-        FieldType::Select { .. } | FieldType::Radio { .. } | FieldType::Checkbox { .. } => "string[]",
+        FieldType::Select { .. } | FieldType::Radio { .. } | FieldType::Checkbox { .. } => {
+            "string[]"
+        }
         FieldType::Date | FieldType::DateTime | FieldType::Time => "string",
         FieldType::Text { .. }
         | FieldType::TextArea { .. }

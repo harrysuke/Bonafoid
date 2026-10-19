@@ -1,7 +1,7 @@
+use anyhow::Result;
+use nocode_model::{Project, ProjectId};
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
-use nocode_model::{Project, ProjectId};
-use anyhow::Result;
 use tokio::fs;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
@@ -20,8 +20,8 @@ pub struct GeneratedProject {
 }
 
 use crate::backend::BackendOutput;
-use crate::frontend::FrontendOutput;
 use crate::database::DatabaseOutput;
+use crate::frontend::FrontendOutput;
 
 #[derive(Debug, Default)]
 pub struct DockerOutput {
@@ -108,7 +108,10 @@ impl GeneratedProject {
                 migration.up_sql.clone(),
             ));
             files.push((
-                PathBuf::from(format!("database/migrations/{}_down.sql", migration.version)),
+                PathBuf::from(format!(
+                    "database/migrations/{}_down.sql",
+                    migration.version
+                )),
                 migration.down_sql.clone(),
             ));
         }
@@ -222,7 +225,8 @@ async fn write_targets(base: &Path, targets: &crate::targets::TargetsOutput) -> 
 }
 
 fn generate_readme(generated: &GeneratedProject) -> String {
-    format!(r#"# {} - Generated No-Code Application
+    format!(
+        r#"# {} - Generated No-Code Application
 
 This application was generated from a No-Code IDE project.
 
@@ -361,7 +365,8 @@ logs/
 
 # Kubernetes
 .kube/
-"#.to_string()
+"#
+    .to_string()
 }
 
 fn generate_makefile() -> String {
@@ -396,13 +401,15 @@ docker-down:
 
 k8s-deploy:
 	kubectl apply -f kubernetes/
-"#.to_string()
+"#
+    .to_string()
 }
 
 pub async fn generate_docker(project: &Project, _output_dir: &Path) -> Result<DockerOutput> {
     let project_name = &project.slug;
 
-    let dockerfile = format!(r#"# Multi-stage Dockerfile for {project_name}
+    let dockerfile = format!(
+        r#"# Multi-stage Dockerfile for {project_name}
 
 # Build stage
 FROM rust:1.78 as builder
@@ -460,9 +467,11 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 # Run
 CMD ["./{project_name}"]
-"#);
+"#
+    );
 
-    let docker_compose = format!(r#"version: '3.8'
+    let docker_compose = format!(
+        r#"version: '3.8'
 
 services:
   postgres:
@@ -536,7 +545,8 @@ volumes:
   postgres_data:
   redis_data:
   cargo_registry:
-"#);
+"#
+    );
 
     let dockerignore = r#"# Git
 .git
@@ -579,7 +589,8 @@ logs/
 
 # Docker
 docker/
-"#.to_string();
+"#
+    .to_string();
 
     Ok(DockerOutput {
         dockerfile,
@@ -588,11 +599,15 @@ docker/
     })
 }
 
-pub async fn generate_kubernetes(project: &Project, _output_dir: &Path) -> Result<KubernetesOutput> {
+pub async fn generate_kubernetes(
+    project: &Project,
+    _output_dir: &Path,
+) -> Result<KubernetesOutput> {
     let project_name = &project.slug;
     let labels = format!("app: {project_name}");
 
-    let deployment = format!(r#"apiVersion: apps/v1
+    let deployment = format!(
+        r#"apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {project_name}
@@ -694,9 +709,11 @@ spec:
         - name: frontend-assets
           configMap:
             name: {project_name}-frontend-assets
-"#);
+"#
+    );
 
-    let service = format!(r#"apiVersion: v1
+    let service = format!(
+        r#"apiVersion: v1
 kind: Service
 metadata:
   name: {project_name}
@@ -729,9 +746,11 @@ spec:
   selector:
     {labels}
     component: frontend
-"#);
+"#
+    );
 
-    let ingress = format!(r#"apiVersion: networking.k8s.io/v1
+    let ingress = format!(
+        r#"apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {project_name}
@@ -764,9 +783,11 @@ spec:
                 name: {project_name}-frontend
                 port:
                   number: 80
-"#);
+"#
+    );
 
-    let configmap = format!(r#"apiVersion: v1
+    let configmap = format!(
+        r#"apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {project_name}-config
@@ -776,9 +797,11 @@ data:
   frontend-url: "https://{project_name}.example.com"
   rust-log: "info"
   api-base-path: "/api"
-"#);
+"#
+    );
 
-    let secret = format!(r#"apiVersion: v1
+    let secret = format!(
+        r#"apiVersion: v1
 kind: Secret
 metadata:
   name: {project_name}-secrets
@@ -789,7 +812,8 @@ stringData:
   database-url: "postgres://user:password@postgres:5432/{project_name}"
   redis-url: "redis://redis:6379"
   jwt-secret: "CHANGE_ME_IN_PRODUCTION"
-"#);
+"#
+    );
 
     Ok(KubernetesOutput {
         deployment,
@@ -821,7 +845,8 @@ mod tests {
         assert!(dir.join("desktop/src-tauri/Cargo.toml").exists());
         assert!(dir.join("desktop/src-tauri/src/main.rs").exists());
 
-        let manifest = std::fs::read_to_string(dir.join("frontend/public/manifest.webmanifest")).unwrap();
+        let manifest =
+            std::fs::read_to_string(dir.join("frontend/public/manifest.webmanifest")).unwrap();
         assert!(manifest.contains("Multi Target"));
 
         let _ = std::fs::remove_dir_all(&dir);

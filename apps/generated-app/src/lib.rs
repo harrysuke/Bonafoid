@@ -30,9 +30,8 @@ pub fn start() {
         }
     };
 
-    let result = runtime.block_on(async move {
-        nocode_runtime::RuntimeServer::new(port).serve().await
-    });
+    let result =
+        runtime.block_on(async move { nocode_runtime::RuntimeServer::new(port).serve().await });
 
     if let Err(err) = result {
         eprintln!("runtime server error: {err:#}");

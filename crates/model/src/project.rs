@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
-use uuid::Uuid;
+use crate::{Entity, Form, Page, Theme, Workflow};
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
-use crate::{Form, Entity, Workflow, Page, Theme};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Project {

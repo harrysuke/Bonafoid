@@ -114,13 +114,10 @@ async fn serve_static(
     let service = tower_http::services::ServeDir::new(&dist)
         .not_found_service(tower_http::services::ServeFile::new(&index));
 
-    let response = service
-        .oneshot(request)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "preview static service failed");
-            ApiError::Internal
-        })?;
+    let response = service.oneshot(request).await.map_err(|error| {
+        tracing::error!(%error, "preview static service failed");
+        ApiError::Internal
+    })?;
 
     Ok(response.into_response())
 }
@@ -155,12 +152,9 @@ async fn proxy_api(
     // scopes by user (keeps the 404 semantics identical for static + proxy).
     let _ = ready_dist(&state, &build_id, &user).await?;
 
-    let run = state
-        .runs
-        .running_for(&build_id, &user.id)
-        .ok_or_else(|| {
-            ApiError::Conflict("preview backend is not running (start it from the IDE)".into())
-        })?;
+    let run = state.runs.running_for(&build_id, &user.id).ok_or_else(|| {
+        ApiError::Conflict("preview backend is not running (start it from the IDE)".into())
+    })?;
 
     let authority = format!("127.0.0.1:{}", run.port);
     let uri = if path.is_empty() {
@@ -202,12 +196,10 @@ async fn proxy_api(
             tracing::error!(%error, "proxy body read failed");
             ApiError::Internal
         })?;
-    builder
-        .body(Body::from(bytes))
-        .map_err(|error| {
-            tracing::error!(%error, "cannot build proxy response");
-            ApiError::Internal
-        })
+    builder.body(Body::from(bytes)).map_err(|error| {
+        tracing::error!(%error, "cannot build proxy response");
+        ApiError::Internal
+    })
 }
 
 fn is_hop_by_hop(name: &str) -> bool {
@@ -226,24 +218,22 @@ async fn forward(
             ApiError::Conflict(format!("preview backend is not reachable: {error}"))
         })?;
 
-    let (mut sender, connection) = http1::handshake(TokioIo::new(stream))
-        .await
-        .map_err(|error| {
-            tracing::warn!(%authority, %error, "proxy handshake failed");
-            ApiError::Conflict(format!("preview backend handshake failed: {error}"))
-        })?;
+    let (mut sender, connection) =
+        http1::handshake(TokioIo::new(stream))
+            .await
+            .map_err(|error| {
+                tracing::warn!(%authority, %error, "proxy handshake failed");
+                ApiError::Conflict(format!("preview backend handshake failed: {error}"))
+            })?;
 
     tokio::spawn(async move {
         let _ = connection.await;
     });
 
-    sender
-        .send_request(request)
-        .await
-        .map_err(|error| {
-            tracing::warn!(%authority, %error, "proxy send failed");
-            ApiError::Conflict(format!("preview backend rejected the request: {error}"))
-        })
+    sender.send_request(request).await.map_err(|error| {
+        tracing::warn!(%authority, %error, "proxy send failed");
+        ApiError::Conflict(format!("preview backend rejected the request: {error}"))
+    })
 }
 
 fn port_of(authority: &str) -> u16 {

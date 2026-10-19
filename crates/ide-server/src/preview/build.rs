@@ -67,8 +67,8 @@ pub async fn run_build(
     };
     let timeout = manager.config().timeout;
 
-    let result = tokio::time::timeout(timeout, drive(manager.clone(), &record, project, target))
-        .await;
+    let result =
+        tokio::time::timeout(timeout, drive(manager.clone(), &record, project, target)).await;
 
     match result {
         Ok(Ok(())) => manager.finish_ok(&build_id),
@@ -119,7 +119,10 @@ async fn drive(
         .map_err(|error| format!("code generation failed: {error}"))?;
     manager.append_logs(
         &build_id,
-        vec![format!("generated {} files", count_files(&record.workspace).await)],
+        vec![format!(
+            "generated {} files",
+            count_files(&record.workspace).await
+        )],
     );
 
     // 2. Backend: cargo build with a shared target directory so incremental
@@ -133,10 +136,7 @@ async fn drive(
             return Err("cargo is not available on the server host".into());
         }
         manager.advance(&build_id, BuildState::BuildingBackend);
-        manager.append_logs(
-            &build_id,
-            vec!["building backend (cargo build)…".into()],
-        );
+        manager.append_logs(&build_id, vec!["building backend (cargo build)…".into()]);
         let manifest = record.workspace.join("backend").join("Cargo.toml");
         run_command(
             Arc::clone(&manager),
@@ -176,11 +176,8 @@ async fn drive(
                 "trunk is not available on the server host (install: cargo install trunk)".into(),
             );
         }
-manager.advance(&build_id, BuildState::BuildingFrontend);
-        manager.append_logs(
-            &build_id,
-            vec!["building frontend (trunk build)…".into()],
-        );
+        manager.advance(&build_id, BuildState::BuildingFrontend);
+        manager.append_logs(&build_id, vec!["building frontend (trunk build)…".into()]);
         let mut trunk = Command::new("trunk");
         trunk
             .arg("build")
@@ -210,7 +207,6 @@ manager.advance(&build_id, BuildState::BuildingFrontend);
     manager.append_logs(&build_id, vec!["build finished".into()]);
     Ok(())
 }
-
 
 /// Execute a command, streaming stdout+stderr into the build log.
 ///
@@ -300,7 +296,12 @@ async fn count_files(dir: &Path) -> usize {
     let mut count = 0usize;
     if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
-            if entry.file_type().await.map(|kind| kind.is_dir()).unwrap_or(false) {
+            if entry
+                .file_type()
+                .await
+                .map(|kind| kind.is_dir())
+                .unwrap_or(false)
+            {
                 if let Ok(mut children) = tokio::fs::read_dir(entry.path()).await {
                     while children.next_entry().await.ok().flatten().is_some() {
                         count += 1;
@@ -343,9 +344,14 @@ mod tests {
         let manager = manager();
         manager.enqueue("t1".into(), "p1".into(), "u1".into(), BuildTarget::Backend);
         let mut command = Command::new("definitely-not-a-real-tool");
-        let error = run_command(Arc::clone(&manager), "t1", &mut command, std::env::temp_dir())
-            .await
-            .expect_err("spawning a missing binary must fail");
+        let error = run_command(
+            Arc::clone(&manager),
+            "t1",
+            &mut command,
+            std::env::temp_dir(),
+        )
+        .await
+        .expect_err("spawning a missing binary must fail");
         assert!(error.contains("cannot start"), "unexpected error: {error}");
     }
 
@@ -365,12 +371,20 @@ mod tests {
             command.args(["-c", "echo hello-from-build"]);
             command
         };
-        run_command(Arc::clone(&manager), "t2", &mut command, std::env::temp_dir())
-            .await
-            .expect("command should succeed");
+        run_command(
+            Arc::clone(&manager),
+            "t2",
+            &mut command,
+            std::env::temp_dir(),
+        )
+        .await
+        .expect("command should succeed");
         let record = manager.get("t2").expect("record");
         assert!(
-            record.logs.iter().any(|line| line.contains("hello-from-build")),
+            record
+                .logs
+                .iter()
+                .any(|line| line.contains("hello-from-build")),
             "logs: {:?}",
             record.logs
         );

@@ -134,7 +134,10 @@ pub fn bearer_token(headers: &HeaderMap) -> Option<String> {
 /// Parse the `Cookie` header into a name/value map.
 pub fn cookies(headers: &HeaderMap) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    let Some(value) = headers.get(header::COOKIE).and_then(|value| value.to_str().ok()) else {
+    let Some(value) = headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+    else {
         return map;
     };
     for pair in value.split(';') {
@@ -184,7 +187,8 @@ pub fn constant_time_eq(a: &str, b: &str) -> bool {
 
 /// Verify the double-submit CSRF token on a state-changing request.
 pub fn verify_csrf(headers: &HeaderMap) -> Result<(), AuthError> {
-    let cookie = cookie_value(COOKIE_CSRF, headers).ok_or(AuthError::Forbidden("missing csrf cookie"))?;
+    let cookie =
+        cookie_value(COOKIE_CSRF, headers).ok_or(AuthError::Forbidden("missing csrf cookie"))?;
     let header_value = headers
         .get(CSRF_HEADER)
         .and_then(|value| value.to_str().ok())

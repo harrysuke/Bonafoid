@@ -15,7 +15,7 @@ pub mod napi_bridge;
 pub mod xml;
 
 pub use engine::{
-    BpmnEngine, HistoryEvent, InstanceStatus, ProcessInstance, TaskInstance, TaskStatus, Token,
-    TokenStatus, ValidationIssue, ValidationResult, Severity,
+    BpmnEngine, HistoryEvent, InstanceStatus, ProcessInstance, Severity, TaskInstance, TaskStatus,
+    Token, TokenStatus, ValidationIssue, ValidationResult,
 };
 pub use error::{BpmnError, Result};

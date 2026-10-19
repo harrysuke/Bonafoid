@@ -29,19 +29,15 @@ impl ApiError {
     /// The HTTP status, stable error code and human-readable message.
     fn parts(&self) -> (StatusCode, &'static str, String) {
         match self {
-            ApiError::BadRequest(message) => (
-                StatusCode::BAD_REQUEST,
-                "bad_request",
-                message.clone(),
-            ),
+            ApiError::BadRequest(message) => {
+                (StatusCode::BAD_REQUEST, "bad_request", message.clone())
+            }
             ApiError::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 "unauthorized",
                 "authentication required".to_string(),
             ),
-            ApiError::Forbidden(message) => {
-                (StatusCode::FORBIDDEN, "forbidden", message.clone())
-            }
+            ApiError::Forbidden(message) => (StatusCode::FORBIDDEN, "forbidden", message.clone()),
             ApiError::NotFound => (
                 StatusCode::NOT_FOUND,
                 "not_found",

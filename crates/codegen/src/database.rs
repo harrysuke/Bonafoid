@@ -1,5 +1,5 @@
-use nocode_model::{DatabaseDriver, Project};
 use anyhow::Result;
+use nocode_model::{DatabaseDriver, Project};
 
 use crate::view;
 
@@ -28,20 +28,47 @@ pub fn generate_schema_sql(project: &Project, driver: DatabaseDriver) -> Result<
     ));
 
     for entity in &entities {
-        let table = entity.get("table").and_then(|v| v.as_str()).unwrap_or("entity");
+        let table = entity
+            .get("table")
+            .and_then(|v| v.as_str())
+            .unwrap_or("entity");
         sql.push_str(&format!("CREATE TABLE IF NOT EXISTS {} (\n", table));
 
         let empty = Vec::new();
-        let fields = entity.get("fields").and_then(|v| v.as_array()).unwrap_or(&empty);
+        let fields = entity
+            .get("fields")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&empty);
 
         for field in fields {
-            let column = field.get("column").and_then(|v| v.as_str()).unwrap_or("col");
-            let sql_type = field.get("sql_type").and_then(|v| v.as_str()).unwrap_or("TEXT");
-            let is_pk = field.get("is_primary_key").and_then(|v| v.as_bool()).unwrap_or(false);
-            let is_integer = field.get("is_integer").and_then(|v| v.as_bool()).unwrap_or(false);
-            let not_null = field.get("not_null").and_then(|v| v.as_bool()).unwrap_or(false);
-            let unique = field.get("is_unique").and_then(|v| v.as_bool()).unwrap_or(false);
-            let default_value = field.get("default_value").and_then(|v| v.as_str()).unwrap_or("");
+            let column = field
+                .get("column")
+                .and_then(|v| v.as_str())
+                .unwrap_or("col");
+            let sql_type = field
+                .get("sql_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("TEXT");
+            let is_pk = field
+                .get("is_primary_key")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let is_integer = field
+                .get("is_integer")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let not_null = field
+                .get("not_null")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let unique = field
+                .get("is_unique")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let default_value = field
+                .get("default_value")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
             let mut line = format!("    {} {}", column, sql_type);
 
@@ -49,7 +76,9 @@ pub fn generate_schema_sql(project: &Project, driver: DatabaseDriver) -> Result<
                 if is_integer {
                     match driver {
                         DatabaseDriver::Postgres => line = format!("    {} SERIAL", column),
-                        DatabaseDriver::MySQL => line = format!("    {} INTEGER AUTO_INCREMENT", column),
+                        DatabaseDriver::MySQL => {
+                            line = format!("    {} INTEGER AUTO_INCREMENT", column)
+                        }
                         _ => line = format!("    {} INTEGER", column),
                     }
                 }
@@ -95,7 +124,10 @@ pub fn generate_schema_sql(project: &Project, driver: DatabaseDriver) -> Result<
     Ok(sql)
 }
 
-pub async fn generate_database(project: &Project, _output_dir: &std::path::Path) -> Result<DatabaseOutput> {
+pub async fn generate_database(
+    project: &Project,
+    _output_dir: &std::path::Path,
+) -> Result<DatabaseOutput> {
     let driver = project.settings.database.driver.clone();
     let schema_sql = generate_schema_sql(project, driver)?;
 

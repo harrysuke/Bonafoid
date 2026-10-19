@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Workflow {
@@ -96,35 +96,87 @@ impl std::fmt::Display for NodeId {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "type", content = "config")]
 pub enum WorkflowNodeType {
-    StartEvent { event_type: StartEventType },
-    EndEvent { event_type: EndEventType },
-    UserTask { assignee: Option<String>, candidate_groups: Vec<String>, form_id: Option<crate::form::FormId>, due_date: Option<String> },
-    ServiceTask { implementation: ServiceTaskImplementation, r#async: bool, exclusive: bool },
-    ScriptTask { script: String, script_format: String },
-    BusinessRuleTask { decision_ref: String, decision_table: Option<String> },
-    SendTask { message_ref: String },
-    ReceiveTask { message_ref: String },
+    StartEvent {
+        event_type: StartEventType,
+    },
+    EndEvent {
+        event_type: EndEventType,
+    },
+    UserTask {
+        assignee: Option<String>,
+        candidate_groups: Vec<String>,
+        form_id: Option<crate::form::FormId>,
+        due_date: Option<String>,
+    },
+    ServiceTask {
+        implementation: ServiceTaskImplementation,
+        r#async: bool,
+        exclusive: bool,
+    },
+    ScriptTask {
+        script: String,
+        script_format: String,
+    },
+    BusinessRuleTask {
+        decision_ref: String,
+        decision_table: Option<String>,
+    },
+    SendTask {
+        message_ref: String,
+    },
+    ReceiveTask {
+        message_ref: String,
+    },
     ManualTask,
-    ExclusiveGateway { default_flow: Option<EdgeId> },
-    InclusiveGateway { default_flow: Option<EdgeId> },
+    ExclusiveGateway {
+        default_flow: Option<EdgeId>,
+    },
+    InclusiveGateway {
+        default_flow: Option<EdgeId>,
+    },
     ParallelGateway,
     EventBasedGateway,
-    SubProcess { is_event_subprocess: bool, is_transaction: bool, workflow_id: Option<WorkflowId> },
-    CallActivity { called_workflow_id: WorkflowId, input_mapping: IndexMap<String, String>, output_mapping: IndexMap<String, String> },
-    Task { task_type: TaskType },
+    SubProcess {
+        is_event_subprocess: bool,
+        is_transaction: bool,
+        workflow_id: Option<WorkflowId>,
+    },
+    CallActivity {
+        called_workflow_id: WorkflowId,
+        input_mapping: IndexMap<String, String>,
+        output_mapping: IndexMap<String, String>,
+    },
+    Task {
+        task_type: TaskType,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum StartEventType {
     None,
-    Message { message_ref: String },
-    Timer { time_duration: Option<String>, time_cycle: Option<String> },
-    Signal { signal_ref: String },
-    Error { error_ref: String },
-    Escalation { escalation_ref: String },
-    Compensation { activity_ref: String },
-    Conditional { condition: String },
+    Message {
+        message_ref: String,
+    },
+    Timer {
+        time_duration: Option<String>,
+        time_cycle: Option<String>,
+    },
+    Signal {
+        signal_ref: String,
+    },
+    Error {
+        error_ref: String,
+    },
+    Escalation {
+        escalation_ref: String,
+    },
+    Compensation {
+        activity_ref: String,
+    },
+    Conditional {
+        condition: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -144,10 +196,28 @@ pub enum EndEventType {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "type", content = "config")]
 pub enum ServiceTaskImplementation {
-    Http { url: String, method: HttpMethod, headers: IndexMap<String, String>, body_template: Option<String>, timeout_ms: u64, retry: RetryConfig },
-    Function { function_name: String, input_mapping: IndexMap<String, String>, output_mapping: IndexMap<String, String> },
-    Plugin { plugin_id: String, config: serde_json::Value },
-    External { connector_id: String, operation: String, config: serde_json::Value },
+    Http {
+        url: String,
+        method: HttpMethod,
+        headers: IndexMap<String, String>,
+        body_template: Option<String>,
+        timeout_ms: u64,
+        retry: RetryConfig,
+    },
+    Function {
+        function_name: String,
+        input_mapping: IndexMap<String, String>,
+        output_mapping: IndexMap<String, String>,
+    },
+    Plugin {
+        plugin_id: String,
+        config: serde_json::Value,
+    },
+    External {
+        connector_id: String,
+        operation: String,
+        config: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -282,13 +352,28 @@ impl Default for BoundaryEventId {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "type", content = "config")]
 pub enum BoundaryEventType {
-    Timer { time_duration: Option<String>, time_cycle: Option<String> },
-    Error { error_ref: String },
-    Escalation { escalation_ref: String },
-    Signal { signal_ref: String },
-    Message { message_ref: String },
-    Compensation { activity_ref: String },
-    Conditional { condition: String },
+    Timer {
+        time_duration: Option<String>,
+        time_cycle: Option<String>,
+    },
+    Error {
+        error_ref: String,
+    },
+    Escalation {
+        escalation_ref: String,
+    },
+    Signal {
+        signal_ref: String,
+    },
+    Message {
+        message_ref: String,
+    },
+    Compensation {
+        activity_ref: String,
+    },
+    Conditional {
+        condition: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
@@ -368,8 +453,12 @@ pub enum VariableType {
     Date,
     DateTime,
     Json,
-    Object { properties: IndexMap<String, VariableType> },
-    Array { items: Box<VariableType> },
+    Object {
+        properties: IndexMap<String, VariableType>,
+    },
+    Array {
+        items: Box<VariableType>,
+    },
     File,
     Binary,
 }

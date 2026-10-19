@@ -25,10 +25,7 @@ pub fn projects_router() -> Router<AppState> {
                 .put(handlers::update)
                 .delete(handlers::delete),
         )
-        .route(
-            "/api/v1/projects/:id/duplicate",
-            post(handlers::duplicate),
-        )
+        .route("/api/v1/projects/:id/duplicate", post(handlers::duplicate))
         .route("/api/v1/projects/:id/export", get(handlers::export))
 }
 

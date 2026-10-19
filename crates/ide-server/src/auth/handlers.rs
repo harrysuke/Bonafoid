@@ -71,7 +71,10 @@ pub async fn register(
     let email = normalize_email(&credentials.email)?;
     validate_password(&credentials.password)?;
 
-    if store::find_user_by_email(&state.db, &email).await?.is_some() {
+    if store::find_user_by_email(&state.db, &email)
+        .await?
+        .is_some()
+    {
         return Err(AuthError::Conflict("email already registered"));
     }
 

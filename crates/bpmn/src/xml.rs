@@ -9,8 +9,7 @@
 //! gateways, sequence flows) and preserves node names and positions.
 
 use nocode_model::{
-    EdgeId, EdgeStyle, NodeId, NodePosition, Workflow, WorkflowEdge, WorkflowNode,
-    WorkflowNodeType,
+    EdgeId, EdgeStyle, NodeId, NodePosition, Workflow, WorkflowEdge, WorkflowNode, WorkflowNodeType,
 };
 use roxmltree::Document;
 use uuid::Uuid;
@@ -58,7 +57,9 @@ pub fn parse_bpmn(xml: &str, name: &str) -> Result<Workflow> {
             continue;
         };
         let bounds = shape.children().find(|n| {
-            n.is_element() && n.tag_name().name() == "Bounds" && n.tag_name().namespace() == Some(DC_NS)
+            n.is_element()
+                && n.tag_name().name() == "Bounds"
+                && n.tag_name().namespace() == Some(DC_NS)
         });
         if let Some(bounds) = bounds {
             let x = bounds
@@ -239,7 +240,9 @@ pub fn export_bpmn(workflow: &Workflow) -> Result<String> {
 
 /// Serialize a workflow and return the mapping from node ids to BPMN element
 /// ids so callers can build diagrams.
-fn export_bpmn_with_ids(workflow: &Workflow) -> (String, std::collections::HashMap<NodeId, String>) {
+fn export_bpmn_with_ids(
+    workflow: &Workflow,
+) -> (String, std::collections::HashMap<NodeId, String>) {
     use std::collections::HashMap;
     use std::fmt::Write;
 
@@ -270,7 +273,11 @@ fn export_bpmn_with_ids(workflow: &Workflow) -> (String, std::collections::HashM
             WorkflowNodeType::EndEvent { .. } => {
                 writeln!(xml, "    <endEvent id=\"{id}\" name=\"{name}\" />")
             }
-            WorkflowNodeType::UserTask { assignee, candidate_groups, .. } => {
+            WorkflowNodeType::UserTask {
+                assignee,
+                candidate_groups,
+                ..
+            } => {
                 let assignee = assignee.as_deref().unwrap_or("");
                 let groups = candidate_groups.join(",");
                 writeln!(
@@ -283,7 +290,10 @@ fn export_bpmn_with_ids(workflow: &Workflow) -> (String, std::collections::HashM
             WorkflowNodeType::ServiceTask { .. } => {
                 writeln!(xml, "    <serviceTask id=\"{id}\" name=\"{name}\" />")
             }
-            WorkflowNodeType::ScriptTask { script, script_format } => {
+            WorkflowNodeType::ScriptTask {
+                script,
+                script_format,
+            } => {
                 let _ = write!(
                     xml,
                     "    <scriptTask id=\"{id}\" name=\"{name}\" scriptFormat=\"{}\">",
@@ -327,7 +337,10 @@ fn export_bpmn_with_ids(workflow: &Workflow) -> (String, std::collections::HashM
             WorkflowNodeType::EventBasedGateway => {
                 writeln!(xml, "    <eventBasedGateway id=\"{id}\" name=\"{name}\" />")
             }
-            WorkflowNodeType::SubProcess { is_event_subprocess, .. } => {
+            WorkflowNodeType::SubProcess {
+                is_event_subprocess,
+                ..
+            } => {
                 writeln!(
                     xml,
                     "    <subProcess id=\"{id}\" name=\"{name}\" triggeredByEvent=\"{}\" />",
@@ -376,7 +389,10 @@ fn export_bpmn_with_ids(workflow: &Workflow) -> (String, std::collections::HashM
 
     // --- BPMN DI section ---
     let _ = writeln!(xml, "  <bpmndi:BPMNDiagram id=\"Diagram_1\">");
-    let _ = writeln!(xml, "    <bpmndi:BPMNPlane id=\"Plane_1\" bpmnElement=\"Process_1\">");
+    let _ = writeln!(
+        xml,
+        "    <bpmndi:BPMNPlane id=\"Plane_1\" bpmnElement=\"Process_1\">"
+    );
     for node in &workflow.nodes {
         let id = &id_map[&node.id];
         let _ = writeln!(

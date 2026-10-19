@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use indexmap::IndexMap;
 use crate::entity::EntityId;
 use crate::workflow::WorkflowId;
+use chrono::{DateTime, Utc};
+use indexmap::IndexMap;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Form {
@@ -90,29 +90,70 @@ impl Default for FieldId {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "type", content = "config")]
 pub enum FieldType {
-    Text { max_length: Option<usize>, placeholder: Option<String> },
-    TextArea { max_length: Option<usize>, rows: Option<u8> },
-    Number { min: Option<f64>, max: Option<f64>, step: Option<f64> },
-    Integer { min: Option<i64>, max: Option<i64> },
+    Text {
+        max_length: Option<usize>,
+        placeholder: Option<String>,
+    },
+    TextArea {
+        max_length: Option<usize>,
+        rows: Option<u8>,
+    },
+    Number {
+        min: Option<f64>,
+        max: Option<f64>,
+        step: Option<f64>,
+    },
+    Integer {
+        min: Option<i64>,
+        max: Option<i64>,
+    },
     Boolean,
-    Select { options: Vec<SelectOption>, multiple: bool, searchable: bool },
-    Radio { options: Vec<SelectOption> },
-    Checkbox { options: Vec<SelectOption> },
+    Select {
+        options: Vec<SelectOption>,
+        multiple: bool,
+        searchable: bool,
+    },
+    Radio {
+        options: Vec<SelectOption>,
+    },
+    Checkbox {
+        options: Vec<SelectOption>,
+    },
     Date,
     DateTime,
     Time,
     Email,
     Url,
     Phone,
-    File { accept: Option<String>, max_size_mb: Option<u64>, multiple: bool },
-    Image { max_width: Option<u32>, max_height: Option<u32> },
+    File {
+        accept: Option<String>,
+        max_size_mb: Option<u64>,
+        multiple: bool,
+    },
+    Image {
+        max_width: Option<u32>,
+        max_height: Option<u32>,
+    },
     Signature,
     RichText,
     Json,
-    Relation { entity_id: EntityId, display_field: String, multiple: bool },
-    Computed { expression: String, return_type: Box<FieldType> },
-    Section { fields: Vec<FormField> },
-    Repeater { fields: Vec<FormField>, min: usize, max: Option<usize> },
+    Relation {
+        entity_id: EntityId,
+        display_field: String,
+        multiple: bool,
+    },
+    Computed {
+        expression: String,
+        return_type: Box<FieldType>,
+    },
+    Section {
+        fields: Vec<FormField>,
+    },
+    Repeater {
+        fields: Vec<FormField>,
+        min: usize,
+        max: Option<usize>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

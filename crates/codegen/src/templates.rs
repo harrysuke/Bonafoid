@@ -1,6 +1,6 @@
 pub mod backend;
-pub mod frontend;
 pub mod database;
+pub mod frontend;
 
 use handlebars::{
     Context, Handlebars, Helper, HelperDef, HelperResult, Output, RenderContext, RenderError,
@@ -225,7 +225,10 @@ impl HelperDef for CmpHelper {
 
 pub fn register_templates(reg: &mut Handlebars) -> Result<(), handlebars::TemplateError> {
     let template_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/templates");
-    for entry in WalkDir::new(&template_dir).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(&template_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("hbs") {
             if let Some(rel) = path.strip_prefix(&template_dir).ok() {
@@ -244,7 +247,10 @@ pub fn register_templates(reg: &mut Handlebars) -> Result<(), handlebars::Templa
 pub fn all_templates() -> Vec<(String, String)> {
     let template_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/templates");
     let mut out = Vec::new();
-    for entry in WalkDir::new(&template_dir).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(&template_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("hbs") {
             if let Ok(rel) = path.strip_prefix(&template_dir) {
@@ -283,7 +289,7 @@ mod tests {
 
     fn populated_project() -> nocode_model::Project {
         use nocode_model::entity::{EntityField, EntityFieldType, FieldId as EntityFieldId};
-        use nocode_model::form::{FieldId as FormFieldId, FormField, FieldType};
+        use nocode_model::form::{FieldId as FormFieldId, FieldType, FormField};
         use nocode_model::{Entity, Form, Page, Project, Workflow};
 
         let mut project = Project::new("Acme Portal");
@@ -378,7 +384,11 @@ mod tests {
         let dir = std::env::temp_dir();
 
         let backend = crate::backend::generate_backend(&project, &dir).await;
-        assert!(backend.is_ok(), "backend generation failed: {:?}", backend.err());
+        assert!(
+            backend.is_ok(),
+            "backend generation failed: {:?}",
+            backend.err()
+        );
         assert!(!backend.unwrap().files.is_empty());
 
         let frontend = crate::frontend::generate_frontend(&project, &dir).await;
@@ -431,7 +441,11 @@ mod tests {
         let mut project = populated_project();
 
         let sqlite = std::env::var("NOCODE_TEST_DRIVER").as_deref() == Ok("sqlite");
-        let sub = if sqlite { "gen-check-sqlite" } else { "gen-check" };
+        let sub = if sqlite {
+            "gen-check-sqlite"
+        } else {
+            "gen-check"
+        };
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../target")
             .join(sub)
@@ -449,7 +463,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir.join("migrations"));
         std::fs::create_dir_all(&dir).unwrap();
 
-        let backend = crate::backend::generate_backend(&project, &dir).await.unwrap();
+        let backend = crate::backend::generate_backend(&project, &dir)
+            .await
+            .unwrap();
         for (path, content) in &backend.files {
             let full = dir.join(path);
             std::fs::create_dir_all(full.parent().unwrap()).unwrap();
@@ -463,7 +479,11 @@ mod tests {
             .status()
             .expect("failed to run cargo check");
 
-        assert!(status.success(), "generated backend failed to compile at {}", dir.display());
+        assert!(
+            status.success(),
+            "generated backend failed to compile at {}",
+            dir.display()
+        );
     }
 
     /// End-to-end check that the generated Leptos frontend is a valid
@@ -488,7 +508,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir.join("src"));
         std::fs::create_dir_all(&dir).unwrap();
 
-        let frontend = crate::frontend::generate_frontend(&project, &dir).await.unwrap();
+        let frontend = crate::frontend::generate_frontend(&project, &dir)
+            .await
+            .unwrap();
         for (path, content) in &frontend.files {
             let full = dir.join(path);
             std::fs::create_dir_all(full.parent().unwrap()).unwrap();
@@ -504,6 +526,10 @@ mod tests {
             .status()
             .expect("failed to run cargo check");
 
-        assert!(status.success(), "generated frontend failed to compile at {}", dir.display());
+        assert!(
+            status.success(),
+            "generated frontend failed to compile at {}",
+            dir.display()
+        );
     }
 }

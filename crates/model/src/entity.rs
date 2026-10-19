@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use schemars::JsonSchema;
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Entity {
@@ -116,10 +116,26 @@ pub enum EntityFieldType {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "type", content = "config")]
 pub enum RelationType {
-    BelongsTo { entity_id: EntityId, field: String, on_delete: OnDelete, on_update: OnUpdate },
-    HasOne { entity_id: EntityId, field: String },
-    HasMany { entity_id: EntityId, field: String },
-    ManyToMany { entity_id: EntityId, through: Option<String>, field: String, related_field: String },
+    BelongsTo {
+        entity_id: EntityId,
+        field: String,
+        on_delete: OnDelete,
+        on_update: OnUpdate,
+    },
+    HasOne {
+        entity_id: EntityId,
+        field: String,
+    },
+    HasMany {
+        entity_id: EntityId,
+        field: String,
+    },
+    ManyToMany {
+        entity_id: EntityId,
+        through: Option<String>,
+        field: String,
+        related_field: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

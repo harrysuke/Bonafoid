@@ -265,10 +265,8 @@ mod tests {
     "#;
 
     fn manifest() -> PluginManifest {
-        PluginManifest::from_json(
-            r#"{"id":"com.test.hello","name":"Hello","version":"1.0.0"}"#,
-        )
-        .unwrap()
+        PluginManifest::from_json(r#"{"id":"com.test.hello","name":"Hello","version":"1.0.0"}"#)
+            .unwrap()
     }
 
     #[test]
@@ -280,7 +278,10 @@ mod tests {
 
         assert!(has_export(&mut store, &instance, "greet"));
         call_unit(&mut store, &instance, "com.test.hello", "greet").unwrap();
-        assert_eq!(store.data_mut().take_logs(), vec!["hello from plugin".to_string()]);
+        assert_eq!(
+            store.data_mut().take_logs(),
+            vec!["hello from plugin".to_string()]
+        );
 
         assert_eq!(
             call_i32_to_i32(&mut store, &instance, "com.test.hello", "bump", 0).unwrap(),
