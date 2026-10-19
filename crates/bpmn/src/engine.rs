@@ -737,7 +737,7 @@ impl BpmnEngine {
                 None => {
                     // Unconditional edges only taken if it's the default or
                     // nothing else matched yet.
-                    if default_flow.map_or(false, |d| &edge.id == d) {
+                    if default_flow == Some(&edge.id) {
                         matched.push(edge.target.clone());
                     }
                 }
@@ -777,8 +777,11 @@ fn describe_service_task(implementation: &ServiceTaskImplementation) -> String {
 mod tests {
     use super::*;
     use nocode_model::{
-        EndEventType, NodeConfig, NodePosition, RetryConfig, StartEventType, TaskType, WorkflowEdge,
+        EndEventType, NodeConfig, NodePosition, StartEventType, TaskType, WorkflowEdge,
     };
+    // `nocode_model::RetryConfig` is ambiguous at the crate root (page and
+    // workflow each define one), so name the module explicitly.
+    use nocode_model::workflow::RetryConfig;
 
     fn start(name: &str) -> WorkflowNode {
         node(

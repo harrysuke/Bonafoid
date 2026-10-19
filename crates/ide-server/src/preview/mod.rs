@@ -37,9 +37,6 @@ pub mod manager;
 pub mod runs;
 pub mod serve;
 
-use std::sync::Arc;
-use std::time::Duration;
-
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::routing::{get, post};
@@ -298,7 +295,8 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
-    use std::sync::OnceLock;
+    use std::sync::{Arc, OnceLock};
+    use std::time::Duration;
     use tower::ServiceExt;
 
     async fn test_router() -> Router {

@@ -1,5 +1,4 @@
 use crate::entity::EntityId;
-use crate::workflow::WorkflowId;
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
 use schemars::JsonSchema;

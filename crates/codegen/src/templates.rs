@@ -231,7 +231,7 @@ pub fn register_templates(reg: &mut Handlebars) -> Result<(), handlebars::Templa
     {
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("hbs") {
-            if let Some(rel) = path.strip_prefix(&template_dir).ok() {
+            if let Ok(rel) = path.strip_prefix(&template_dir) {
                 if let Some(name) = rel.to_str() {
                     let name = name.replace("\\", "/").replace(".hbs", "");
                     let content = std::fs::read_to_string(path).unwrap_or_default();

@@ -181,7 +181,7 @@ impl IdeApp {
                     );
                 }
                 "file.save" => match self.state.save_project(None) {
-                    Ok(path) => self.state.log_info(&format!("Saved: {}", path.display())),
+                    Ok(path) => self.state.log_info(format!("Saved: {}", path.display())),
                     Err(err) => self.state.log_error(err),
                 },
                 "file.close" => {
@@ -238,7 +238,7 @@ impl IdeApp {
         match added {
             Some((id, name)) => {
                 self.state.mark_dirty();
-                self.state.log_info(&format!("Added form: {name}"));
+                self.state.log_info(format!("Added form: {name}"));
                 self.state.select(Selection::Form(id));
             }
             None => self.state.log_warn("No active project to add a form"),
@@ -257,7 +257,7 @@ impl IdeApp {
         match added {
             Some(name) => {
                 self.state.mark_dirty();
-                self.state.log_info(&format!("Added entity: {name}"));
+                self.state.log_info(format!("Added entity: {name}"));
                 self.state.select(Selection::Entity(name));
             }
             None => self.state.log_warn("No active project to add an entity"),
@@ -276,7 +276,7 @@ impl IdeApp {
         match added {
             Some((id, name)) => {
                 self.state.mark_dirty();
-                self.state.log_info(&format!("Added workflow: {name}"));
+                self.state.log_info(format!("Added workflow: {name}"));
                 self.state.select(Selection::Workflow(id));
             }
             None => self.state.log_warn("No active project to add a workflow"),
@@ -295,7 +295,7 @@ impl IdeApp {
         match added {
             Some((id, name)) => {
                 self.state.mark_dirty();
-                self.state.log_info(&format!("Added page: {name}"));
+                self.state.log_info(format!("Added page: {name}"));
                 self.state.select(Selection::Page(id));
             }
             None => self.state.log_warn("No active project to add a page"),
@@ -313,14 +313,14 @@ impl IdeApp {
             self.backend.generate(project, &output)
         };
         match outcome {
-            Ok(report) => self.state.log_info(&format!(
+            Ok(report) => self.state.log_info(format!(
                 "Generated {} files ({} backend, {} frontend, {} migrations)",
                 report.total_files(),
                 report.backend_files,
                 report.frontend_files,
                 report.migrations
             )),
-            Err(err) => self.state.log_error(&format!("Generation failed: {err}")),
+            Err(err) => self.state.log_error(format!("Generation failed: {err}")),
         }
     }
 
@@ -344,7 +344,7 @@ impl IdeApp {
                 .log_info("Workflow validation passed (no issues)");
         } else {
             for (id, msg) in messages {
-                self.state.log_warn(&format!("{id}: {msg}"));
+                self.state.log_warn(format!("{id}: {msg}"));
             }
         }
     }

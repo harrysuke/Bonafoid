@@ -87,17 +87,13 @@ pub struct CurrencyConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum CurrencyDisplay {
+    #[default]
     Symbol,
     Code,
     Name,
     NarrowSymbol,
-}
-
-impl Default for CurrencyDisplay {
-    fn default() -> Self {
-        Self::Symbol
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -149,16 +145,12 @@ pub struct SessionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SameSitePolicy {
     Strict,
+    #[default]
     Lax,
     None,
-}
-
-impl Default for SameSitePolicy {
-    fn default() -> Self {
-        Self::Lax
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -260,17 +252,13 @@ pub struct ApiConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ApiVersioning {
     Header,
     Query,
+    #[default]
     Path,
     None,
-}
-
-impl Default for ApiVersioning {
-    fn default() -> Self {
-        Self::Path
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -296,17 +284,13 @@ pub struct RateLimitConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum RateLimitKeyGenerator {
+    #[default]
     Ip,
     UserId,
     ApiKey,
     Custom(String),
-}
-
-impl Default for RateLimitKeyGenerator {
-    fn default() -> Self {
-        Self::Ip
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -374,7 +358,9 @@ pub struct DatabaseConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum DatabaseDriver {
+    #[default]
     Postgres,
     #[serde(rename = "mysql", alias = "my_s_q_l")]
     MySQL,
@@ -384,27 +370,17 @@ pub enum DatabaseDriver {
     Oracle,
 }
 
-impl Default for DatabaseDriver {
-    fn default() -> Self {
-        Self::Postgres
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SslMode {
     Disable,
     Allow,
+    #[default]
     Prefer,
     Require,
     VerifyCa,
     VerifyFull,
-}
-
-impl Default for SslMode {
-    fn default() -> Self {
-        Self::Prefer
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -462,18 +438,14 @@ pub struct StorageConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum StorageDriver {
+    #[default]
     Local,
     S3,
     GCS,
     AzureBlob,
     Custom,
-}
-
-impl Default for StorageDriver {
-    fn default() -> Self {
-        Self::Local
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -527,20 +499,16 @@ pub struct EmailConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum EmailDriver {
     Smtp,
     SendGrid,
     Mailgun,
     SES,
+    #[default]
     Console,
     Null,
     Custom,
-}
-
-impl Default for EmailDriver {
-    fn default() -> Self {
-        Self::Console
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -563,32 +531,26 @@ pub struct SmtpConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SmtpEncryption {
     None,
+    #[default]
     StartTLS,
-    SSL_TLS,
-}
-
-impl Default for SmtpEncryption {
-    fn default() -> Self {
-        Self::StartTLS
-    }
+    // Wire format stays "ssl_tls"; the Rust identifier follows Rust naming.
+    #[serde(rename = "ssl_tls")]
+    SslTls,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SmtpAuthType {
     None,
+    #[default]
     Plain,
     Login,
     CramMD5,
     XOAuth2,
-}
-
-impl Default for SmtpAuthType {
-    fn default() -> Self {
-        Self::Plain
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -633,17 +595,13 @@ pub struct EmailQueueConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum QueueDriver {
     Redis,
     Database,
+    #[default]
     Sync,
     Custom,
-}
-
-impl Default for QueueDriver {
-    fn default() -> Self {
-        Self::Sync
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
