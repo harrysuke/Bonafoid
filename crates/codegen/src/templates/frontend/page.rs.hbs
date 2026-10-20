@@ -1,9 +1,42 @@
 //! Rendered page component for `{{name}}`.
 
 use leptos::prelude::*;
+use leptos::ev::SubmitEvent;
+use serde_json::Value;
+
+use crate::api;
 
 #[component]
 pub fn {{pascal}}() -> impl IntoView {
+    // Data source signals
+{{#each data_sources}}{{#if (eq source_type.type "api")}}    let ({{snake}}, set_{{snake}}) = signal(Value::Null);
+    let load_{{snake}} = move || {
+        leptos::task::spawn_local(async move {
+            match api::request("{{source_type.endpoint}}", "{{source_type.method}}", None::<()>).await {
+                Ok(v) => set_{{snake}}.set(v),
+                Err(e) => leptos::logging::log!("Failed to load {{name}}: {:?}", e),
+            }
+        });
+    };
+{{/if}}{{/each}}
+
+    // Page actions
+{{#each actions}}    let {{name}} = move || {
+{{#if (eq config.type "navigate")}}        leptos::task::spawn_local(async move {
+            leptos_router::use_navigate()("{{config.path}}", Default::default());
+        });
+{{else if (eq config.type "call_api")}}        leptos::task::spawn_local(async move {
+            let _ = api::submit_{{config.data_source_id}}(&Value::Null).await;
+        });
+{{else}}        leptos::logging::log!("Action {{name}} ({{config.type}}) not yet implemented");
+{{/if}}    };
+{{/each}}
+
+    // Load auto-load data sources on mount
+    leptos::on_mount(move || {
+{{#each data_sources}}{{#if (and (eq source_type.type "api") auto_load)}}        load_{{snake}}();
+{{/if}}{{/each}}    });
+
     view! {
         <section class="mx-auto max-w-6xl px-4 py-8 space-y-8">
             <header class="space-y-2">

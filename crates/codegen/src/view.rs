@@ -11,9 +11,9 @@
 //! item *is* the field view, so templates can reference `{{name}}` directly.
 
 use nocode_model::{
-    AutoGenerate, ColorScale, ComponentType, DatabaseDriver, Entity, EntityField, EntityFieldType,
-    EntityRelation, FieldType, Form, FormField, Page, PageComponent, Project, RelationType,
-    Workflow,
+    AutoGenerate, ColorScale, ComponentType, DataSource, DataSourceType, DatabaseDriver, Entity,
+    EntityField, EntityFieldType, EntityRelation, FieldType, Form, FormField, Page, PageAction,
+    PageComponent, Project, RelationType, Workflow,
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -1307,10 +1307,75 @@ fn component_tokens(components: &[PageComponent]) -> Vec<Value> {
     out
 }
 
+/// Data source view for the page template.
+fn data_source_view(ds: &DataSource) -> Value {
+    let cfg = &ds.config;
+    let source_type = match &ds.source_type {
+        DataSourceType::Api {
+            endpoint, method, ..
+        } => {
+            json!({
+                "type": "api",
+                "endpoint": endpoint,
+                "method": format!("{:?}", method),
+                "snake": snake(&ds.id),
+            })
+        }
+        DataSourceType::Static { data } => {
+            json!({
+                "type": "static",
+                "data": data,
+                "snake": snake(&ds.id),
+            })
+        }
+        DataSourceType::Database { entity_id, .. } => {
+            json!({
+                "type": "database",
+                "entity_id": format!("{:?}", entity_id),
+                "snake": snake(&ds.id),
+            })
+        }
+        _ => json!({
+            "type": format!("{:?}", ds.source_type),
+            "snake": snake(&ds.id),
+        }),
+    };
+
+    json!({
+        "id": ds.id,
+        "name": ds.name,
+        "snake": snake(&ds.id),
+        "source_type": source_type,
+        "auto_load": ds.auto_load,
+        "polling_interval": ds.polling_interval,
+        "config": cfg,
+    })
+}
+
+/// Page action view for the template.
+fn action_view(action: &PageAction) -> Value {
+    let cfg = match &action.config {
+        nocode_model::page::ActionConfig::Navigate { path, .. } => {
+            json!({ "type": "navigate", "path": path })
+        }
+        nocode_model::page::ActionConfig::CallApi { data_source_id, .. } => {
+            json!({ "type": "call_api", "data_source_id": data_source_id })
+        }
+        _ => json!({ "type": format!("{:?}", action.config) }),
+    };
+    json!({
+        "id": action.id,
+        "name": action.name,
+        "config": cfg,
+    })
+}
+
 pub fn page_view(page: &Page, project: &Project) -> Value {
     let _ = project;
     let route = normalize_route(&page.path);
     let tokens = component_tokens(&page.components);
+    let data_sources: Vec<Value> = page.data_sources.iter().map(data_source_view).collect();
+    let actions: Vec<Value> = page.actions.iter().map(action_view).collect();
     json!({
         "name": page.name,
         "pascal": pascal(&page.name),
@@ -1324,7 +1389,8 @@ pub fn page_view(page: &Page, project: &Project) -> Value {
         "description": page.description,
         "components": page.components,
         "tokens": tokens,
-        "data_sources": page.data_sources,
+        "data_sources": data_sources,
+        "actions": actions,
     })
 }
 

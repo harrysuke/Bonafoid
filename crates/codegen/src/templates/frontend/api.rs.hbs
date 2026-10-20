@@ -1,6 +1,7 @@
 //! Thin typed HTTP client for the generated backend API.
 
 use gloo_net::http::Request;
+use serde_json::Value;
 
 use crate::types::*;
 
@@ -9,6 +10,54 @@ const API_BASE: &str = match option_env!("API_BASE") {
     Some(base) => base,
     None => "http://127.0.0.1:3000",
 };
+
+/// Generic request helper used by page data sources and actions.
+async fn request(method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> {
+    let url = format!("{}{}", API_BASE, path);
+    let resp = match method {
+        "GET" => {
+            if let Some(body) = body {
+                Request::get(&url).json(body).map_err(|e| e.to_string())?.send().await
+            } else {
+                Request::get(&url).send().await
+            }
+        }
+        "POST" => {
+            if let Some(body) = body {
+                Request::post(&url).json(body).map_err(|e| e.to_string())?.send().await
+            } else {
+                Request::post(&url).send().await
+            }
+        }
+        "PUT" => {
+            if let Some(body) = body {
+                Request::put(&url).json(body).map_err(|e| e.to_string())?.send().await
+            } else {
+                Request::put(&url).send().await
+            }
+        }
+        "DELETE" => {
+            if let Some(body) = body {
+                Request::delete(&url).json(body).map_err(|e| e.to_string())?.send().await
+            } else {
+                Request::delete(&url).send().await
+            }
+        }
+        "PATCH" => {
+            if let Some(body) = body {
+                Request::patch(&url).json(body).map_err(|e| e.to_string())?.send().await
+            } else {
+                Request::patch(&url).send().await
+            }
+        }
+        _ => return Err(format!("unsupported method: {method}")),
+    };
+    let resp = resp.map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(format!("request failed with status {}", resp.status()));
+    }
+    resp.json::<Value>().await.map_err(|e| e.to_string())
+}
 
 async fn read_json<T: serde::de::DeserializeOwned>(
     resp: gloo_net::http::Response,
