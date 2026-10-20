@@ -15,6 +15,7 @@ pub fn Layout(children: Children) -> impl IntoView {
                     <div class="flex gap-4 text-sm text-slate-200">
 {{#each entities}}                        <A href="/{{this.snake}}">{{this.plural_name}}</A>
 {{/each}}{{#each forms}}                        <A href="/forms/{{this.snake}}">{{this.name}}</A>
+{{/each}}{{#each pages}}                        <A href="{{this.route}}">{{this.name}}</A>
 {{/each}}                    </div>
                 </nav>
             </header>

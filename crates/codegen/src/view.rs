@@ -11,10 +11,12 @@
 //! item *is* the field view, so templates can reference `{{name}}` directly.
 
 use nocode_model::{
-    AutoGenerate, ColorScale, DatabaseDriver, Entity, EntityField, EntityFieldType, EntityRelation,
-    FieldType, Form, FormField, Page, Project, RelationType, Workflow,
+    AutoGenerate, ColorScale, ComponentType, DatabaseDriver, Entity, EntityField, EntityFieldType,
+    EntityRelation, FieldType, Form, FormField, Page, PageComponent, Project, RelationType,
+    Workflow,
 };
 use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // Case helpers
@@ -750,7 +752,565 @@ pub fn forms_view(project: &Project) -> Vec<Value> {
 // Page / workflow views
 // ---------------------------------------------------------------------------
 
-pub fn page_view(page: &Page) -> Value {
+/// Normalize a page path into a Leptos router path.
+///
+/// The router already owns `/` (the generated home page), so a page whose path
+/// is `/` is skipped by the router rather than colliding with it.
+fn normalize_route(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return "/".to_string();
+    }
+    if trimmed.starts_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("/{}", trimmed)
+    }
+}
+
+fn token_open(tag: &str, attrs: &str, depth: usize) -> Value {
+    json!({
+        "is_open": true, "is_close": false, "is_void": false, "is_text": false,
+        "tag": tag, "attrs": attrs, "text": "", "depth": depth,
+    })
+}
+
+fn token_close(tag: &str, depth: usize) -> Value {
+    json!({
+        "is_open": false, "is_close": true, "is_void": false, "is_text": false,
+        "tag": tag, "attrs": "", "text": "", "depth": depth,
+    })
+}
+
+fn token_void(tag: &str, attrs: &str, depth: usize) -> Value {
+    json!({
+        "is_open": false, "is_close": false, "is_void": true, "is_text": false,
+        "tag": tag, "attrs": attrs, "text": "", "depth": depth,
+    })
+}
+
+fn token_text(text: &str, depth: usize) -> Value {
+    json!({
+        "is_open": false, "is_close": false, "is_void": false, "is_text": true,
+        "tag": "", "attrs": "", "text": text, "depth": depth,
+    })
+}
+
+/// The serde tag of a component, e.g. `Container`.
+fn component_type_name(component: &ComponentType) -> String {
+    serde_json::to_value(component)
+        .ok()
+        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
+        .unwrap_or_else(|| "Unknown".to_string())
+}
+
+/// The serde `config` payload of a component.
+fn component_config(component: &ComponentType) -> Value {
+    serde_json::to_value(component)
+        .ok()
+        .and_then(|v| v.get("config").cloned())
+        .unwrap_or(Value::Null)
+}
+
+fn config_str(config: &Value, key: &str) -> String {
+    config
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn config_owned(config: &Value, key: &str) -> Option<String> {
+    config.get(key).and_then(|v| v.as_str()).map(str::to_string)
+}
+
+/// Component ids nested inside a component, so the tree can be walked.
+fn child_ids(component: &ComponentType) -> Vec<nocode_model::page::ComponentId> {
+    use nocode_model::page::ComponentId;
+    match component {
+        ComponentType::Container { children }
+        | ComponentType::Grid { children, .. }
+        | ComponentType::Flex { children, .. }
+        | ComponentType::Card { children, .. }
+        | ComponentType::Modal { children, .. }
+        | ComponentType::Tabs { children, .. } => children.clone(),
+        ComponentType::Drawer {
+            children, trigger, ..
+        } => {
+            let mut ids = children.clone();
+            ids.push(trigger.clone());
+            ids
+        }
+        ComponentType::Accordion { items, children } => {
+            let mut ids = children.clone();
+            ids.extend(items.iter().flat_map(|item| item.children.clone()));
+            ids
+        }
+        ComponentType::List {
+            item_template,
+            empty_state,
+            ..
+        } => {
+            let mut ids = vec![item_template.clone()];
+            if let Some(state) = empty_state {
+                ids.push(state.clone());
+            }
+            ids
+        }
+        ComponentType::Popover {
+            content, trigger, ..
+        } => {
+            let mut ids = content.clone();
+            ids.push(trigger.clone());
+            ids
+        }
+        ComponentType::Tooltip { trigger, .. } | ComponentType::Dropdown { trigger, .. } => {
+            vec![trigger.clone()]
+        }
+        _ => {
+            let _ = ComponentId::new();
+            Vec::new()
+        }
+    }
+}
+
+fn emit_children(
+    children: &[nocode_model::page::ComponentId],
+    depth: usize,
+    by_id: &HashMap<nocode_model::page::ComponentId, &PageComponent>,
+    out: &mut Vec<Value>,
+) {
+    for id in children {
+        if let Some(child) = by_id.get(id) {
+            emit_component(child, depth, by_id, out);
+        }
+    }
+}
+
+/// Emit the Leptos `view!` tokens for one component and its subtree.
+///
+/// Components without a dedicated renderer fall back to a labelled box, so a
+/// page using an unsupported type still generates a compiling app instead of
+/// failing codegen.
+fn emit_component(
+    component: &PageComponent,
+    depth: usize,
+    by_id: &HashMap<nocode_model::page::ComponentId, &PageComponent>,
+    out: &mut Vec<Value>,
+) {
+    use nocode_model::page::ComponentId;
+
+    let name = component_type_name(&component.component);
+    let config = component_config(&component.component);
+    let children = child_ids(&component.component);
+    let fallback = |out: &mut Vec<Value>| {
+        out.push(token_open(
+            "div",
+            "class=\"rounded border border-dashed border-slate-300 p-2 text-xs text-slate-400\"",
+            depth,
+        ));
+        out.push(token_text(&format!("[{name}]"), depth + 1));
+        out.push(token_close("div", depth));
+    };
+
+    match name.as_str() {
+        // ---- Layout ----
+        "Container" => {
+            out.push(token_open("div", "class=\"space-y-4\"", depth));
+            emit_children(&children, depth + 1, by_id, out);
+            out.push(token_close("div", depth));
+        }
+        "Grid" => {
+            let columns = config.get("columns").and_then(|v| v.as_u64()).unwrap_or(12);
+            out.push(token_open(
+                "div",
+                &format!(
+                    "class=\"grid gap-4\" style=\"grid-template-columns: repeat({columns}, minmax(0, 1fr))\""
+                ),
+                depth,
+            ));
+            emit_children(&children, depth + 1, by_id, out);
+            out.push(token_close("div", depth));
+        }
+        "Flex" => {
+            let direction = config_str(&config, "direction");
+            let direction = if direction.is_empty() {
+                "row"
+            } else {
+                &direction
+            };
+            out.push(token_open(
+                "div",
+                &format!("class=\"flex flex-{direction} flex-wrap gap-4\""),
+                depth,
+            ));
+            emit_children(&children, depth + 1, by_id, out);
+            out.push(token_close("div", depth));
+        }
+        "Card" => {
+            out.push(token_open(
+                "div",
+                "class=\"rounded-lg border border-slate-200 bg-white p-4 shadow-sm\"",
+                depth,
+            ));
+            if let Some(header) = config_owned(&config, "header") {
+                out.push(token_open("h3", "class=\"mb-2 font-semibold\"", depth + 1));
+                out.push(token_text(&header, depth + 2));
+                out.push(token_close("h3", depth + 1));
+            }
+            emit_children(&children, depth + 1, by_id, out);
+            if let Some(footer) = config_owned(&config, "footer") {
+                out.push(token_open(
+                    "p",
+                    "class=\"mt-2 text-sm text-slate-500\"",
+                    depth + 1,
+                ));
+                out.push(token_text(&footer, depth + 2));
+                out.push(token_close("p", depth + 1));
+            }
+            out.push(token_close("div", depth));
+        }
+        "Divider" => {
+            out.push(token_void("hr", "class=\"border-slate-200\"", depth));
+        }
+
+        // ---- Basic ----
+        "Html" => {
+            out.push(token_text(&config_str(&config, "content"), depth));
+        }
+        "Image" | "Avatar" => {
+            let src = config_str(&config, "src");
+            let alt = config_str(&config, "alt");
+            let class = if name == "Avatar" {
+                "class=\"h-10 w-10 rounded-full object-cover\""
+            } else {
+                "class=\"max-w-full rounded\""
+            };
+            out.push(token_void(
+                "img",
+                &format!("src=\"{src}\" alt=\"{alt}\" {class}"),
+                depth,
+            ));
+        }
+        "Badge" | "Tag" => {
+            let content = config_str(&config, "content");
+            let class = if name == "Badge" {
+                "class=\"rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700\""
+            } else {
+                "class=\"rounded border border-slate-300 px-2 py-0.5 text-xs\""
+            };
+            out.push(token_open("span", class, depth));
+            out.push(token_text(&content, depth + 1));
+            out.push(token_close("span", depth));
+        }
+        "Iframe" => {
+            out.push(token_void(
+                "iframe",
+                &format!(
+                    "src=\"{}\" class=\"w-full rounded border\"",
+                    config_str(&config, "src")
+                ),
+                depth,
+            ));
+        }
+        "Video" => {
+            out.push(token_open(
+                "video",
+                &format!(
+                    "src=\"{}\" controls class=\"max-w-full rounded\"",
+                    config_str(&config, "src")
+                ),
+                depth,
+            ));
+            out.push(token_close("video", depth));
+        }
+        "Audio" => {
+            out.push(token_open(
+                "audio",
+                &format!("src=\"{}\" controls", config_str(&config, "src")),
+                depth,
+            ));
+            out.push(token_close("audio", depth));
+        }
+
+        // ---- Navigation ----
+        "Link" => {
+            let href = config_str(&config, "href");
+            let label = config_str(&config, "label");
+            out.push(token_open(
+                "a",
+                &format!("href=\"{href}\" class=\"text-blue-600 hover:underline\""),
+                depth,
+            ));
+            out.push(token_text(&label, depth + 1));
+            out.push(token_close("a", depth));
+        }
+        "Breadcrumb" => {
+            out.push(token_open(
+                "nav",
+                "class=\"flex gap-1 text-sm text-slate-500\"",
+                depth,
+            ));
+            if let Some(items) = config.get("items").and_then(|v| v.as_array()) {
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(token_text("/", depth + 1));
+                    }
+                    out.push(token_text(
+                        item.get("label").and_then(|v| v.as_str()).unwrap_or(""),
+                        depth + 1,
+                    ));
+                }
+            }
+            out.push(token_close("nav", depth));
+        }
+        "Steps" => {
+            out.push(token_open("ol", "class=\"flex gap-4 text-sm\"", depth));
+            if let Some(items) = config.get("items").and_then(|v| v.as_array()) {
+                for item in items {
+                    let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                    out.push(token_open("li", "class=\"text-slate-700\"", depth + 1));
+                    out.push(token_text(title, depth + 2));
+                    out.push(token_close("li", depth + 1));
+                }
+            }
+            out.push(token_close("ol", depth));
+        }
+        "Menu" => {
+            out.push(token_open("ul", "class=\"flex gap-4 text-sm\"", depth));
+            if let Some(items) = config.get("items").and_then(|v| v.as_array()) {
+                for item in items {
+                    let label = item.get("label").and_then(|v| v.as_str()).unwrap_or("");
+                    out.push(token_open("li", "", depth + 1));
+                    out.push(token_text(label, depth + 2));
+                    out.push(token_close("li", depth + 1));
+                }
+            }
+            out.push(token_close("ul", depth));
+        }
+        "Anchor" => {
+            out.push(token_open(
+                "div",
+                "class=\"flex flex-col gap-1 text-sm\"",
+                depth,
+            ));
+            if let Some(links) = config.get("links").and_then(|v| v.as_array()) {
+                for link in links {
+                    let title = link.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                    let href = link.get("href").and_then(|v| v.as_str()).unwrap_or("#");
+                    out.push(token_open(
+                        "a",
+                        &format!("href=\"{href}\" class=\"text-blue-600\""),
+                        depth + 1,
+                    ));
+                    out.push(token_text(title, depth + 2));
+                    out.push(token_close("a", depth + 1));
+                }
+            }
+            out.push(token_close("div", depth));
+        }
+        "BackTop" => {
+            out.push(token_open(
+                "button",
+                "class=\"rounded bg-slate-200 px-3 py-1 text-sm\"",
+                depth,
+            ));
+            out.push(token_text("Back to top", depth + 1));
+            out.push(token_close("button", depth));
+        }
+        "Pagination" => {
+            out.push(token_open(
+                "div",
+                "class=\"flex items-center gap-2 text-sm\"",
+                depth,
+            ));
+            for page_no in ["1", "2", "3"] {
+                out.push(token_open(
+                    "button",
+                    "class=\"rounded border px-2 py-1\"",
+                    depth + 1,
+                ));
+                out.push(token_text(page_no, depth + 2));
+                out.push(token_close("button", depth + 1));
+            }
+            out.push(token_close("div", depth));
+        }
+
+        // ---- Feedback ----
+        "Alert" => {
+            let message = config_str(&config, "message");
+            out.push(token_open(
+                "div",
+                "class=\"rounded bg-blue-50 p-3 text-sm text-blue-800\"",
+                depth,
+            ));
+            out.push(token_text(&message, depth + 1));
+            out.push(token_close("div", depth));
+        }
+        "Message" => {
+            out.push(token_open("div", "class=\"text-sm\"", depth));
+            out.push(token_text(&config_str(&config, "content"), depth + 1));
+            out.push(token_close("div", depth));
+        }
+        "Notification" => {
+            out.push(token_open(
+                "div",
+                "class=\"rounded border p-3 text-sm\"",
+                depth,
+            ));
+            out.push(token_text(
+                &format!(
+                    "{}: {}",
+                    config_str(&config, "title"),
+                    config_str(&config, "content")
+                ),
+                depth + 1,
+            ));
+            out.push(token_close("div", depth));
+        }
+        "Loading" | "Spin" => {
+            out.push(token_text("Loading…", depth));
+        }
+        "Skeleton" => {
+            out.push(token_open(
+                "div",
+                "class=\"animate-pulse space-y-2\"",
+                depth,
+            ));
+            for _ in 0..3 {
+                out.push(token_void(
+                    "div",
+                    "class=\"h-4 rounded bg-slate-200\"",
+                    depth + 1,
+                ));
+            }
+            out.push(token_close("div", depth));
+        }
+        "QRCode" => {
+            out.push(token_open(
+                "div",
+                "class=\"rounded border p-2 text-xs\"",
+                depth,
+            ));
+            out.push(token_text(&config_str(&config, "value"), depth + 1));
+            out.push(token_close("div", depth));
+        }
+
+        // ---- Static data ----
+        "StatCard" => {
+            out.push(token_open(
+                "div",
+                "class=\"rounded-lg border border-slate-200 bg-white p-4\"",
+                depth,
+            ));
+            out.push(token_open("div", "class=\"text-2xl font-bold\"", depth + 1));
+            out.push(token_text(&config_str(&config, "value"), depth + 2));
+            out.push(token_close("div", depth + 1));
+            out.push(token_open(
+                "div",
+                "class=\"text-sm text-slate-500\"",
+                depth + 1,
+            ));
+            out.push(token_text(&config_str(&config, "label"), depth + 2));
+            out.push(token_close("div", depth + 1));
+            out.push(token_close("div", depth));
+        }
+        "ProgressBar" => {
+            let value = config_str(&config, "value");
+            let value = value.parse::<f64>().unwrap_or(0.0).clamp(0.0, 100.0);
+            out.push(token_open(
+                "div",
+                "class=\"h-2 rounded bg-slate-200\"",
+                depth,
+            ));
+            out.push(token_void(
+                "div",
+                &format!("class=\"h-2 rounded bg-blue-600\" style=\"width: {value}%\""),
+                depth + 1,
+            ));
+            out.push(token_close("div", depth));
+        }
+
+        // ---- Input ----
+        "Button" => {
+            let label = config_str(&config, "label");
+            out.push(token_open(
+                "button",
+                "class=\"rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700\"",
+                depth,
+            ));
+            out.push(token_text(&label, depth + 1));
+            out.push(token_close("button", depth));
+        }
+        "FormField" => {
+            let label = config_str(&config, "label");
+            out.push(token_open(
+                "label",
+                "class=\"flex flex-col gap-1 text-sm\"",
+                depth,
+            ));
+            out.push(token_open("span", "class=\"text-slate-600\"", depth + 1));
+            out.push(token_text(&label, depth + 2));
+            out.push(token_close("span", depth + 1));
+            out.push(token_void(
+                "input",
+                "type=\"text\" class=\"rounded border border-slate-300 px-2 py-1\"",
+                depth + 1,
+            ));
+            out.push(token_close("label", depth));
+        }
+        "ButtonGroup" => {
+            out.push(token_open("div", "class=\"flex gap-2\"", depth));
+            if let Some(buttons) = config.get("buttons").and_then(|v| v.as_array()) {
+                for button in buttons {
+                    let label = button.get("label").and_then(|v| v.as_str()).unwrap_or("");
+                    out.push(token_open(
+                        "button",
+                        "class=\"rounded bg-blue-600 px-3 py-1 text-sm text-white\"",
+                        depth + 1,
+                    ));
+                    out.push(token_text(label, depth + 2));
+                    out.push(token_close("button", depth + 1));
+                }
+            }
+            out.push(token_close("div", depth));
+        }
+        "FileUpload" => {
+            out.push(token_void(
+                "input",
+                "type=\"file\" class=\"text-sm\"",
+                depth,
+            ));
+        }
+
+        _ => fallback(out),
+    }
+
+    let _ = ComponentId::new();
+}
+
+/// Flatten a page's component tree into Leptos `view!` tokens.
+fn component_tokens(components: &[PageComponent]) -> Vec<Value> {
+    use nocode_model::page::ComponentId;
+    let by_id: HashMap<ComponentId, &PageComponent> =
+        components.iter().map(|c| (c.id.clone(), c)).collect();
+    let mut child_id_set: HashSet<ComponentId> = HashSet::new();
+    for component in components {
+        child_id_set.extend(child_ids(&component.component));
+    }
+    let mut out = Vec::new();
+    for component in components {
+        if !child_id_set.contains(&component.id) {
+            emit_component(component, 0, &by_id, &mut out);
+        }
+    }
+    out
+}
+
+pub fn page_view(page: &Page, project: &Project) -> Value {
+    let _ = project;
+    let route = normalize_route(&page.path);
+    let tokens = component_tokens(&page.components);
     json!({
         "name": page.name,
         "pascal": pascal(&page.name),
@@ -758,15 +1318,22 @@ pub fn page_view(page: &Page) -> Value {
         "snake": snake(&page.name),
         "lower": page.name.to_lowercase(),
         "path": page.path,
+        "route": route,
+        "is_index": route == "/",
         "title": if page.title.is_empty() { page.name.clone() } else { page.title.clone() },
         "description": page.description,
         "components": page.components,
+        "tokens": tokens,
         "data_sources": page.data_sources,
     })
 }
 
 pub fn pages_view(project: &Project) -> Vec<Value> {
-    project.pages.values().map(page_view).collect()
+    project
+        .pages
+        .values()
+        .map(|p| page_view(p, project))
+        .collect()
 }
 
 pub fn workflow_view(workflow: &Workflow) -> Value {

@@ -16,7 +16,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/") view=pages::home::Home />
 {{#each entities}}                    <Route path=path!("/{{this.snake}}") view=pages::{{this.snake}}::List />
 {{/each}}{{#each forms}}                    <Route path=path!("/forms/{{this.snake}}") view=pages::form_{{this.snake}}::{{this.pascal}} />
-{{/each}}                </Routes>
+{{/each}}{{#each pages}}{{#unless this.is_index}}                    <Route path=path!("{{this.route}}") view=pages::{{this.snake}}::{{this.pascal}} />
+{{/unless}}{{/each}}                </Routes>
             </Layout>
         </Router>
     }

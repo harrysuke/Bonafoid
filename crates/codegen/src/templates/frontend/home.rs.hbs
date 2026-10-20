@@ -24,6 +24,12 @@ pub fn Home() -> impl IntoView {
                     </A>
                     <p class="mt-1 text-sm text-slate-500">"Fill in this form"</p>
                 </li>
+{{/each}}{{#each pages}}                <li class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm hover:shadow">
+                    <A href="{{this.route}}">
+                        <span class="text-lg font-medium text-blue-600">{{this.name}}</span>
+                    </A>
+                    <p class="mt-1 text-sm text-slate-500">"View page"</p>
+                </li>
 {{/each}}            </ul>
         </section>
     }

@@ -1,0 +1,20 @@
+//! Rendered page component for `{{name}}`.
+
+use leptos::prelude::*;
+
+#[component]
+pub fn {{pascal}}() -> impl IntoView {
+    view! {
+        <section class="mx-auto max-w-6xl px-4 py-8 space-y-8">
+            <header class="space-y-2">
+                <h1 class="text-3xl font-bold">{{name}}</h1>
+{{#if description}}                <p class="text-slate-600">{{description}}</p>
+{{/if}}            </header>
+
+            {{#each tokens}}{{#if is_open}}<{{tag}} {{{attrs}}}>
+{{else if is_close}}</{{tag}}>
+{{else if is_void}}<{{tag}} {{{attrs}}} />
+{{else}}{{text}}{{/if}}{{/each}}
+        </section>
+    }
+}
