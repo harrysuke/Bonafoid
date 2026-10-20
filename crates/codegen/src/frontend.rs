@@ -19,9 +19,15 @@ pub async fn generate_frontend(
     let driver = project.settings.database.driver.clone();
     let project_ctx = view::project_view(project, &driver);
     let entities = view::entities_view(project, &driver);
+    let forms = view::forms_view(project);
 
     let theme = view::theme_view(project);
-    let ctx = json!({ "project": &project_ctx, "entities": &entities, "theme": &theme });
+    let ctx = json!({
+        "project": &project_ctx,
+        "entities": &entities,
+        "forms": &forms,
+        "theme": &theme
+    });
 
     let mut files = HashMap::new();
 
@@ -99,6 +105,16 @@ pub async fn generate_frontend(
         );
     }
 
+    // Forms
+    for form in &forms {
+        let snake = form.get("snake").and_then(|v| v.as_str()).unwrap_or("form");
+        // `form_` keeps a form from colliding with an entity of the same name.
+        files.insert(
+            PathBuf::from(format!("src/pages/form_{}.rs", snake)),
+            reg.render("frontend/form_page", &form)?,
+        );
+    }
+
     Ok(FrontendOutput { files })
 }
 
@@ -146,6 +162,10 @@ fn register_templates(reg: &mut Handlebars) -> Result<()> {
     reg.register_template_string(
         "frontend/entity_page",
         include_str!("templates/frontend/entity_page.rs.hbs"),
+    )?;
+    reg.register_template_string(
+        "frontend/form_page",
+        include_str!("templates/frontend/form_page.rs.hbs"),
     )?;
     Ok(())
 }

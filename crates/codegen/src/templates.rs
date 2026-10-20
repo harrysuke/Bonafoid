@@ -656,6 +656,152 @@ mod tests {
         );
     }
 
+    /// The generated backend must expose a submission handler per form.
+    #[tokio::test]
+    async fn generated_backend_exposes_form_submission_handlers() {
+        let project = populated_project();
+        let backend = crate::backend::generate_backend(&project, &std::env::temp_dir())
+            .await
+            .expect("backend generation runs");
+
+        let handler = backend
+            .files
+            .get(&std::path::PathBuf::from(
+                "src/handlers/forms/contact_form.rs",
+            ))
+            .expect("contact_form handler generated");
+
+        assert!(
+            handler.contains("pub struct SubmitContactForm {"),
+            "submission struct missing:\n{handler}"
+        );
+        assert!(
+            handler.contains("pub email: String,"),
+            "required field should be non-optional String:\n{handler}"
+        );
+        assert!(
+            handler.contains("pub message: Option<String>,"),
+            "optional field should be Option<String>:\n{handler}"
+        );
+        assert!(
+            handler.contains("pub async fn submit("),
+            "submit handler missing:\n{handler}"
+        );
+
+        let routes = backend
+            .files
+            .get(&std::path::PathBuf::from("src/routes.rs"))
+            .expect("routes generated");
+        assert!(
+            routes.contains(".nest(\"/api/v1/forms\", forms_routes())"),
+            "forms route not nested:\n{routes}"
+        );
+        assert!(
+            routes.contains("post(handlers::forms::contact_form::submit)"),
+            "form submit route missing:\n{routes}"
+        );
+
+        let handlers_mod = backend
+            .files
+            .get(&std::path::PathBuf::from("src/handlers/mod.rs"))
+            .expect("handlers mod generated");
+        assert!(
+            handlers_mod.contains("pub mod forms;"),
+            "forms module not declared:\n{handlers_mod}"
+        );
+    }
+
+    /// The generated frontend must route to and render a page per form.
+    #[tokio::test]
+    async fn generated_frontend_renders_form_pages() {
+        let project = populated_project();
+        let frontend = crate::frontend::generate_frontend(&project, &std::env::temp_dir())
+            .await
+            .expect("frontend generation runs");
+
+        let page = frontend
+            .files
+            .get(&std::path::PathBuf::from("src/pages/form_contact_form.rs"))
+            .expect("form page generated");
+        assert!(
+            page.contains("pub fn ContactForm() -> impl IntoView"),
+            "form component missing:\n{page}"
+        );
+        assert!(
+            page.contains("api::submit_contact_form(&payload)"),
+            "form submit call missing:\n{page}"
+        );
+        assert!(
+            page.contains("on:submit=on_submit"),
+            "submit handler not wired:\n{page}"
+        );
+
+        let api = frontend
+            .files
+            .get(&std::path::PathBuf::from("src/api.rs"))
+            .expect("api client generated");
+        assert!(
+            api.contains("pub async fn submit_contact_form("),
+            "form api client missing:\n{api}"
+        );
+        assert!(
+            api.contains("/api/v1/forms/contact_form"),
+            "form api path missing:\n{api}"
+        );
+
+        let pages_mod = frontend
+            .files
+            .get(&std::path::PathBuf::from("src/pages/mod.rs"))
+            .expect("pages mod generated");
+        assert!(
+            pages_mod.contains("pub mod form_contact_form;"),
+            "form page module not declared:\n{pages_mod}"
+        );
+
+        let app = frontend
+            .files
+            .get(&std::path::PathBuf::from("src/app.rs"))
+            .expect("app generated");
+        assert!(
+            app.contains("<Route path=path!(\"/forms/contact_form\") view=pages::form_contact_form::ContactForm />"),
+            "form route missing:\n{app}"
+        );
+    }
+
+    /// A form with no fields must still generate valid, empty handlers and pages.
+    #[tokio::test]
+    async fn empty_form_generates_empty_payload() {
+        let mut project = populated_project();
+        let form = project.forms.values_mut().next().expect("fixture form");
+        form.fields.clear();
+
+        let backend = crate::backend::generate_backend(&project, &std::env::temp_dir())
+            .await
+            .expect("backend generation runs");
+        let frontend = crate::frontend::generate_frontend(&project, &std::env::temp_dir())
+            .await
+            .expect("frontend generation runs");
+
+        let handler = backend
+            .files
+            .get(&std::path::PathBuf::from(
+                "src/handlers/forms/contact_form.rs",
+            ))
+            .expect("handler generated");
+        assert!(
+            !handler.contains("pub email:") && !handler.contains("pub message:"),
+            "empty form should emit an empty payload:\n{handler}"
+        );
+        let page = frontend
+            .files
+            .get(&std::path::PathBuf::from("src/pages/form_contact_form.rs"))
+            .expect("page generated");
+        assert!(
+            page.contains("pub fn ContactForm()"),
+            "empty form page should still render:\n{page}"
+        );
+    }
+
     /// The Update payload must be `Option<base>`, never `Option<Option<T>>`.
     #[tokio::test]
     async fn update_payload_is_option_of_base_type() {

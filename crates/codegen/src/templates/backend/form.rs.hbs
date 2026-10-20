@@ -1,0 +1,27 @@
+//! Submission endpoint for the `{{form.name}}` form.
+
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::Json;
+use sea_orm::DatabaseConnection;
+use serde::{Deserialize, Serialize};
+
+/// Payload accepted by `POST /api/v1/forms/{{form.snake}}`.
+///
+/// Required fields are non-optional, so a request missing one fails
+/// deserialization. Submissions are validated and echoed back with `201
+/// Created`; persistence is not implemented yet because forms have no storage
+/// table in the generated schema.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Submit{{form.pascal}} {
+{{#each form.fields}}{{#if is_submittable}}    pub {{rust_ident}}: {{#if required}}String{{else}}Option<String>{{/if}},
+{{/if}}{{/each}}}
+
+pub async fn submit(
+    State(_db): State<DatabaseConnection>,
+    Json(payload): Json<Submit{{form.pascal}}>,
+) -> Result<(StatusCode, Json<serde_json::Value>), crate::error::AppError> {
+    let value = serde_json::to_value(&payload)
+        .map_err(|e| crate::error::AppError::Internal(e.into()))?;
+    Ok((StatusCode::CREATED, Json(value)))
+}

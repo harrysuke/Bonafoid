@@ -1,6 +1,6 @@
 //! HTTP routing for {{project.name}}.
 
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use sea_orm::DatabaseConnection;
 
@@ -12,7 +12,8 @@ pub fn create_routes(db: DatabaseConnection) -> Router {
         .route("/health", get(health))
         .route("/ready", get(ready))
 {{#each entities}}        .nest("/api/v1/{{this.snake}}", {{this.camel}}_routes())
-{{/each}}        .with_state(db)
+{{/each}}{{#if has_forms}}        .nest("/api/v1/forms", forms_routes())
+{{/if}}        .with_state(db)
 }
 
 async fn health() -> &'static str {
@@ -38,4 +39,9 @@ fn {{this.camel}}_routes() -> Router<DatabaseConnection> {
         )
 }
 
-{{/each}}
+{{/each}}{{#if has_forms}}
+fn forms_routes() -> Router<DatabaseConnection> {
+    Router::new()
+{{#each forms}}        .route("/{{this.snake}}", post(handlers::forms::{{this.snake}}::submit))
+{{/each}}}
+{{/if}}

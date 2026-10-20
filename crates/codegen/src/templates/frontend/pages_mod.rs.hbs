@@ -1,3 +1,4 @@
 pub mod home;
 {{#each entities}}pub mod {{this.snake}};
+{{/each}}{{#each forms}}pub mod form_{{this.snake}};
 {{/each}}

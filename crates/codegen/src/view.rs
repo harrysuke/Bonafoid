@@ -673,24 +673,54 @@ fn select_options(ft: &FieldType) -> Vec<Value> {
         .collect()
 }
 
+/// Rust type used in the generated form-submission struct.
+///
+/// Form inputs are serialized as strings; parsing them into richer types is a
+/// follow-up, so every field is `String` here.
+fn form_rust_type(_ft: &FieldType) -> &'static str {
+    "String"
+}
+
+/// Whether the field contributes a value to the submission payload.
+///
+/// `Section` and `Repeater` are structural: they group other fields rather than
+/// hold a value, so they are rendered but never submitted.
+fn is_submittable(ft: &FieldType) -> bool {
+    !matches!(ft, FieldType::Section { .. } | FieldType::Repeater { .. })
+}
+
+/// Whether the field accepts more than one value.
+fn is_multiple(ft: &FieldType) -> bool {
+    match ft {
+        FieldType::Select { multiple, .. } => *multiple,
+        FieldType::Checkbox { .. } => true,
+        _ => false,
+    }
+}
+
 pub fn form_field_view(field: &FormField, index: usize) -> Value {
     json!({
         "name": field.name,
         "snake": snake(&field.name),
         "pascal": pascal(&field.name),
         "camel": camel(&field.name),
+        "rust_ident": rust_ident(&snake(&field.name)),
         "label": if field.label.is_empty() { label(&field.name) } else { field.label.clone() },
         "field_type": form_field_type_name(&field.field_type),
         "input_type": form_input_type(&field.field_type),
         "ts_type": form_ts_type(&field.field_type),
+        "rust_type": form_rust_type(&field.field_type),
         "required": field.required,
         "is_primary_key": index == 0,
         "not_null": field.required,
         "has_default": field.default_value.is_some(),
         "default_value": field.default_value.clone().unwrap_or(Value::Null),
         "placeholder": field.ui_props.placeholder.clone().unwrap_or_default(),
+        "help_text": field.ui_props.help_text.clone().unwrap_or_default(),
         "options": select_options(&field.field_type),
         "is_relation": matches!(field.field_type, FieldType::Relation { .. }),
+        "is_submittable": is_submittable(&field.field_type),
+        "multiple": is_multiple(&field.field_type),
     })
 }
 

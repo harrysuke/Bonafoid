@@ -15,6 +15,7 @@ pub fn App() -> impl IntoView {
                 <Routes fallback=|| view! { <p class="text-slate-500">"Page not found"</p> }>
                     <Route path=path!("/") view=pages::home::Home />
 {{#each entities}}                    <Route path=path!("/{{this.snake}}") view=pages::{{this.snake}}::List />
+{{/each}}{{#each forms}}                    <Route path=path!("/forms/{{this.snake}}") view=pages::form_{{this.snake}}::{{this.pascal}} />
 {{/each}}                </Routes>
             </Layout>
         </Router>

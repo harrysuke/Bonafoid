@@ -19,10 +19,16 @@ pub async fn generate_backend(
     let driver = project.settings.database.driver.clone();
     let project_ctx = view::project_view(project, &driver);
     let entities = view::entities_view(project, &driver);
+    let forms = view::forms_view(project);
 
     let mut files = HashMap::new();
 
-    let ctx = json!({ "project": &project_ctx, "entities": &entities });
+    let ctx = json!({
+        "project": &project_ctx,
+        "entities": &entities,
+        "forms": &forms,
+        "has_forms": !forms.is_empty()
+    });
 
     files.insert(PathBuf::from("Cargo.toml"), generate_cargo_toml(project)?);
 
@@ -55,6 +61,22 @@ pub async fn generate_backend(
         PathBuf::from("src/handlers/mod.rs"),
         reg.render("backend/handlers_mod", &ctx)?,
     );
+
+    // Form submission handlers
+    files.insert(
+        PathBuf::from("src/handlers/forms/mod.rs"),
+        reg.render("backend/forms_mod", &ctx)?,
+    );
+    for form in &forms {
+        let snake = form.get("snake").and_then(|v| v.as_str()).unwrap_or("form");
+        files.insert(
+            PathBuf::from(format!("src/handlers/forms/{snake}.rs")),
+            reg.render(
+                "backend/form",
+                &json!({ "form": form, "project": &project_ctx }),
+            )?,
+        );
+    }
 
     for entity in &entities {
         let snake = entity
@@ -103,6 +125,14 @@ fn register_templates(reg: &mut Handlebars) -> Result<()> {
     reg.register_template_string(
         "backend/model",
         include_str!("templates/backend/model.rs.hbs"),
+    )?;
+    reg.register_template_string(
+        "backend/form",
+        include_str!("templates/backend/form.rs.hbs"),
+    )?;
+    reg.register_template_string(
+        "backend/forms_mod",
+        include_str!("templates/backend/forms_mod.rs.hbs"),
     )?;
     reg.register_template_string(
         "backend/routes",

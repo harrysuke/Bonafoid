@@ -64,3 +64,14 @@ pub async fn delete_{{this.snake}}(id: &str) -> Result<(), String> {
     Ok(())
 }
 {{/each}}
+{{#each forms}}
+pub async fn submit_{{this.snake}}(payload: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let resp = Request::post(&format!("{}/api/v1/forms/{{this.snake}}", API_BASE))
+        .json(payload)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    read_json(resp).await
+}
+{{/each}}
