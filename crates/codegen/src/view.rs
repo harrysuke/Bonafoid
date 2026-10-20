@@ -12,7 +12,7 @@
 
 use nocode_model::{
     AutoGenerate, ColorScale, DatabaseDriver, Entity, EntityField, EntityFieldType, EntityRelation,
-    FieldType, Form, FormField, Page, Project, Workflow,
+    FieldType, Form, FormField, Page, Project, RelationType, Workflow,
 };
 use serde_json::{json, Value};
 
@@ -400,37 +400,69 @@ pub fn field_view(field: &EntityField, index: usize, driver: &DatabaseDriver) ->
     })
 }
 
-fn relation_view(relation: &EntityRelation, owner: &Entity, project: &Project) -> Value {
+/// The `RelationType` tag alone, e.g. `BelongsTo`.
+///
+/// `format!("{:?}", relation_type)` would include the variant's payload for the
+/// struct variants, so the template would never match the `BelongsTo` arm.
+fn relation_type_name(relation_type: &RelationType) -> &'static str {
+    match relation_type {
+        RelationType::BelongsTo { .. } => "BelongsTo",
+        RelationType::HasOne { .. } => "HasOne",
+        RelationType::HasMany { .. } => "HasMany",
+        RelationType::ManyToMany { .. } => "ManyToMany",
+    }
+}
+
+/// Project an entity relation into the shape the SeaORM model template needs.
+///
+/// Returns `None` when either endpoint no longer resolves (the target entity or
+/// field was deleted), so a dangling relation is skipped instead of emitting a
+/// reference to a column or module that does not exist.
+fn relation_view(relation: &EntityRelation, owner: &Entity, project: &Project) -> Option<Value> {
     let from_field = owner
         .fields
         .iter()
         .find(|f| f.id == relation.from_field)
-        .map(|f| f.name.clone())
-        .unwrap_or_default();
-    let to_entity = project.entities.get(&relation.to_entity);
-    let to_entity_name = to_entity.map(|e| e.name.clone()).unwrap_or_default();
+        .map(|f| f.name.clone())?;
+    let to_entity = project.entities.get(&relation.to_entity)?;
+    let to_entity_name = to_entity.name.clone();
     let to_table = to_entity
-        .map(|e| {
-            e.options
-                .table_name
-                .clone()
-                .unwrap_or_else(|| snake(&e.plural_name))
-        })
-        .unwrap_or_default();
+        .options
+        .table_name
+        .clone()
+        .unwrap_or_else(|| snake(&to_entity.plural_name));
     let to_field = to_entity
-        .and_then(|e| e.fields.iter().find(|f| f.id == relation.to_field))
-        .map(|f| f.name.clone())
-        .unwrap_or_default();
-    json!({
+        .fields
+        .iter()
+        .find(|f| f.id == relation.to_field)
+        .map(|f| f.name.clone())?;
+    Some(json!({
         "name": relation.name,
         "relation_name": relation.name,
+        "relation_type": relation_type_name(&relation.relation_type),
         "from_field": from_field,
+        "from_column": pascal(&from_field),
         "to_entity": { "name": to_entity_name },
+        "to_entity_snake": snake(&to_entity_name),
         "to_table": to_table,
         "to_field": to_field,
+        "to_column": pascal(&to_field),
         "on_delete": format!("{:?}", relation.on_delete),
         "on_update": format!("{:?}", relation.on_update),
-    })
+    }))
+}
+
+/// Pick a unique Rust identifier for a relation variant, appending a suffix
+/// when two relations in the same entity share a name.
+fn unique_variant(base: &str, used: &mut Vec<String>) -> String {
+    let mut variant = base.to_string();
+    let mut suffix = 2;
+    while used.contains(&variant) {
+        variant = format!("{}{}", base, suffix);
+        suffix += 1;
+    }
+    used.push(variant.clone());
+    variant
 }
 
 pub fn entity_view(entity: &Entity, project: &Project, driver: &DatabaseDriver) -> Value {
@@ -440,11 +472,43 @@ pub fn entity_view(entity: &Entity, project: &Project, driver: &DatabaseDriver) 
         .enumerate()
         .map(|(i, f)| field_view(f, i, driver))
         .collect();
-    let relations: Vec<Value> = entity
-        .relations
-        .iter()
-        .map(|r| relation_view(r, entity, project))
-        .collect();
+    let mut relations: Vec<Value> = Vec::new();
+    let mut related: Vec<Value> = Vec::new();
+    let mut used_variants: Vec<String> = Vec::new();
+    for (index, relation) in entity.relations.iter().enumerate() {
+        // ManyToMany needs a generated join entity to be meaningful, which the
+        // generator does not emit yet. Skipping it avoids an empty `#[sea_orm]`
+        // attribute, which SeaORM rejects at compile time.
+        if matches!(relation.relation_type, RelationType::ManyToMany { .. }) {
+            continue;
+        }
+        let Some(mut view) = relation_view(relation, entity, project) else {
+            continue;
+        };
+        let base = if relation.name.trim().is_empty() {
+            format!("Rel{}", index)
+        } else {
+            pascal(&relation.name)
+        };
+        let variant = unique_variant(&base, &mut used_variants);
+        if let Some(obj) = view.as_object_mut() {
+            obj.insert("variant".to_string(), Value::String(variant.clone()));
+        }
+        let to_snake = view
+            .get("to_entity_snake")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        // SeaORM's `Related` impl is per target entity, so a second relation
+        // to the same target must not emit a duplicate impl.
+        if !related
+            .iter()
+            .any(|r| r.get("entity_snake").and_then(|v| v.as_str()) == Some(&to_snake))
+        {
+            related.push(json!({ "entity_snake": to_snake, "variant": variant }));
+        }
+        relations.push(view);
+    }
     let indexes: Vec<Value> = entity
         .indexes
         .iter()
@@ -496,6 +560,7 @@ pub fn entity_view(entity: &Entity, project: &Project, driver: &DatabaseDriver) 
         "description": entity.description,
         "fields": fields,
         "relations": relations,
+        "related": related,
         "indexes": indexes,
         "pk": pk,
         "pk_rust_type": pk_rust_type,

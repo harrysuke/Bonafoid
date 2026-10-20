@@ -58,7 +58,7 @@ pub async fn update(
         .into_active_model();
 
 {{#each entity.fields}}{{#unless is_primary_key}}    if let Some(value) = payload.{{rust_ident}} {
-        active.{{rust_ident}} = Set(value);
+        active.{{rust_ident}} = Set({{#if is_optional}}Some(value){{else}}value{{/if}});
     }
 {{/unless}}{{/each}}
     let item = active.update(&db).await?;

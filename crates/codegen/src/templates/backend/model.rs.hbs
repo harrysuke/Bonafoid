@@ -11,20 +11,42 @@ pub struct Model {
 {{/each}}}
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+{{#each entity.relations}}    #[sea_orm(
+{{#if (eq relation_type "BelongsTo")}}        belongs_to = "super::{{to_entity_snake}}::Entity",
+        from = "Column::{{from_column}}",
+        to = "super::{{to_entity_snake}}::Column::{{to_column}}",
+        on_update = "{{on_update}}",
+        on_delete = "{{on_delete}}"
+{{else if (eq relation_type "HasOne")}}        has_one = "super::{{to_entity_snake}}::Entity"
+{{else if (eq relation_type "HasMany")}}        has_many = "super::{{to_entity_snake}}::Entity"
+{{/if}}    )]
+    {{variant}},
+{{/each}}}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-/// Payload for creating a {{entity.name}}.
+{{#each entity.related}}impl Related<super::{{entity_snake}}::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::{{variant}}.def()
+    }
+}
+
+{{/each}}/// Payload for creating a {{entity.name}}.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Create{{entity.pascal}} {
 {{#each entity.fields}}{{#unless is_primary_key}}    pub {{rust_ident}}: {{rust_field_type}},
 {{/unless}}{{/each}}}
 
 /// Payload for partially updating a {{entity.name}}.
+///
+/// Each field is `Option<base>`, matching the generated frontend DTOs: a `None`
+/// field is left unchanged. Wrapping the already-optional `rust_field_type`
+/// produced `Option<Option<T>>`, which disagreed with the frontend DTOs; the
+/// trade-off is that an explicit NULL is indistinguishable from "unchanged".
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Update{{entity.pascal}} {
-{{#each entity.fields}}{{#unless is_primary_key}}    pub {{rust_ident}}: Option<{{rust_field_type}}>,
+{{#each entity.fields}}{{#unless is_primary_key}}    pub {{rust_ident}}: Option<{{rust_type}}>,
 {{/unless}}{{/each}}}
 
 /// API representation of a {{entity.name}}.

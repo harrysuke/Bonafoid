@@ -294,6 +294,34 @@ mod tests {
         let mut project = Project::new("Acme Portal");
         project.description = Some("A demo application".to_string());
 
+        let mut category = Entity::new("Category");
+        category.fields.push(EntityField {
+            id: EntityFieldId::new(),
+            name: "id".to_string(),
+            field_type: EntityFieldType::Uuid,
+            nullable: false,
+            unique: true,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 0,
+        });
+        category.fields.push(EntityField {
+            id: EntityFieldId::new(),
+            name: "name".to_string(),
+            field_type: EntityFieldType::String {
+                max_length: Some(80),
+            },
+            nullable: false,
+            unique: false,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 1,
+        });
+
         let mut entity = Entity::new("Product");
         entity.fields.push(EntityField {
             id: EntityFieldId::new(),
@@ -336,6 +364,39 @@ mod tests {
             comment: None,
             order: 2,
         });
+        let category_fk = EntityFieldId::new();
+        entity.fields.push(EntityField {
+            id: category_fk.clone(),
+            name: "category_id".to_string(),
+            field_type: EntityFieldType::Uuid,
+            nullable: true,
+            unique: false,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 3,
+        });
+
+        let category_id = category.id.clone();
+        let category_pk = category.fields[0].id.clone();
+        entity.relations.push(nocode_model::entity::EntityRelation {
+            id: nocode_model::entity::RelationId::new(),
+            name: "Category".to_string(),
+            relation_type: nocode_model::entity::RelationType::BelongsTo {
+                entity_id: category_id,
+                field: "id".to_string(),
+                on_delete: nocode_model::entity::OnDelete::SetNull,
+                on_update: nocode_model::entity::OnUpdate::Cascade,
+            },
+            from_field: category_fk,
+            to_entity: category.id.clone(),
+            to_field: category_pk,
+            on_delete: nocode_model::entity::OnDelete::SetNull,
+            on_update: nocode_model::entity::OnUpdate::Cascade,
+        });
+
+        project.entities.insert(category.id.clone(), category);
         project.entities.insert(entity.id.clone(), entity);
 
         let mut form = Form::new("ContactForm");
@@ -375,6 +436,251 @@ mod tests {
         project.pages.insert(page.id.clone(), page);
 
         project
+    }
+
+    /// Extract the body of `pub struct <name> { ... }` from generated code.
+    fn struct_body<'a>(source: &'a str, name: &str) -> &'a str {
+        let start = source
+            .find(&format!("pub struct {name} {{"))
+            .unwrap_or_else(|| panic!("struct {name} not found"));
+        let rest = &source[start..];
+        let end = rest.find('}').expect("struct end");
+        &rest[..end]
+    }
+
+    /// Two entities joined by a `BelongsTo` relation: Order.customer_id -> Customer.id.
+    fn project_with_relation() -> nocode_model::Project {
+        use nocode_model::entity::{
+            EntityField, EntityFieldType, EntityRelation, FieldId, OnDelete, OnUpdate, RelationId,
+            RelationType,
+        };
+        use nocode_model::{Entity, Project};
+
+        fn uuid_field(name: &str, order: usize, nullable: bool) -> EntityField {
+            EntityField {
+                id: FieldId::new(),
+                name: name.to_string(),
+                field_type: EntityFieldType::Uuid,
+                nullable,
+                unique: false,
+                default: None,
+                auto_generate: None,
+                validation: None,
+                comment: None,
+                order,
+            }
+        }
+
+        let mut project = Project::new("Acme Portal");
+
+        let mut customer = Entity::new("Customer");
+        customer.fields.push(uuid_field("id", 0, false));
+        customer.fields.push(EntityField {
+            id: FieldId::new(),
+            name: "name".to_string(),
+            field_type: EntityFieldType::String {
+                max_length: Some(80),
+            },
+            nullable: false,
+            unique: false,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 1,
+        });
+
+        let mut order = Entity::new("Order");
+        order.fields.push(uuid_field("id", 0, false));
+        let customer_fk = uuid_field("customer_id", 1, true);
+        let from_field = customer_fk.id.clone();
+        order.fields.push(customer_fk);
+
+        order.relations.push(EntityRelation {
+            id: RelationId::new(),
+            name: "Customer".to_string(),
+            relation_type: RelationType::BelongsTo {
+                entity_id: customer.id.clone(),
+                field: "id".to_string(),
+                on_delete: OnDelete::Cascade,
+                on_update: OnUpdate::Cascade,
+            },
+            from_field,
+            to_entity: customer.id.clone(),
+            to_field: customer.fields[0].id.clone(),
+            on_delete: OnDelete::Cascade,
+            on_update: OnUpdate::Cascade,
+        });
+
+        project.entities.insert(customer.id.clone(), customer);
+        project.entities.insert(order.id.clone(), order);
+        project
+    }
+
+    /// A relation must become a real foreign key, not just a CREATE TABLE.
+    #[test]
+    fn relations_become_foreign_keys_in_the_ddl() {
+        use nocode_model::DatabaseDriver;
+
+        let project = project_with_relation();
+        let sql = crate::database::generate_schema_sql(&project, DatabaseDriver::Postgres).unwrap();
+
+        assert!(
+            sql.contains(
+                "ALTER TABLE orders ADD CONSTRAINT fk_orders_customer_id FOREIGN KEY \
+                 (customer_id) REFERENCES customers (id) ON DELETE CASCADE ON UPDATE CASCADE;"
+            ),
+            "foreign key missing from schema:\n{sql}"
+        );
+    }
+
+    /// SQLite cannot `ALTER TABLE ... ADD CONSTRAINT`, so its FKs are inlined.
+    #[test]
+    fn sqlite_inlines_foreign_keys_in_create_table() {
+        use nocode_model::DatabaseDriver;
+
+        let project = project_with_relation();
+        let sql = crate::database::generate_schema_sql(&project, DatabaseDriver::SQLite).unwrap();
+
+        assert!(
+            sql.contains(
+                "FOREIGN KEY (customer_id) REFERENCES customers (id) \
+                 ON DELETE CASCADE ON UPDATE CASCADE"
+            ),
+            "inlined foreign key missing from schema:\n{sql}"
+        );
+        assert!(
+            !sql.contains("ALTER TABLE orders ADD CONSTRAINT"),
+            "SQLite must not emit ALTER TABLE ADD CONSTRAINT:\n{sql}"
+        );
+    }
+
+    /// A relation whose target entity was deleted must not emit a dangling FK.
+    #[test]
+    fn relations_to_a_deleted_entity_are_skipped() {
+        use nocode_model::entity::EntityId;
+        use nocode_model::DatabaseDriver;
+
+        let mut project = project_with_relation();
+        let order = project
+            .entities
+            .values_mut()
+            .find(|e| e.name == "Order")
+            .expect("order entity");
+        order.relations[0].to_entity = EntityId::new();
+
+        let sql = crate::database::generate_schema_sql(&project, DatabaseDriver::Postgres).unwrap();
+        assert!(
+            !sql.contains("FOREIGN KEY"),
+            "dangling relation emitted a foreign key:\n{sql}"
+        );
+    }
+
+    /// ManyToMany needs a join table the generator does not emit yet, so it must
+    /// produce neither a foreign key nor a broken `#[sea_orm]` attribute.
+    #[tokio::test]
+    async fn many_to_many_relations_are_skipped() {
+        use nocode_model::entity::RelationType;
+        use nocode_model::DatabaseDriver;
+
+        let mut project = project_with_relation();
+        let order = project
+            .entities
+            .values_mut()
+            .find(|e| e.name == "Order")
+            .expect("order entity");
+        order.relations[0].relation_type = RelationType::ManyToMany {
+            entity_id: order.relations[0].to_entity.clone(),
+            through: None,
+            field: "id".to_string(),
+            related_field: "id".to_string(),
+        };
+
+        let sql = crate::database::generate_schema_sql(&project, DatabaseDriver::Postgres).unwrap();
+        assert!(
+            !sql.contains("FOREIGN KEY"),
+            "many-to-many emitted a direct foreign key:\n{sql}"
+        );
+
+        let backend = crate::backend::generate_backend(&project, &std::env::temp_dir())
+            .await
+            .expect("backend generation runs");
+        let model = backend
+            .files
+            .get(&std::path::PathBuf::from("src/models/order.rs"))
+            .expect("order model generated");
+        assert!(
+            !model.contains("belongs_to = ")
+                && !model.contains("has_one = ")
+                && !model.contains("has_many = "),
+            "many-to-many emitted a relation attribute:\n{model}"
+        );
+    }
+
+    /// The generated SeaORM model must carry the relation, not an empty enum.
+    #[tokio::test]
+    async fn generated_model_emits_seaorm_relations() {
+        let project = project_with_relation();
+        let backend = crate::backend::generate_backend(&project, &std::env::temp_dir())
+            .await
+            .expect("backend generation runs");
+
+        let model = backend
+            .files
+            .get(&std::path::PathBuf::from("src/models/order.rs"))
+            .expect("order model generated");
+
+        assert!(
+            model.contains("pub enum Relation {"),
+            "relation enum missing:\n{model}"
+        );
+        assert!(
+            model.contains("belongs_to = \"super::customer::Entity\""),
+            "belongs_to attribute missing:\n{model}"
+        );
+        assert!(
+            model.contains("from = \"Column::CustomerId\""),
+            "from column missing:\n{model}"
+        );
+        assert!(
+            model.contains("to = \"super::customer::Column::Id\""),
+            "to column missing:\n{model}"
+        );
+        assert!(
+            model.contains("impl Related<super::customer::Entity> for Entity"),
+            "Related impl missing:\n{model}"
+        );
+        assert!(
+            model.contains("Relation::Customer.def()"),
+            "Related impl body missing:\n{model}"
+        );
+    }
+
+    /// The Update payload must be `Option<base>`, never `Option<Option<T>>`.
+    #[tokio::test]
+    async fn update_payload_is_option_of_base_type() {
+        let project = project_with_relation();
+        let backend = crate::backend::generate_backend(&project, &std::env::temp_dir())
+            .await
+            .expect("backend generation runs");
+
+        let model = backend
+            .files
+            .get(&std::path::PathBuf::from("src/models/order.rs"))
+            .expect("order model generated");
+
+        assert!(
+            model.contains("pub struct UpdateOrder {"),
+            "update struct missing:\n{model}"
+        );
+        assert!(
+            model.contains("pub customer_id: Option<Uuid>,"),
+            "nullable field should be Option<Uuid>:\n{model}"
+        );
+        assert!(
+            !struct_body(model, "UpdateOrder").contains("Option<Option<"),
+            "Update payload double-wraps an already-optional type:\n{model}"
+        );
     }
 
     #[tokio::test]
