@@ -1282,6 +1282,108 @@ fn emit_component(
                 depth,
             ));
         }
+        "Form" => {
+            out.push(token_open(
+                "form",
+                "class=\"space-y-4 rounded-lg border border-slate-200 bg-white p-4\"",
+                depth,
+            ));
+            emit_children(&children, depth + 1, by_id, out);
+            out.push(token_void(
+                "button",
+                "type=\"submit\" class=\"rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700\"",
+                depth + 1,
+            ));
+            out.push(token_close("form", depth));
+        }
+        "Table" => {
+            let data_source = config_str(&config, "data_source");
+            out.push(token_open(
+                "div",
+                "class=\"overflow-x-auto rounded-lg border border-slate-200\"",
+                depth,
+            ));
+            out.push(token_open(
+                "table",
+                "class=\"min-w-full divide-y divide-slate-200 text-sm\"",
+                depth + 1,
+            ));
+            out.push(token_open(
+                "thead",
+                "class=\"bg-slate-100 text-left text-slate-600\"",
+                depth + 2,
+            ));
+            out.push(token_open("tr", "", depth + 3));
+            if let Some(columns) = config.get("columns").and_then(|v| v.as_array()) {
+                for col in columns {
+                    let title = col.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                    out.push(token_open(
+                        "th",
+                        "class=\"px-3 py-2 font-medium\"",
+                        depth + 4,
+                    ));
+                    out.push(token_text(title, depth + 5));
+                    out.push(token_close("th", depth + 4));
+                }
+            }
+            out.push(token_close("tr", depth + 3));
+            out.push(token_close("thead", depth + 2));
+            out.push(token_open(
+                "tbody",
+                "class=\"divide-y divide-slate-100\"",
+                depth + 2,
+            ));
+            out.push(token_open(
+                "tr",
+                "class=\"text-center text-slate-500\"",
+                depth + 3,
+            ));
+            out.push(token_open(
+                "td",
+                "class=\"px-3 py-4\" colspan=\"99\"",
+                depth + 4,
+            ));
+            out.push(token_text(&format!("(data from {data_source})"), depth + 5));
+            out.push(token_close("td", depth + 4));
+            out.push(token_close("tr", depth + 3));
+            out.push(token_close("tbody", depth + 2));
+            out.push(token_close("table", depth + 1));
+            out.push(token_close("div", depth));
+        }
+        "DetailView" => {
+            let data_source = config_str(&config, "data_source");
+            out.push(token_open("div", "class=\"space-y-4\"", depth));
+            if let Some(fields) = config.get("fields").and_then(|v| v.as_array()) {
+                for field in fields {
+                    let label = field.get("label").and_then(|v| v.as_str()).unwrap_or("");
+                    out.push(token_open("div", "class=\"flex gap-4\"", depth + 1));
+                    out.push(token_open(
+                        "span",
+                        "class=\"w-1/3 text-slate-600 font-medium\"",
+                        depth + 2,
+                    ));
+                    out.push(token_text(label, depth + 3));
+                    out.push(token_close("span", depth + 2));
+                    out.push(token_open(
+                        "span",
+                        "class=\"flex-1 text-slate-900\"",
+                        depth + 2,
+                    ));
+                    out.push(token_text("(data)", depth + 3));
+                    out.push(token_close("span", depth + 2));
+                    out.push(token_close("div", depth + 1));
+                }
+            } else {
+                out.push(token_text(&format!("(data from {data_source})"), depth + 1));
+            }
+            out.push(token_close("div", depth));
+        }
+        "List" => {
+            let data_source = config_str(&config, "data_source");
+            out.push(token_open("div", "class=\"space-y-2\"", depth));
+            out.push(token_text(&format!("(list from {data_source})"), depth + 1));
+            out.push(token_close("div", depth));
+        }
 
         _ => fallback(out),
     }
