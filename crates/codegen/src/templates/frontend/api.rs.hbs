@@ -12,7 +12,7 @@ const API_BASE: &str = match option_env!("API_BASE") {
 };
 
 /// Generic request helper used by page data sources and actions.
-async fn request(method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> {
+pub async fn request(method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> {
     let url = format!("{}{}", API_BASE, path);
     let resp = match method {
         "GET" => {
@@ -124,3 +124,14 @@ pub async fn submit_{{this.snake}}(payload: &serde_json::Value) -> Result<serde_
     read_json(resp).await
 }
 {{/each}}
+{{#each data_sources}}{{#if (eq source_type.type "api")}}
+pub async fn submit_{{this.snake}}(payload: &Value) -> Result<Value, String> {
+    let resp = Request::post(&format!("{}/api/v1/data-sources/{{this.snake}}", API_BASE))
+        .json(payload)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    read_json(resp).await
+}
+{{/if}}{{/each}}

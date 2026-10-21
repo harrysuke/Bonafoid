@@ -289,7 +289,12 @@ mod tests {
     fn populated_project() -> nocode_model::Project {
         use nocode_model::entity::{EntityField, EntityFieldType, FieldId as EntityFieldId};
         use nocode_model::form::{FieldId as FormFieldId, FieldType, FormField};
-        use nocode_model::{Entity, Form, Page, Project, Workflow};
+        use nocode_model::page::{
+            ActionConfig, ActionType, BindingSource, BindingTarget, ComponentType, DataSource,
+            DataSourceConfig, DataSourceType, Page, PageAction, PageComponent,
+        };
+        use nocode_model::{Entity, Form, Project, Workflow};
+
 
         let mut project = Project::new("Acme Portal");
         project.description = Some("A demo application".to_string());
@@ -434,6 +439,152 @@ mod tests {
 
         let page = Page::new("Dashboard");
         project.pages.insert(page.id.clone(), page);
+
+        // Page with data sources and actions
+        let mut products_page = Page::new("Products");
+        products_page.path = "/products".to_string();
+        products_page.title = "Products".to_string();
+        products_page.description = Some("Product catalog with live data".to_string());
+
+        // Add a data source
+        let ds_id = "products_api".to_string();
+        products_page.data_sources.push(DataSource {
+            id: ds_id.clone(),
+            name: "Products API".to_string(),
+            source_type: DataSourceType::Api {
+                endpoint: "/api/v1/products".to_string(),
+                method: nocode_model::workflow::HttpMethod::Get,
+                headers: Default::default(),
+                params: Default::default(),
+                body: None,
+            },
+            config: DataSourceConfig {
+                timeout_ms: 5000,
+                retry: Default::default(),
+                cache: Default::default(),
+                debounce_ms: None,
+                transform_response: None,
+                transform_error: None,
+            },
+            auto_load: true,
+            polling_interval: None,
+            transform: None,
+        });
+
+        // Add an action
+        products_page.actions.push(PageAction {
+            id: nocode_model::page::ActionId::new(),
+            name: "RefreshProducts".to_string(),
+            action_type: ActionType::CallApi,
+            config: ActionConfig::CallApi {
+                data_source_id: ds_id.clone(),
+                params: Default::default(),
+                on_success: vec![],
+                on_error: vec![],
+            },
+            permissions: vec![],
+        });
+
+        // Add components (StatCard, Table, Button)
+        let stat_card = PageComponent {
+            id: nocode_model::page::ComponentId::new(),
+            component: ComponentType::StatCard {
+                label: "Total Products".to_string(),
+                value: "0".to_string(),
+                trend: None,
+                icon: None,
+            },
+            props: Default::default(),
+            bindings: vec![],
+            events: vec![],
+            conditions: vec![],
+            slots: Default::default(),
+            style_overrides: Default::default(),
+        };
+
+        let table = PageComponent {
+            id: nocode_model::page::ComponentId::new(),
+            component: ComponentType::Table {
+                columns: vec![
+                    nocode_model::page::TableColumn {
+                        key: "id".to_string(),
+                        title: "ID".to_string(),
+                        data_index: "id".to_string(),
+                        width: None,
+                        min_width: None,
+                        max_width: None,
+                        fixed: None,
+                        align: None,
+                        ellipsis: false,
+                        sortable: true,
+                        filterable: false,
+                        render: None,
+                        children: vec![],
+                    },
+                    nocode_model::page::TableColumn {
+                        key: "name".to_string(),
+                        title: "Name".to_string(),
+                        data_index: "name".to_string(),
+                        width: None,
+                        min_width: None,
+                        max_width: None,
+                        fixed: None,
+                        align: None,
+                        ellipsis: false,
+                        sortable: true,
+                        filterable: true,
+                        render: None,
+                        children: vec![],
+                    },
+                ],
+                data_source: ds_id.clone(),
+                pagination: Default::default(),
+                sorting: true,
+                filtering: true,
+                selection: Default::default(),
+            },
+            props: Default::default(),
+            bindings: vec![nocode_model::page::DataBinding {
+                target: BindingTarget::Prop("data".to_string()),
+                source: BindingSource::DataSource {
+                    source_id: ds_id.clone(),
+                    path: "data".to_string(),
+                },
+                transform: None,
+                two_way: false,
+            }],
+            events: vec![],
+            conditions: vec![],
+            slots: Default::default(),
+            style_overrides: Default::default(),
+        };
+
+        let refresh_button = PageComponent {
+            id: nocode_model::page::ComponentId::new(),
+            component: ComponentType::Button {
+                label: "Refresh".to_string(),
+                variant: nocode_model::page::ButtonVariant::Primary,
+                size: nocode_model::page::ButtonSize::Middle,
+                icon: None,
+                loading: false,
+                disabled: false,
+                action: "RefreshProducts".to_string(),
+            },
+            props: Default::default(),
+            bindings: vec![],
+            events: vec![],
+            conditions: vec![],
+            slots: Default::default(),
+            style_overrides: Default::default(),
+        };
+
+        products_page.components.push(stat_card);
+        products_page.components.push(table);
+        products_page.components.push(refresh_button);
+
+        project
+            .pages
+            .insert(products_page.id.clone(), products_page);
 
         project
     }
@@ -1009,6 +1160,31 @@ mod tests {
             status.success(),
             "generated backend failed to compile at {}",
             dir.display()
+        );
+    }
+
+    /// A bare `{{snake}}` in a template invokes the registered `snake` *helper*
+    /// instead of resolving the field, which silently produced empty names
+    /// (`submit_` instead of `submit_products_api`). Guard the affected names.
+    #[tokio::test]
+    async fn data_source_client_functions_use_the_real_id() {
+        let project = populated_project();
+        let frontend = crate::frontend::generate_frontend(&project, &std::env::temp_dir())
+            .await
+            .expect("frontend generation runs");
+
+        let api = frontend
+            .files
+            .get(&std::path::PathBuf::from("src/api.rs"))
+            .expect("api client generated");
+
+        assert!(
+            api.contains("pub async fn submit_products_api("),
+            "data source client function is missing or misnamed:\n{api}"
+        );
+        assert!(
+            !api.contains("pub async fn submit_("),
+            "data source client function has an empty name:\n{api}"
         );
     }
 

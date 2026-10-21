@@ -1,7 +1,7 @@
 use anyhow::Result;
 use handlebars::Handlebars;
 use nocode_model::Project;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -22,12 +22,24 @@ pub async fn generate_frontend(
     let forms = view::forms_view(project);
     let pages = view::pages_view(project);
 
+    // Collect all data sources from all pages for the API client
+    let all_data_sources: Vec<Value> = pages
+        .iter()
+        .flat_map(|p| {
+            p.get("data_sources")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.to_vec())
+                .unwrap_or_default()
+        })
+        .collect();
+
     let theme = view::theme_view(project);
     let ctx = json!({
         "project": &project_ctx,
         "entities": &entities,
         "forms": &forms,
         "pages": &pages,
+        "data_sources": &all_data_sources,
         "theme": &theme
     });
 
@@ -142,51 +154,87 @@ fn register_templates(reg: &mut Handlebars) -> Result<()> {
     )?;
     reg.register_template_string(
         "frontend/tailwind_config",
-        include_str!("templates/frontend/tailwind.config.js.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/tailwind.config.js.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/input_css",
-        include_str!("templates/frontend/input.css.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/input.css.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/index_html",
-        include_str!("templates/frontend/index.html.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/index.html.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/app",
-        include_str!("templates/frontend/app.rs.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/app.rs.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/api",
-        include_str!("templates/frontend/api.rs.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/api.rs.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/types",
-        include_str!("templates/frontend/types.rs.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/types.rs.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/layout_component",
-        include_str!("templates/frontend/layout_component.rs.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/layout_component.rs.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/pages_mod",
-        include_str!("templates/frontend/pages_mod.rs.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/pages_mod.rs.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/home",
-        include_str!("templates/frontend/home.rs.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/home.rs.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/entity_page",
-        include_str!("templates/frontend/entity_page.rs.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/entity_page.rs.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/form_page",
-        include_str!("templates/frontend/form_page.rs.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/form_page.rs.hbs"
+        )),
     )?;
     reg.register_template_string(
         "frontend/page",
-        include_str!("templates/frontend/page.rs.hbs"),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/templates/frontend/page.rs.hbs"
+        )),
     )?;
     Ok(())
 }
