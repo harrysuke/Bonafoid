@@ -295,7 +295,6 @@ mod tests {
         };
         use nocode_model::{Entity, Form, Project, Workflow};
 
-
         let mut project = Project::new("Acme Portal");
         project.description = Some("A demo application".to_string());
 
