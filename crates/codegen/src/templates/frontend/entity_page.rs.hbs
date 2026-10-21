@@ -4,16 +4,16 @@ use leptos::prelude::*;
 
 use crate::api;
 use crate::convert;
-use crate::types::{Create{{this.pascal}}, {{this.pascal}}};
+use crate::types::*;
 
 #[component]
 pub fn List() -> impl IntoView {
     let (items, set_items) = signal(Vec::<{{this.pascal}}>::new());
     let (error, set_error) = signal(Option::<String>::None);
-{{#each fields}}{{#unless is_primary_key}}
-    let (input_{{@index}}, set_input_{{@index}}) = signal(String::new());
-{{/unless}}{{/each}}
-    let reload = move || {
+{{#each fields}}{{#unless is_primary_key}}{{#if can_edit}}    let (input_{{@index}}, set_input_{{@index}}) = signal(String::new());
+{{/if}}{{/unless}}{{/each}}{{#each fields}}{{#unless is_primary_key}}{{#if is_editable_relation}}    // The records this relation points at, for the picker.
+    let (rel_{{@index}}, set_rel_{{@index}}) = signal(Vec::<{{relation_entity_pascal}}>::new());
+{{/if}}{{/unless}}{{/each}}    let reload = move || {
         leptos::task::spawn_local(async move {
             match api::list_{{this.snake}}().await {
                 Ok(list) => {
@@ -25,12 +25,18 @@ pub fn List() -> impl IntoView {
         });
     };
     reload();
-
+{{#each fields}}{{#unless is_primary_key}}{{#if is_editable_relation}}
+    leptos::task::spawn_local(async move {
+        if let Ok(list) = api::list_{{relation_entity_snake}}().await {
+            set_rel_{{@index}}.set(list);
+        }
+    });
+{{/if}}{{/unless}}{{/each}}
     let on_submit = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let payload = Create{{this.pascal}} {
-{{#each fields}}{{#unless is_primary_key}}            {{rust_ident}}: convert::{{wasm_ctor}}(input_{{@index}}.get().as_str()),
-{{/unless}}{{/each}}        };
+{{#each fields}}{{#unless is_primary_key}}{{#if can_edit}}            {{rust_ident}}: convert::{{wasm_ctor}}(input_{{@index}}.get().as_str()),
+{{/if}}{{/unless}}{{/each}}        };
         leptos::task::spawn_local(async move {
             match api::create_{{this.snake}}(&payload).await {
                 Ok(_) => reload(),
@@ -57,16 +63,119 @@ pub fn List() -> impl IntoView {
                 class="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-2"
                 on:submit=on_submit
             >
-{{#each fields}}{{#unless is_primary_key}}                <label class="flex flex-col gap-1 text-sm">
+{{#each fields}}{{#unless is_primary_key}}{{#if can_edit}}                <label class="flex flex-col gap-1 text-sm">
                     <span class="font-medium text-slate-600">{{label}}</span>
-                    <input
+{{#if (eq field_type "boolean")}}                    <input
+                        type="checkbox"
+                        class="h-4 w-4"
+                        prop:checked=move || input_{{@index}}.get() == "true"
+                        on:change=move |ev| set_input_{{@index}}.set(event_target_checked(&ev).to_string())
+                    />
+{{else if (eq field_type "enum")}}                    <select
                         class="rounded border border-slate-300 px-2 py-1"
-                        type="text"
+                        prop:value=move || input_{{@index}}.get()
+                        on:change=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    >
+                        <option value="">"Select…"</option>
+{{#each options}}                        <option value="{{value}}">{{label}}</option>
+{{/each}}                    </select>
+{{else if (eq field_type "relation")}}                    <select
+                        class="rounded border border-slate-300 px-2 py-1"
+                        prop:value=move || input_{{@index}}.get()
+                        on:change=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    >
+                        <option value="">"Select…"</option>
+                        <For
+                            each=move || rel_{{@index}}.get()
+                            key=|item| item.{{relation_key_field}}.to_string()
+                            children=move |item| {
+                                view! {
+                                    <option value={item.{{relation_key_field}}.to_string()}>
+                                        {item.{{relation_label_field}}}
+                                    </option>
+                                }
+                            }
+                        />
+                    </select>
+{{else if (eq field_type "integer")}}                    <input
+                        class="rounded border border-slate-300 px-2 py-1"
+                        type="number"
                         prop:value=move || input_{{@index}}.get()
                         on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
                     />
-                </label>
-{{/unless}}{{/each}}                <div class="flex items-end">
+{{else if (eq field_type "big_integer")}}                    <input
+                        class="rounded border border-slate-300 px-2 py-1"
+                        type="number"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    />
+{{else if (eq field_type "float")}}                    <input
+                        class="rounded border border-slate-300 px-2 py-1"
+                        type="number"
+                        step="any"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    />
+{{else if (eq field_type "decimal")}}                    <input
+                        class="rounded border border-slate-300 px-2 py-1"
+                        type="number"
+                        step="any"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    />
+{{else if (eq field_type "date")}}                    <input
+                        class="rounded border border-slate-300 px-2 py-1"
+                        type="date"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    />
+{{else if (eq field_type "date_time")}}                    <input
+                        class="rounded border border-slate-300 px-2 py-1"
+                        type="datetime-local"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    />
+{{else if (eq field_type "timestamp")}}                    <input
+                        class="rounded border border-slate-300 px-2 py-1"
+                        type="datetime-local"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    />
+{{else if (eq field_type "time")}}                    <input
+                        class="rounded border border-slate-300 px-2 py-1"
+                        type="time"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    />
+{{else if (eq field_type "json")}}                    <textarea
+                        class="rounded border border-slate-300 px-2 py-1 font-mono text-xs"
+                        rows="3"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    ></textarea>
+{{else if (eq field_type "jsonb")}}                    <textarea
+                        class="rounded border border-slate-300 px-2 py-1 font-mono text-xs"
+                        rows="3"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    ></textarea>
+{{else if (eq field_type "text")}}                    <textarea
+                        class="rounded border border-slate-300 px-2 py-1"
+                        rows="3"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    ></textarea>
+{{else}}                    <input
+                        class="rounded border border-slate-300 px-2 py-1"
+                        type="{{input_type}}"
+                        prop:value=move || input_{{@index}}.get()
+                        on:input=move |ev| set_input_{{@index}}.set(event_target_value(&ev))
+                    />
+{{/if}}                </label>
+{{else}}                <p class="text-xs text-slate-500">
+                    "{{label}} is a binary field and cannot be set from this form."
+                </p>
+{{/if}}{{/unless}}{{/each}}                <div class="flex items-end">
                     <button class="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700" type="submit">
                         "Create"
                     </button>

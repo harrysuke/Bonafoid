@@ -524,10 +524,18 @@ mod tests {
             order: 2,
         });
         let category_fk = EntityFieldId::new();
+        // A relation field: the IDE stores the target entity and field on
+        // the field itself, so the generated page can offer the target's
+        // records in a picker instead of asking for a raw id.
         entity.fields.push(EntityField {
             id: category_fk.clone(),
             name: "category_id".to_string(),
-            field_type: EntityFieldType::Uuid,
+            field_type: EntityFieldType::Relation(nocode_model::entity::RelationType::BelongsTo {
+                entity_id: category.id.clone(),
+                field: "id".to_string(),
+                on_delete: nocode_model::entity::OnDelete::SetNull,
+                on_update: nocode_model::entity::OnUpdate::Cascade,
+            }),
             nullable: true,
             unique: false,
             default: None,
@@ -536,6 +544,63 @@ mod tests {
             comment: None,
             order: 3,
         });
+
+        // The remaining field types, so every branch of the generated
+        // entity form is exercised by the compile fixture.
+        let mut extra_order = 4;
+        let mut push_field =
+            |name: &str, field_type: EntityFieldType, nullable: bool, order: &mut usize| {
+                entity.fields.push(EntityField {
+                    id: EntityFieldId::new(),
+                    name: name.to_string(),
+                    field_type,
+                    nullable,
+                    unique: false,
+                    default: None,
+                    auto_generate: None,
+                    validation: None,
+                    comment: None,
+                    order: *order,
+                });
+                *order += 1;
+            };
+        push_field("description", EntityFieldType::Text, true, &mut extra_order);
+        push_field(
+            "in_stock",
+            EntityFieldType::Boolean,
+            false,
+            &mut extra_order,
+        );
+        push_field(
+            "quantity",
+            EntityFieldType::Integer,
+            false,
+            &mut extra_order,
+        );
+        push_field("weight", EntityFieldType::Float, true, &mut extra_order);
+        push_field("released_on", EntityFieldType::Date, true, &mut extra_order);
+        push_field(
+            "published_at",
+            EntityFieldType::DateTime,
+            true,
+            &mut extra_order,
+        );
+        push_field(
+            "available_at",
+            EntityFieldType::Time,
+            true,
+            &mut extra_order,
+        );
+        push_field("metadata", EntityFieldType::Json, true, &mut extra_order);
+        push_field(
+            "status",
+            EntityFieldType::Enum {
+                values: vec!["draft".to_string(), "live".to_string()],
+            },
+            false,
+            &mut extra_order,
+        );
+        push_field("thumbnail", EntityFieldType::Bytes, true, &mut extra_order);
 
         let category_id = category.id.clone();
         let category_pk = category.fields[0].id.clone();

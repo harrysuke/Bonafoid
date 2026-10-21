@@ -2,6 +2,8 @@
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
+{{#if entity.needs_chrono}}use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
+{{/if}}
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "{{entity.table}}")]
@@ -33,10 +35,15 @@ impl ActiveModelBehavior for ActiveModel {}
 }
 
 {{/each}}/// Payload for creating a {{entity.name}}.
+///
+/// Binary fields are omitted: a browser gives a file input a path, not the
+/// bytes, so there is no value the frontend could send that would
+/// deserialize into a `Vec<u8>`. Set the column directly until there is an
+/// upload endpoint.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Create{{entity.pascal}} {
-{{#each entity.fields}}{{#unless is_primary_key}}    pub {{rust_ident}}: {{rust_field_type}},
-{{/unless}}{{/each}}}
+{{#each entity.fields}}{{#unless is_primary_key}}{{#if can_edit}}    pub {{rust_ident}}: {{rust_field_type}},
+{{/if}}{{/unless}}{{/each}}}
 
 /// Payload for partially updating a {{entity.name}}.
 ///
@@ -46,8 +53,8 @@ pub struct Create{{entity.pascal}} {
 /// trade-off is that an explicit NULL is indistinguishable from "unchanged".
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Update{{entity.pascal}} {
-{{#each entity.fields}}{{#unless is_primary_key}}    pub {{rust_ident}}: Option<{{rust_type}}>,
-{{/unless}}{{/each}}}
+{{#each entity.fields}}{{#unless is_primary_key}}{{#if can_edit}}    pub {{rust_ident}}: Option<{{rust_type}}>,
+{{/if}}{{/unless}}{{/each}}}
 
 /// API representation of a {{entity.name}}.
 #[derive(Debug, Serialize, Deserialize)]

@@ -74,3 +74,54 @@ pub fn parse_json_opt(s: &str) -> Option<serde_json::Value> {
         Some(parse_json(s))
     }
 }
+
+/// True when the string already carries a UTC offset or zone.
+fn has_offset(s: &str) -> bool {
+    if s.ends_with('Z') || s.ends_with('z') {
+        return true;
+    }
+    match s.split_once('T') {
+        // Only the time part can hold the offset; the date part has
+        // dashes of its own.
+        Some((_, time)) => time.contains('+') || time.contains('-'),
+        None => false,
+    }
+}
+
+/// Normalise a datetime to RFC 3339 with an offset.
+///
+/// `<input type="datetime-local">` produces "YYYY-MM-DDTHH:MM" — no zone —
+/// but the backend field is a `DateTime<Utc>`, and chrono's deserializer
+/// rejects a timestamp without an offset. Supply UTC when the browser did
+/// not.
+pub fn parse_datetime(s: &str) -> String {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if has_offset(trimmed) {
+        return trimmed.to_string();
+    }
+    let (date, time) = match trimmed.split_once('T') {
+        Some((date, time)) => (date, time),
+        None => (trimmed, ""),
+    };
+    if time.is_empty() {
+        return format!("{date}T00:00:00Z");
+    }
+    // "HH:MM" needs the seconds before it can be suffixed with a zone.
+    let time = if time.split(':').count() == 2 {
+        format!("{time}:00")
+    } else {
+        time.to_string()
+    };
+    format!("{date}T{time}Z")
+}
+
+pub fn parse_datetime_opt(s: &str) -> Option<String> {
+    if s.trim().is_empty() {
+        None
+    } else {
+        Some(parse_datetime(s))
+    }
+}

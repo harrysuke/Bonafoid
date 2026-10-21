@@ -37,8 +37,8 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<{{entity.pascal}}Response>), AppError> {
     let item = {{entity.pascal}}ActiveModel {
 {{#if entity.pk_is_uuid}}        {{entity.pk_rust_ident}}: Set(uuid::Uuid::new_v4()),
-{{/if}}{{#each entity.fields}}{{#unless is_primary_key}}        {{rust_ident}}: Set(payload.{{rust_ident}}),
-{{/unless}}{{/each}}        ..Default::default()
+{{/if}}{{#each entity.fields}}{{#unless is_primary_key}}{{#if can_edit}}        {{rust_ident}}: Set(payload.{{rust_ident}}),
+{{/if}}{{/unless}}{{/each}}        ..Default::default()
     }
     .insert(&db)
     .await?;
@@ -57,10 +57,10 @@ pub async fn update(
         .ok_or(AppError::NotFound)?
         .into_active_model();
 
-{{#each entity.fields}}{{#unless is_primary_key}}    if let Some(value) = payload.{{rust_ident}} {
+{{#each entity.fields}}{{#unless is_primary_key}}{{#if can_edit}}    if let Some(value) = payload.{{rust_ident}} {
         active.{{rust_ident}} = Set({{#if is_optional}}Some(value){{else}}value{{/if}});
     }
-{{/unless}}{{/each}}
+{{/if}}{{/unless}}{{/each}}
     let item = active.update(&db).await?;
     Ok(Json({{entity.pascal}}Response::from(item)))
 }

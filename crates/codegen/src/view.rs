@@ -156,7 +156,7 @@ fn rust_type(ft: &EntityFieldType) -> &'static str {
         EntityFieldType::Date => "NaiveDate",
         EntityFieldType::DateTime | EntityFieldType::Timestamp => "DateTime<Utc>",
         EntityFieldType::Time => "NaiveTime",
-        EntityFieldType::Json | EntityFieldType::Jsonb => "Json",
+        EntityFieldType::Json | EntityFieldType::Jsonb => "serde_json::Value",
         EntityFieldType::Bytes => "Vec<u8>",
     }
 }
@@ -203,6 +203,10 @@ fn wasm_ctor(ft: &EntityFieldType, optional: bool) -> &'static str {
         EntityFieldType::Float | EntityFieldType::Decimal { .. } => "parse_f64",
         EntityFieldType::Boolean => "parse_bool",
         EntityFieldType::Json | EntityFieldType::Jsonb => "parse_json",
+        // A `<input type="datetime-local">` yields "YYYY-MM-DDTHH:MM" with
+        // no zone, but the backend field is a `DateTime<Utc>`, which
+        // needs an offset to deserialize.
+        EntityFieldType::DateTime | EntityFieldType::Timestamp => "parse_datetime",
         _ => "parse_string",
     };
     if optional {
@@ -212,6 +216,7 @@ fn wasm_ctor(ft: &EntityFieldType, optional: bool) -> &'static str {
             EntityFieldType::Float | EntityFieldType::Decimal { .. } => "parse_f64_opt",
             EntityFieldType::Boolean => "parse_bool_opt",
             EntityFieldType::Json | EntityFieldType::Jsonb => "parse_json_opt",
+            EntityFieldType::DateTime | EntityFieldType::Timestamp => "parse_datetime_opt",
             _ => "parse_string_opt",
         }
     } else {
@@ -332,12 +337,78 @@ fn rust_ident(name: &str) -> String {
     }
 }
 
-pub fn field_view(field: &EntityField, index: usize, driver: &DatabaseDriver) -> Value {
+/// The field a related entity should be labelled with in a picker.
+///
+/// A relation's select shows the target entity's records, so each record
+/// needs a human-readable label. Prefer a field called "name", then the
+/// first short-text field, then the first non-key field.
+fn relation_label_field(target: &Entity) -> String {
+    let text_field = target.fields.iter().find(|f| {
+        matches!(
+            f.field_type,
+            EntityFieldType::String { .. } | EntityFieldType::Text | EntityFieldType::Enum { .. }
+        )
+    });
+    let named = target
+        .fields
+        .iter()
+        .find(|f| f.name.eq_ignore_ascii_case("name"));
+    let chosen = named.or(text_field).or_else(|| target.fields.get(1));
+    match chosen {
+        Some(field) => rust_ident(&snake(&field.name)),
+        None => String::new(),
+    }
+}
+
+/// The key field of a related entity, used as the value of a picker.
+fn relation_key_field(target: &Entity) -> String {
+    match target.fields.first() {
+        Some(field) => rust_ident(&snake(&field.name)),
+        None => String::new(),
+    }
+}
+
+pub fn field_view(
+    field: &EntityField,
+    index: usize,
+    driver: &DatabaseDriver,
+    project: &Project,
+) -> Value {
     let ft = &field.field_type;
     let enum_values: Vec<String> = match ft {
         EntityFieldType::Enum { values } => values.clone(),
         _ => Vec::new(),
     };
+    // Enum fields get the same `{value, label}` shape the form fields use,
+    // so a template can render a select the same way for both.
+    let options: Vec<Value> = enum_values
+        .iter()
+        .map(|value| json!({ "value": value, "label": value }))
+        .collect();
+    // A relation field knows which entity it points at, so the generated
+    // page can offer the target's records instead of a raw id.
+    let (relation_entity_snake, relation_entity_pascal, relation_label_field, relation_key_field) =
+        match ft {
+            EntityFieldType::Relation(nocode_model::entity::RelationType::BelongsTo {
+                entity_id,
+                ..
+            }) => match project.entities.get(entity_id) {
+                Some(target) => (
+                    snake(&target.name),
+                    pascal(&target.name),
+                    relation_label_field(target),
+                    relation_key_field(target),
+                ),
+                None => (String::new(), String::new(), String::new(), String::new()),
+            },
+            _ => (String::new(), String::new(), String::new(), String::new()),
+        };
+    let is_relation = !relation_entity_snake.is_empty();
+    // A binary field has no sensible widget: the browser gives a file
+    // input a path, not the bytes, and the backend field is `Vec<u8>`.
+    // Rendering one would produce a request that cannot deserialize, so
+    // the generated form leaves it out and says so.
+    let can_edit = !matches!(ft, EntityFieldType::Bytes);
     let max_length = match ft {
         EntityFieldType::String { max_length } => max_length.unwrap_or(255),
         _ => 0,
@@ -359,7 +430,19 @@ pub fn field_view(field: &EntityField, index: usize, driver: &DatabaseDriver) ->
         wasm.to_string()
     };
     let wasm_ctor = wasm_ctor(ft, is_optional);
-    json!({
+    // A date or time field needs chrono's types. The generated model only
+    // imports them when it has to.
+    let needs_chrono = matches!(
+        ft,
+        EntityFieldType::Date
+            | EntityFieldType::DateTime
+            | EntityFieldType::Timestamp
+            | EntityFieldType::Time
+    );
+    // The `json!` macro expands recursively per key and this object is
+    // already close to the default recursion limit, so the later keys are
+    // inserted rather than added to the literal.
+    let mut view = json!({
         "name": field.name,
         "column": column,
         "snake": column,
@@ -396,10 +479,24 @@ pub fn field_view(field: &EntityField, index: usize, driver: &DatabaseDriver) ->
         "is_auto_generate": field.auto_generate.is_some(),
         "auto_generate": field.auto_generate.as_ref().map(auto_name).unwrap_or_default(),
         "is_relation": matches!(ft, EntityFieldType::Relation(_)),
-        "enum_values": enum_values,
-        "max_length": max_length,
-        "comment": field.comment,
-    })
+    });
+    if let Some(object) = view.as_object_mut() {
+        object.insert("is_editable_relation".into(), json!(is_relation));
+        object.insert("needs_chrono".into(), json!(needs_chrono));
+        object.insert("relation_entity_snake".into(), json!(relation_entity_snake));
+        object.insert(
+            "relation_entity_pascal".into(),
+            json!(relation_entity_pascal),
+        );
+        object.insert("relation_label_field".into(), json!(relation_label_field));
+        object.insert("relation_key_field".into(), json!(relation_key_field));
+        object.insert("enum_values".into(), json!(enum_values));
+        object.insert("options".into(), json!(options));
+        object.insert("can_edit".into(), json!(can_edit));
+        object.insert("max_length".into(), json!(max_length));
+        object.insert("comment".into(), json!(field.comment));
+    }
+    view
 }
 
 /// The `RelationType` tag alone, e.g. `BelongsTo`.
@@ -472,7 +569,7 @@ pub fn entity_view(entity: &Entity, project: &Project, driver: &DatabaseDriver) 
         .fields
         .iter()
         .enumerate()
-        .map(|(i, f)| field_view(f, i, driver))
+        .map(|(i, f)| field_view(f, i, driver, project))
         .collect();
     let mut relations: Vec<Value> = Vec::new();
     let mut related: Vec<Value> = Vec::new();
@@ -550,6 +647,11 @@ pub fn entity_view(entity: &Entity, project: &Project, driver: &DatabaseDriver) 
         .get("is_integer")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    // The generated model only imports chrono's types and serde_json's
+    // when the entity actually has a field that needs them.
+    let needs_chrono = fields
+        .iter()
+        .any(|f| f.get("needs_chrono").and_then(|v| v.as_bool()) == Some(true));
 
     json!({
         "name": entity.name,
@@ -569,6 +671,7 @@ pub fn entity_view(entity: &Entity, project: &Project, driver: &DatabaseDriver) 
         "pk_rust_ident": pk_rust_ident,
         "pk_is_uuid": pk_is_uuid,
         "pk_is_integer": pk_is_integer,
+        "needs_chrono": needs_chrono,
     })
 }
 
@@ -2434,6 +2537,300 @@ mod tests {
             names.windows(2).all(|pair| pair[0] == pair[1]),
             "the radios are not one group, they have different names: {names:?}"
         );
+    }
+
+    #[test]
+    fn an_enum_field_gets_options() {
+        let mut project = Project::new("Acme");
+        let mut entity = nocode_model::Entity::new("Product");
+        entity.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "id".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Uuid,
+            nullable: false,
+            unique: true,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 0,
+        });
+        entity.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "status".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Enum {
+                values: vec!["draft".to_string(), "live".to_string()],
+            },
+            nullable: false,
+            unique: false,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 1,
+        });
+        let entity_id = entity.id.clone();
+        project.entities.insert(entity_id.clone(), entity);
+
+        let view = entity_view(
+            &project.entities[&entity_id],
+            &project,
+            &nocode_model::DatabaseDriver::SQLite,
+        );
+        let status = &view["fields"][1];
+
+        assert_eq!(status["field_type"], "enum");
+        assert_eq!(status["options"][0]["value"], "draft");
+        assert_eq!(status["options"][0]["label"], "draft");
+        assert_eq!(status["options"][1]["value"], "live");
+        assert_eq!(status["enum_values"][1], "live");
+    }
+
+    #[test]
+    fn a_relation_field_resolves_its_target_entity() {
+        let mut project = Project::new("Acme");
+
+        let mut category = nocode_model::Entity::new("Category");
+        category.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "id".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Uuid,
+            nullable: false,
+            unique: true,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 0,
+        });
+        category.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "name".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::String {
+                max_length: Some(80),
+            },
+            nullable: false,
+            unique: false,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 1,
+        });
+        let category_id = category.id.clone();
+        project.entities.insert(category_id.clone(), category);
+
+        let mut product = nocode_model::Entity::new("Product");
+        product.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "id".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Uuid,
+            nullable: false,
+            unique: true,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 0,
+        });
+        product.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "category_id".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Relation(
+                nocode_model::entity::RelationType::BelongsTo {
+                    entity_id: category_id.clone(),
+                    field: "id".to_string(),
+                    on_delete: nocode_model::entity::OnDelete::SetNull,
+                    on_update: nocode_model::entity::OnUpdate::Cascade,
+                },
+            ),
+            nullable: true,
+            unique: false,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 1,
+        });
+        let product_id = product.id.clone();
+        project.entities.insert(product_id.clone(), product);
+
+        let view = entity_view(
+            &project.entities[&product_id],
+            &project,
+            &nocode_model::DatabaseDriver::SQLite,
+        );
+        let relation = &view["fields"][1];
+
+        assert_eq!(relation["is_editable_relation"], true);
+        assert_eq!(relation["relation_entity_snake"], "category");
+        assert_eq!(relation["relation_entity_pascal"], "Category");
+        assert_eq!(relation["relation_label_field"], "name");
+        assert_eq!(relation["relation_key_field"], "id");
+    }
+
+    #[test]
+    fn a_relation_to_a_missing_entity_is_not_editable() {
+        let mut project = Project::new("Acme");
+        let mut product = nocode_model::Entity::new("Product");
+        product.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "id".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Uuid,
+            nullable: false,
+            unique: true,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 0,
+        });
+        product.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "ghost_id".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Relation(
+                nocode_model::entity::RelationType::BelongsTo {
+                    entity_id: nocode_model::entity::EntityId::new(),
+                    field: "id".to_string(),
+                    on_delete: nocode_model::entity::OnDelete::SetNull,
+                    on_update: nocode_model::entity::OnUpdate::Cascade,
+                },
+            ),
+            nullable: true,
+            unique: false,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 1,
+        });
+        let product_id = product.id.clone();
+        project.entities.insert(product_id.clone(), product);
+
+        let view = entity_view(
+            &project.entities[&product_id],
+            &project,
+            &nocode_model::DatabaseDriver::SQLite,
+        );
+        let relation = &view["fields"][1];
+
+        assert_eq!(
+            relation["is_editable_relation"], false,
+            "a relation to an entity that is not in the project cannot be picked"
+        );
+    }
+
+    #[test]
+    fn a_binary_field_is_not_editable() {
+        let mut project = Project::new("Acme");
+        let mut entity = nocode_model::Entity::new("Attachment");
+        entity.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "id".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Uuid,
+            nullable: false,
+            unique: true,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 0,
+        });
+        entity.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "blob".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Bytes,
+            nullable: true,
+            unique: false,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 1,
+        });
+        let entity_id = entity.id.clone();
+        project.entities.insert(entity_id.clone(), entity);
+
+        let view = entity_view(
+            &project.entities[&entity_id],
+            &project,
+            &nocode_model::DatabaseDriver::SQLite,
+        );
+
+        assert_eq!(view["fields"][1]["can_edit"], false);
+        assert_eq!(view["fields"][0]["can_edit"], true);
+    }
+
+    #[test]
+    fn a_datetime_field_uses_the_datetime_parser() {
+        // `<input type="datetime-local">` gives "YYYY-MM-DDTHH:MM" with no
+        // zone, but the backend field is a DateTime<Utc>.
+        let mut project = Project::new("Acme");
+        let mut entity = nocode_model::Entity::new("Event");
+        entity.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "id".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Uuid,
+            nullable: false,
+            unique: true,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 0,
+        });
+        entity.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "starts_at".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::DateTime,
+            nullable: true,
+            unique: false,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 1,
+        });
+        let entity_id = entity.id.clone();
+        project.entities.insert(entity_id.clone(), entity);
+
+        let view = entity_view(
+            &project.entities[&entity_id],
+            &project,
+            &nocode_model::DatabaseDriver::SQLite,
+        );
+
+        assert_eq!(view["fields"][1]["wasm_ctor"], "parse_datetime_opt");
+        assert_eq!(view["fields"][1]["input_type"], "datetime-local");
+        assert_eq!(view["needs_chrono"], true);
+    }
+
+    #[test]
+    fn an_entity_without_dates_does_not_ask_for_chrono() {
+        let mut project = Project::new("Acme");
+        let mut entity = nocode_model::Entity::new("Thing");
+        entity.fields.push(EntityField {
+            id: nocode_model::entity::EntityFieldId::new(),
+            name: "id".to_string(),
+            field_type: nocode_model::entity::EntityFieldType::Uuid,
+            nullable: false,
+            unique: true,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 0,
+        });
+        let entity_id = entity.id.clone();
+        project.entities.insert(entity_id.clone(), entity);
+
+        let view = entity_view(
+            &project.entities[&entity_id],
+            &project,
+            &nocode_model::DatabaseDriver::SQLite,
+        );
+
+        assert_eq!(view["needs_chrono"], false);
     }
 
     #[test]

@@ -11,11 +11,11 @@ pub struct {{this.pascal}} {
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Create{{this.pascal}} {
-{{#each this.fields}}{{#unless this.is_primary_key}}    pub {{this.rust_ident}}: {{this.wasm_field_type}},
-{{/unless}}{{/each}}}
+{{#each this.fields}}{{#unless this.is_primary_key}}{{#if this.can_edit}}    pub {{this.rust_ident}}: {{this.wasm_field_type}},
+{{/if}}{{/unless}}{{/each}}}
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Update{{this.pascal}} {
-{{#each this.fields}}{{#unless this.is_primary_key}}    pub {{this.rust_ident}}: Option<{{this.wasm_type}}>,
-{{/unless}}{{/each}}}
+{{#each this.fields}}{{#unless this.is_primary_key}}{{#if this.can_edit}}    pub {{this.rust_ident}}: Option<{{this.wasm_type}}>,
+{{/if}}{{/unless}}{{/each}}}
 {{/each}}
