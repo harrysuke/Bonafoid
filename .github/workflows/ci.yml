@@ -34,10 +34,6 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   rust-test:
@@ -51,11 +47,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install system deps
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
       - run: cargo test --workspace --all-features
 
   rust-build:
@@ -77,11 +68,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: Install system deps
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
       - run: cargo build --workspace --release --target ${{ matrix.target }}
 
   frontend:
@@ -132,10 +118,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: xtask -> target
       - name: Generate JSON Schema from the Rust model
-        run: cargo run --manifest-path xtask/Cargo.toml --quiet -- types
+        run: cargo run -p nocode-xtask --quiet -- types
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -145,32 +129,3 @@ jobs:
           git diff --exit-code -- \
             packages/ide-core/src/types/model.schema.json \
             packages/ide-core/src/types/model.generated.ts
-
-  wasm:
-    name: WASM targets
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --workspace --target wasm32-unknown-unknown --exclude nocode-runtime --exclude nocode-bpmn
-
-  codegen-compile:
-    name: Generated code compiles
-    runs-on: ubuntu-latest
-    # Expensive (compiles the generated Axum backend and the Leptos/WASM
-    # frontend), so it runs on a schedule and on manual dispatch only.
-    schedule:
-      - cron: "37 4 * * 1"
-    workflow_dispatch:
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: xtask -> target
-      - run: cargo test -p nocode-codegen --lib -- --ignored --nocapture

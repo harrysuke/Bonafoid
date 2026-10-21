@@ -1,0 +1,56 @@
+name: Generated code compiles
+
+# The generated app is the one thing in this repository that is not built by
+# `cargo build --workspace`: the backend is a fresh Axum crate and the
+# frontend is a fresh Leptos/WASM crate, both assembled from templates at
+# generation time. They have their own dependency trees, so the only way to
+# know they still compile is to generate them and compile them.
+#
+# This lives in its own file rather than in ci.yml because it is expensive
+# (a full `cargo check` of a generated backend plus a wasm32 check of a
+# generated frontend) and because it needs triggers ci.yml's `on:` block
+# does not have: a weekly schedule and a pull_request path filter.
+#
+# It was previously a job in ci.yml with `schedule:` and
+# `workflow_dispatch:` at JOB level. Those are workflow-level `on:` keys
+# only; GitHub's parser rejects unknown job-level keys and that invalidates
+# the entire workflow file, so no ci.yml job had ever run.
+
+on:
+  pull_request:
+    paths:
+      - crates/codegen/**
+      - crates/model/**
+  push:
+    branches: [main, master, develop]
+    paths:
+      - crates/codegen/**
+      - crates/model/**
+  schedule:
+    - cron: "37 4 * * 1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codegen-compile:
+    name: Generated code compiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # Runs both ignored fixtures: generated_backend_compiles (cargo check
+      # of the generated Axum crate) and generated_frontend_compiles (cargo
+      # check --target wasm32-unknown-unknown of the generated Leptos crate).
+      # --test-threads=1 serialises them so the two `cargo check` runs do
+      # not contend on the shared crates.io cache lock.
+      - run: cargo test -p nocode-codegen --lib -- --ignored --nocapture --test-threads=1

@@ -1,8 +1,8 @@
-use clap::{Parser, Subcommand};
 use anyhow::Result;
-use std::path::PathBuf;
+use clap::{Parser, Subcommand};
+use nocode_codegen::{generate_backend, generate_database, generate_frontend, generate_project};
 use nocode_model::Project;
-use nocode_codegen::{generate_project, generate_backend, generate_frontend, generate_database};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "nocode-xtask")]
@@ -19,45 +19,45 @@ enum Commands {
         /// Path to the project model JSON file
         #[arg(short, long)]
         model: PathBuf,
-        
+
         /// Output directory
         #[arg(short, long, default_value = "./generated")]
         output: PathBuf,
     },
-    
+
     /// Generate only the backend
     Backend {
         #[arg(short, long)]
         model: PathBuf,
-        
+
         #[arg(short, long, default_value = "./generated/backend")]
         output: PathBuf,
     },
-    
+
     /// Generate only the frontend
     Frontend {
         #[arg(short, long)]
         model: PathBuf,
-        
+
         #[arg(short, long, default_value = "./generated/frontend")]
         output: PathBuf,
     },
-    
+
     /// Generate only database migrations
     Database {
         #[arg(short, long)]
         model: PathBuf,
-        
+
         #[arg(short, long, default_value = "./generated/database")]
         output: PathBuf,
     },
-    
+
     /// Build the Tauri app
     BuildTauri {
         #[arg(short, long, default_value = "release")]
         profile: String,
     },
-    
+
     /// Build the frontend for web deployment
     BuildWeb {
         #[arg(short, long, default_value = "./generated/frontend")]
@@ -75,12 +75,12 @@ enum Commands {
         #[arg(short, long, default_value = "./generated/desktop/src-tauri")]
         desktop_dir: PathBuf,
     },
-    
+
     /// Create a new project scaffold
     New {
         /// Project name
         name: String,
-        
+
         /// Output directory
         #[arg(short, long, default_value = ".")]
         output: PathBuf,
@@ -97,7 +97,7 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Generate { model, output } => {
             let project = load_project(&model)?;
@@ -106,21 +106,21 @@ async fn main() -> Result<()> {
             println!("Generated project at: {}", output.display());
             print_generated_summary(&generated);
         }
-        
+
         Commands::Backend { model, output } => {
             let project = load_project(&model)?;
             println!("Generating backend for: {}", project.name);
-            let backend = generate_backend(&project, &output).await?;
+            let _backend = generate_backend(&project, &output).await?;
             println!("Generated backend at: {}", output.display());
         }
-        
+
         Commands::Frontend { model, output } => {
             let project = load_project(&model)?;
             println!("Generating frontend for: {}", project.name);
-            let frontend = generate_frontend(&project, &output).await?;
+            let _frontend = generate_frontend(&project, &output).await?;
             println!("Generated frontend at: {}", output.display());
         }
-        
+
         Commands::Database { model, output } => {
             let project = load_project(&model)?;
             println!("Generating database for: {}", project.name);
@@ -128,12 +128,12 @@ async fn main() -> Result<()> {
             println!("Generated database at: {}", output.display());
             println!("Migrations: {}", database.migrations.len());
         }
-        
+
         Commands::BuildTauri { profile } => {
             println!("Building Tauri app ({})...", profile);
             build_tauri(&profile).await?;
         }
-        
+
         Commands::BuildWeb { frontend_dir } => {
             println!("Building web frontend...");
             build_web(&frontend_dir).await?;
@@ -154,7 +154,7 @@ async fn main() -> Result<()> {
             println!("Building Tauri desktop shell...");
             build_desktop(&desktop_dir).await?;
         }
-        
+
         Commands::New { name, output } => {
             println!("Creating new project: {}", name);
             create_new_project(&name, &output)?;
@@ -176,7 +176,7 @@ async fn main() -> Result<()> {
             println!("Wrote JSON Schema to {}", path.display());
         }
     }
-    
+
     Ok(())
 }
 
@@ -192,7 +192,10 @@ fn print_generated_summary(generated: &nocode_codegen::project::GeneratedProject
     println!("Output dir: {}", generated.output_dir.display());
     println!("\nBackend files: {}", generated.backend.files.len());
     println!("Frontend files: {}", generated.frontend.files.len());
-    println!("Database migrations: {}", generated.database.migrations.len());
+    println!(
+        "Database migrations: {}",
+        generated.database.migrations.len()
+    );
     println!("Docker files: 3");
     println!("Kubernetes files: 5");
     println!("PWA files: {}", generated.targets.pwa.files().len());
@@ -241,20 +244,23 @@ async fn build_web(frontend_dir: &PathBuf) -> Result<()> {
 fn create_new_project(name: &str, output: &PathBuf) -> Result<()> {
     let project_dir = output.join(name.to_lowercase().replace(' ', "-"));
     std::fs::create_dir_all(&project_dir)?;
-    
+
     // Create project model
     let project = Project::new(name);
     let model_json = serde_json::to_string_pretty(&project)?;
     std::fs::write(project_dir.join("project.json"), model_json)?;
-    
+
     // Create basic structure
     std::fs::create_dir_all(project_dir.join("src"))?;
     std::fs::create_dir_all(project_dir.join("assets"))?;
-    
+
     // Create README
-    let readme = format!("# {}\n\nNo-Code IDE project generated by nocode-xtask.\n", name);
+    let readme = format!(
+        "# {}\n\nNo-Code IDE project generated by nocode-xtask.\n",
+        name
+    );
     std::fs::write(project_dir.join("README.md"), readme)?;
-    
+
     println!("Created new project at: {}", project_dir.display());
     Ok(())
 }

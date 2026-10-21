@@ -14,9 +14,14 @@ env:
   BINARY_NAME: nocode-xtask
 
 jobs:
-  # cargo-dist based multi-target release of the CLI/xtask binary.
+  # Multi-target release of the nocode-xtask CLI. This is a hand-rolled
+  # workflow, not cargo-dist: it builds the binary, packs a tar.gz/zip and
+  # attaches it to the GitHub release. The old dist-workspace.toml was
+  # removed because nothing invoked `cargo dist`, its keys were not valid
+  # for cargo-dist 0.22, and it promised shell/powershell/homebrew
+  # installers that this workflow never produced.
   dist:
-    name: cargo-dist (${{ matrix.target }})
+    name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -49,6 +54,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+      # nocode-xtask is a workspace member (xtask/), so this resolves from the
+      # root manifest and the binary lands in the workspace target dir, which
+      # is where the packaging steps below look for it.
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p nocode-xtask
       - name: Package (unix)

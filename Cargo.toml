@@ -7,8 +7,11 @@ members = [
     "crates/plugins",
     "crates/bpmn",
     "crates/ide-server",
+    "xtask",
 ]
-exclude = ["xtask", "apps/ide-tauri"]
+# apps/ide-tauri has its own Cargo.lock and its own dependency tree; it is
+# built by .github/workflows/tauri.yml, not by the workspace.
+exclude = ["apps/ide-tauri"]
 
 [workspace.dependencies]
 # Core
@@ -27,9 +30,7 @@ async-trait = "0.1"
 
 # GUI
 egui = "0.29"
-egui_dock = "0.4"
 egui_extras = "0.29"
-epaint = "0.29"
 
 # Tauri
 tauri = "2.0"
@@ -41,15 +42,9 @@ tauri_plugin_shell = "2.0"
 # Web/Backend
 axum = { version = "0.7", features = ["ws", "json", "multipart", "form"] }
 sea-orm = { version = "0.12", features = ["sqlx-postgres", "sqlx-sqlite", "sqlx-mysql", "chrono", "uuid", "macros"] }
-utoipa = { version = "4.0", features = ["axum_extras", "chrono", "uuid"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "fs", "add-extension"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
-
-# Frontend (Leptos) - for generated app
-leptos = { version = "0.7", features = ["csr", "hydrate", "nightly", "axum", "leptos_router"] }
-leptos_router = { version = "0.7", features = ["axum"] }
-leptos_use = "0.7"
 
 # Codegen
 handlebars = "5.0"
@@ -61,13 +56,8 @@ wasmtime = { version = "20.0", features = ["component-model", "async"] }
 napi = { version = "2.0", features = ["napi6"] }
 napi-derive = "2.0"
 
-# Build/Release
-cargo_dist = "0.4"
-wasm_pack = "0.12"
-xtask = "0.1"
-
-# Licensing
-axocharge = "0.1"
+# xtask
+clap = { version = "4.0", features = ["derive"] }
 
 [profile.release]
 lto = true

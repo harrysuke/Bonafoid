@@ -138,4 +138,11 @@ cargo test -p nocode-codegen -- --ignored generated_frontend_compiles
 
 ## License
 
-No-Code IDE is published under the AGPL-3.0-or-later.
+No-Code IDE is published under the AGPL-3.0-or-later. The full text is in
+[LICENSE](LICENSE).
+
+## Security
+
+The hosted preview subsystem compiles and runs user-generated Rust on the
+host, without container isolation. Read [SECURITY.md](SECURITY.md) before
+exposing the IDE server to anyone you do not trust.
