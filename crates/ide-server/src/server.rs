@@ -1,4 +1,5 @@
 use crate::auth::{self, JwtKeys};
+use crate::plugins::PluginRegistry;
 use crate::preview::preview_server_router;
 use crate::preview::runs::RunConfig;
 use crate::preview::{BuildManager, PreviewConfig, RunManager};
@@ -47,6 +48,8 @@ pub struct AppState {
     pub preview: Arc<BuildManager>,
     /// Running preview backends and their ports.
     pub runs: Arc<RunManager>,
+    /// The per-user WebAssembly plugin hosts.
+    pub plugins: Arc<PluginRegistry>,
 }
 
 impl AppState {
@@ -56,6 +59,7 @@ impl AppState {
             keys,
             preview: Arc::new(BuildManager::new(PreviewConfig::from_env())),
             runs: Arc::new(RunManager::new(RunConfig::from_env())),
+            plugins: Arc::new(PluginRegistry::default()),
         }
     }
 
@@ -66,6 +70,7 @@ impl AppState {
             keys,
             preview: Arc::new(BuildManager::new(config)),
             runs: Arc::new(RunManager::new(RunConfig::from_env())),
+            plugins: Arc::new(PluginRegistry::default()),
         }
     }
 }
@@ -101,6 +106,7 @@ pub fn build_router(state: AppState, web_dist: &str) -> Router {
         .merge(crate::projects::projects_router())
         .merge(crate::generation::generation_router())
         .merge(crate::bpmn::bpmn_router())
+        .merge(crate::plugins::plugins_router())
         .merge(crate::preview::preview_router())
         .merge(preview_server_router())
         .fallback_service(spa)

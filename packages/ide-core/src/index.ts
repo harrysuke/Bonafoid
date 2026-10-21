@@ -16,6 +16,7 @@ export {
 export { configurePlatform, getPlatform, hasPlatform } from './platform/registry';
 export type {
   PlatformApi,
+  PlatformPlugin,
   PlatformProject,
   PlatformUser,
   BpmnValidationReport,
@@ -33,6 +34,7 @@ export type {
 
 export { useProjectStore, type FieldPatch, type RelationPatch } from './stores/projectStore';
 export { useUIStore } from './stores/uiStore';
+export { usePluginStore, type PluginState } from './stores/pluginStore';
 
 export * from './pages';
 export * from './types/project';

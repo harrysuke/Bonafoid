@@ -126,6 +126,24 @@ export interface PlatformUser {
   email: string;
 }
 
+/**
+ * An installed plugin.
+ *
+ * `permissions` are the wire names from the manifest ("read_forms"), not
+ * the Rust variant names.
+ */
+export interface PlatformPlugin {
+  id: string;
+  name: string;
+  version: string;
+  api_version: string;
+  enabled: boolean;
+  permissions: string[];
+  description?: string;
+  author?: string;
+  entry_points: string[];
+}
+
 export interface PlatformApi {
   /** Which host is running the IDE. */
   readonly kind: 'tauri' | 'web';
@@ -201,6 +219,25 @@ export interface PlatformApi {
 
   /** Delete a project from the host store. */
   deleteProject?(id: string): Promise<void>;
+
+  /**
+   * Plugins the user has installed. Absent on hosts with no plugin store.
+   */
+  pluginList?(): Promise<PlatformPlugin[]>;
+
+  /**
+   * Install a plugin from its manifest and WebAssembly module.
+   *
+   * The module is uploaded as bytes; the manifest is the plugin's own
+   * `plugin.json`, verbatim.
+   */
+  pluginInstall?(manifest: string, module: Uint8Array): Promise<PlatformPlugin>;
+
+  /** Turn a plugin on or off. */
+  pluginSetEnabled?(id: string, enabled: boolean): Promise<PlatformPlugin>;
+
+  /** Uninstall a plugin. */
+  pluginUninstall?(id: string): Promise<void>;
 
   /**
    * Start a hosted preview build. Absent when the host cannot build previews

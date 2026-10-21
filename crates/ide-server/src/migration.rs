@@ -9,7 +9,10 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, Value};
 
 /// Ordered `(version, sql)` pairs. Never edit or reorder an applied entry; append
 /// new migrations instead.
-const MIGRATIONS: &[(&str, &str)] = &[("0001_initial", INITIAL_SCHEMA)];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("0001_initial", INITIAL_SCHEMA),
+    ("0002_plugins", PLUGINS_SCHEMA),
+];
 
 const INITIAL_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS users (
@@ -54,6 +57,26 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_jti ON refresh_tokens(jti);
+"#;
+
+/// The plugins a user has installed.
+///
+/// The manifest is stored as JSON; the WebAssembly module lives on disk
+/// next to it, because a module is large and is never queried. The primary
+/// key is (user_id, id), so two users can install a plugin with the same
+/// id and neither sees the other's.
+const PLUGINS_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS plugins (
+    id         TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
+    manifest   TEXT NOT NULL,
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_plugins_user_id ON plugins(user_id);
 "#;
 
 /// Apply every migration that has not yet been recorded.

@@ -14,6 +14,9 @@ nocode-model = { path = "../model" }
 nocode-ide = { path = "../ide" }
 nocode-codegen = { path = "../codegen" }
 nocode-bpmn = { path = "../bpmn" }
+# The WebAssembly plugin host: the sandbox, the manifest validation and the
+# module loader.
+nocode-plugins = { path = "../plugins" }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

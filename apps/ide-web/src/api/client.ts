@@ -436,3 +436,63 @@ export const previewApi = {
 
   runs: (): Promise<PreviewRun[]> => request<PreviewRun[]>('/api/v1/runs'),
 };
+
+/** An installed plugin, as the server reports it. */
+export interface PlatformPlugin {
+  id: string;
+  name: string;
+  version: string;
+  api_version: string;
+  enabled: boolean;
+  permissions: string[];
+  description?: string;
+  author?: string;
+  entry_points: string[];
+}
+
+/**
+ * Upload a plugin as multipart form data.
+ *
+ * The manifest and the module are separate parts: the manifest is the
+ * plugin's own `plugin.json` text, and the module is its WebAssembly
+ * bytes.
+ */
+async function uploadPlugin(manifest: string, module: Uint8Array): Promise<PlatformPlugin> {
+  const form = new FormData();
+  form.append('manifest', new Blob([manifest], { type: 'application/json' }), 'plugin.json');
+  form.append(
+    'module',
+    new Blob([module.slice().buffer as ArrayBuffer], { type: 'application/wasm' }),
+    'plugin.wasm',
+  );
+
+  const headers: Record<string, string> = {};
+  const token = csrfToken();
+  if (token) headers['x-csrf-token'] = token;
+
+  const response = await fetch(`${API_BASE}/api/v1/plugins`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: form,
+  });
+
+  if (!response.ok) throw await toError(response);
+  return (await response.json()) as PlatformPlugin;
+}
+
+export const pluginApi = {
+  list: (): Promise<PlatformPlugin[]> => request<PlatformPlugin[]>('/api/v1/plugins'),
+
+  install: (manifest: string, module: Uint8Array): Promise<PlatformPlugin> =>
+    uploadPlugin(manifest, module),
+
+  setEnabled: (id: string, enabled: boolean): Promise<PlatformPlugin> =>
+    request<PlatformPlugin>(`/api/v1/plugins/${encodeURIComponent(id)}/enable`, {
+      method: 'POST',
+      body: { enabled },
+    }),
+
+  uninstall: (id: string): Promise<void> =>
+    request<void>(`/api/v1/plugins/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};

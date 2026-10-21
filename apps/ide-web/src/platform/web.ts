@@ -17,12 +17,20 @@ import type {
   BpmnValidationReport,
   GenerationReport,
   PlatformApi,
+  PlatformPlugin,
   PlatformProject,
   PlatformUser,
   PreviewBuildTarget,
 } from '@nocode/ide-core';
 import { currentUser as sessionUser, logout as endSession } from '../auth/session';
-import { bpmnApi, generationApi, previewApi, previewUrl, projectsApi } from '../api/client';
+import {
+  bpmnApi,
+  generationApi,
+  pluginApi,
+  previewApi,
+  previewUrl,
+  projectsApi,
+} from '../api/client';
 import type { ProjectDetail } from '../api/client';
 
 /** Working copy of the project currently open in the browser. */
@@ -215,6 +223,22 @@ export const webPlatform: PlatformApi = {
 
   previewUrl(buildId: string): string {
     return previewUrl(buildId);
+  },
+
+  async pluginList(): Promise<PlatformPlugin[]> {
+    return pluginApi.list();
+  },
+
+  async pluginInstall(manifest: string, module: Uint8Array): Promise<PlatformPlugin> {
+    return pluginApi.install(manifest, module);
+  },
+
+  async pluginSetEnabled(id: string, enabled: boolean): Promise<PlatformPlugin> {
+    return pluginApi.setEnabled(id, enabled);
+  },
+
+  async pluginUninstall(id: string): Promise<void> {
+    await pluginApi.uninstall(id);
   },
 
   async workflowRun(

@@ -1,257 +1,284 @@
-import { useState } from 'react';
-import { Plus, Trash2, Settings, Puzzle, ExternalLink, Download, Upload, Filter } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Puzzle, Trash2, Upload, RefreshCw, Shield } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { Select } from '../components/ui/Select';
+import { getPlatform } from '../platform/registry';
+import { usePluginStore } from '../stores/pluginStore';
+import { useUIStore } from '../stores/uiStore';
+import type { PlatformPlugin } from '../platform/types';
 
-interface PluginInfo {
-  id: string;
-  name: string;
-  version: string;
-  author: string;
-  description: string;
-  enabled?: boolean;
-  category: string;
-  homepage?: string;
-}
-
-const installedPlugins = [
-  { id: '1', name: 'Auth Plugin', version: '1.2.0', author: 'NoCode Team', description: 'Authentication and authorization', enabled: true, category: 'Auth', homepage: 'https://github.com/nocode/auth-plugin' },
-  { id: '2', name: 'Email Plugin', version: '2.1.0', author: 'Community', description: 'Send emails via multiple providers', enabled: true, category: 'Communication', homepage: 'https://github.com/nocode/email-plugin' },
-  { id: '3', name: 'Storage Plugin', version: '1.0.0', author: 'NoCode Team', description: 'File storage with multiple backends', enabled: true, category: 'Storage', homepage: 'https://github.com/nocode/storage-plugin' },
-  { id: '4', name: 'Analytics Plugin', version: '3.0.0', author: 'Analytics Co', description: 'Track events and metrics', enabled: false, category: 'Analytics', homepage: 'https://github.com/analytics/plugin' },
-  { id: '5', name: 'Payment Plugin', version: '1.5.0', author: 'PayCorp', description: 'Process payments via Stripe', enabled: false, category: 'Payments', homepage: 'https://github.com/paycorp/plugin' },
-];
-
-const marketplacePlugins = [
-  { id: 'm1', name: 'PDF Generator', version: '1.0.0', author: 'DocuSoft', description: 'Generate PDFs from templates', category: 'Documents', downloads: 12500, rating: 4.8, price: 'Free' },
-  { id: 'm2', name: 'Chart Builder', version: '2.0.0', author: 'VizCorp', description: 'Advanced charting components', category: 'Visualization', downloads: 8900, rating: 4.6, price: '$29/mo' },
-  { id: 'm3', name: 'Workflow Scheduler', version: '1.1.0', author: 'TaskFlow', description: 'Cron-like scheduling for workflows', category: 'Automation', downloads: 5600, rating: 4.9, price: 'Free' },
-  { id: 'm4', name: 'Multi-tenant', version: '1.0.0', author: 'SaaSKit', description: 'Multi-tenancy support', category: 'Architecture', downloads: 3200, rating: 4.5, price: '$99/mo' },
-];
-
+/**
+ * The installed plugins.
+ *
+ * A plugin is a WebAssembly module with a `plugin.json` manifest, and the
+ * IDE server owns the sandbox it runs in. There is no marketplace: a plugin
+ * is installed from a manifest and a module the user already has.
+ */
 export function PluginManager() {
-  const [activeTab, setActiveTab] = useState<'installed' | 'marketplace' | 'develop'>('installed');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedPlugin, setSelectedPlugin] = useState<PluginInfo | null>(null);
+  const { plugins, busy, error, loadPlugins, installPlugin, setPluginEnabled, uninstallPlugin } =
+    usePluginStore();
+  const addNotification = useUIStore((state) => state.addNotification);
 
-  const filteredInstalled = installedPlugins.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // The plugin sandbox lives in the IDE server, so a host without one
+  // cannot manage plugins. Say so rather than offering a form that
+  // cannot work.
+  const supported = typeof getPlatform().pluginInstall === 'function';
 
-  const filteredMarketplace = marketplacePlugins.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const [search, setSearch] = useState('');
+  const [manifestFile, setManifestFile] = useState<File | null>(null);
+  const [moduleFile, setModuleFile] = useState<File | null>(null);
+  const manifestInput = useRef<HTMLInputElement>(null);
+  const moduleInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (supported) void loadPlugins();
+  }, [loadPlugins, supported]);
+
+  const visible = plugins.filter((plugin) => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return true;
+    return (
+      plugin.name.toLowerCase().includes(needle) ||
+      plugin.id.toLowerCase().includes(needle) ||
+      plugin.description?.toLowerCase().includes(needle)
+    );
+  });
+
+  const install = async () => {
+    if (!manifestFile || !moduleFile) return;
+    try {
+      const manifest = await manifestFile.text();
+      const module = new Uint8Array(await moduleFile.arrayBuffer());
+      await installPlugin(manifest, module);
+      addNotification({
+        type: 'success',
+        title: 'Plugin installed',
+        message: manifestFile.name,
+      });
+      setManifestFile(null);
+      setModuleFile(null);
+    } catch (cause) {
+      addNotification({
+        type: 'error',
+        title: 'The plugin could not be installed',
+        message: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  };
+
+  const toggle = async (plugin: PlatformPlugin) => {
+    await setPluginEnabled(plugin.id, !plugin.enabled);
+  };
+
+  const uninstall = async (plugin: PlatformPlugin) => {
+    await uninstallPlugin(plugin.id);
+    addNotification({
+      type: 'info',
+      title: 'Plugin uninstalled',
+      message: plugin.name,
+    });
+  };
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between border-b border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
         <div className="flex items-center gap-4">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Plugin Manager</h2>
-          <Input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search plugins..." className="w-64" />
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Plugins</h2>
+          {supported && (
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search installed plugins"
+              className="w-64"
+            />
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm"><Upload className="w-4 h-4 mr-1" /> Upload Plugin</Button>
-          <Button variant="primary" size="sm"><Plus className="w-4 h-4 mr-1" /> Create Plugin</Button>
-        </div>
+        {supported && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void loadPlugins()}
+              disabled={busy}
+            >
+              <RefreshCw className="mr-1 h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel - Tabs */}
-        <div className="w-56 border-r border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-4">
-          <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Categories</h3>
-          <div className="space-y-1">
-            {['installed', 'marketplace', 'develop'].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab as 'installed' | 'marketplace' | 'develop')}
-                className={`w-full text-left p-3 rounded-lg transition-colors ${
-                  activeTab === tab
-                    ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300'
-                    : 'hover:bg-gray-100 dark:hover:bg-slate-700/50 text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  {tab === 'installed' && <Puzzle className="w-5 h-5" />}
-                  {tab === 'marketplace' && <Download className="w-5 h-5" />}
-                  {tab === 'develop' && <Settings className="w-5 h-5" />}
-                  <span className="capitalize">{tab}</span>
-                </div>
-              </button>
-            ))}
+      {!supported && (
+        <div className="flex flex-1 items-center justify-center p-6">
+          <Card className="max-w-md text-center">
+            <Puzzle className="mx-auto mb-3 h-8 w-8 text-gray-400" />
+            <h3 className="mb-2 font-semibold text-gray-900 dark:text-white">
+              Plugins need the IDE server
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Plugins run as WebAssembly inside the IDE server's sandbox. This host
+              has no server, so there is nowhere to install them.
+            </p>
+          </Card>
+        </div>
+      )}
+
+      {supported && (
+        <div className="flex flex-1 overflow-hidden">
+          <div className="w-72 space-y-4 border-r border-gray-200 bg-gray-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+          <div>
+            <h3 className="mb-2 font-semibold text-gray-900 dark:text-white">Install a plugin</h3>
+            <p className="mb-3 text-xs text-gray-600 dark:text-gray-400">
+              A plugin is a WebAssembly module and its <code>plugin.json</code> manifest.
+              There is no marketplace: the IDE installs what you give it.
+            </p>
+          </div>
+
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+            Manifest (plugin.json)
+            <input
+              ref={manifestInput}
+              type="file"
+              accept=".json,application/json"
+              className="mt-1 block w-full text-xs"
+              onChange={(event) => setManifestFile(event.target.files?.[0] ?? null)}
+            />
+          </label>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+            Module (.wasm)
+            <input
+              ref={moduleInput}
+              type="file"
+              accept=".wasm,application/wasm"
+              className="mt-1 block w-full text-xs"
+              onChange={(event) => setModuleFile(event.target.files?.[0] ?? null)}
+            />
+          </label>
+
+          <Button
+            size="sm"
+            className="w-full"
+            disabled={!manifestFile || !moduleFile || busy}
+            loading={busy}
+            onClick={() => void install()}
+          >
+            <Upload className="mr-1 h-4 w-4" />
+            Install
+          </Button>
+
+          {manifestFile && moduleFile && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {manifestFile.name} + {moduleFile.name}
+            </p>
+          )}
+
+          <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+              <Shield className="h-3.5 w-3.5" />
+              Sandboxed
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Plugins run as WebAssembly with a fuel budget and a memory cap. The
+              server checks the manifest and the requested permissions before a
+              module is loaded.
+            </p>
           </div>
         </div>
 
-        {/* Center Panel - Plugin List */}
-        <div className="flex-1 p-6 overflow-y-auto bg-gray-100 dark:bg-slate-900">
-          {activeTab === 'installed' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Installed Plugins</h2>
-                <div className="flex items-center gap-2">
-                  <Input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search..." className="w-48" />
-                  <Button variant="ghost" size="sm"><Filter className="w-4 h-4" /></Button>
-                </div>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {filteredInstalled.map((plugin) => (
-                  <Card key={plugin.id} className="p-4 hover:shadow-md transition-shadow">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-lg flex items-center justify-center">
-                          <Puzzle className="w-5 h-5 text-primary-600 dark:text-primary-400" />
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-900 dark:text-white">{plugin.name}</h3>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">v{plugin.version} by {plugin.author}</p>
-                        </div>
-                      </div>
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${plugin.enabled ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'}`}>
-                        {plugin.enabled ? 'Enabled' : 'Disabled'}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{plugin.description}</p>
-                    <div className="flex items-center justify-between pt-3 border-t border-gray-200 dark:border-slate-700">
-                      <span className="text-xs text-gray-500 dark:text-gray-400">{plugin.category}</span>
-                      <div className="flex items-center gap-2">
-                        <button className={`px-2 py-1 text-xs rounded ${plugin.enabled ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}>
-                          {plugin.enabled ? 'Disable' : 'Enable'}
-                        </button>
-                        <Button variant="ghost" size="sm" onClick={() => setSelectedPlugin(plugin)}><Settings className="w-4 h-4" /></Button>
-                        <Button variant="ghost" size="sm"><Trash2 className="w-4 h-4" /></Button>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            </div>
+        <div className="flex-1 overflow-y-auto bg-gray-100 p-6 dark:bg-slate-900">
+          <div className="mb-6 flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+              Installed plugins
+            </h2>
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              {visible.length} of {plugins.length}
+            </span>
+          </div>
+
+          {error && (
+            <p className="mb-4 rounded bg-red-50 p-3 text-sm text-red-700" role="alert">
+              {error}
+            </p>
           )}
 
-          {activeTab === 'marketplace' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Marketplace</h2>
-                <div className="flex items-center gap-2">
-                  <Input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search marketplace..." className="w-48" />
-                  <Select value="all" options={[{value: 'all', label: 'All Categories'}, {value: 'free', label: 'Free'}, {value: 'paid', label: 'Paid'}]} className="w-36" />
-                </div>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {filteredMarketplace.map((plugin) => (
-                  <Card key={plugin.id} className="p-4 hover:shadow-md transition-shadow h-full">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
-                          <Puzzle className="w-5 h-5 text-green-600 dark:text-green-400" />
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-900 dark:text-white">{plugin.name}</h3>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">v{plugin.version} by {plugin.author}</p>
-                        </div>
-                      </div>
-                      <span className="text-xs font-medium px-2 py-1 rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">{plugin.price}</span>
-                    </div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{plugin.description}</p>
-                    <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mb-3">
-                      <span><ExternalLink className="w-3 h-3 mr-1" /> {plugin.downloads.toLocaleString()} downloads</span>
-                      <span>⭐ {plugin.rating}</span>
-                    </div>
-                    <div className="pt-3 border-t border-gray-200 dark:border-slate-700">
-                      <Button variant="primary" className="w-full">Install</Button>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            </div>
+          {plugins.length === 0 && (
+            <Card className="text-center">
+              <Puzzle className="mx-auto mb-3 h-8 w-8 text-gray-400" />
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                No plugins are installed. Pick a manifest and a module to install one.
+              </p>
+            </Card>
           )}
 
-          {activeTab === 'develop' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Plugin Development</h2>
-                <Button variant="primary"><Plus className="w-4 h-4 mr-1" /> Create New Plugin</Button>
-              </div>
-              <Card className="p-6">
-                <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Create a New Plugin</h3>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">Plugins extend the No-Code IDE with custom components, actions, data sources, and more.</p>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-4">
-                    <h4 className="font-medium text-gray-900 dark:text-white">Plugin Types</h4>
-                    <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                      <li>• Component - Custom UI components</li>
-                      <li>• Action - Custom workflow actions</li>
-                      <li>• DataSource - Custom data connectors</li>
-                      <li>• FieldType - Custom form field types</li>
-                      <li>• WorkflowNode - Custom workflow nodes</li>
-                      <li>• AuthProvider - Custom authentication</li>
-                      <li>• Hook - Lifecycle hooks</li>
-                    </ul>
+          {plugins.length > 0 && visible.length === 0 && (
+            <Card className="text-center">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                No plugin matches “{search}”.
+              </p>
+            </Card>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {visible.map((plugin) => (
+              <Card key={plugin.id} className="flex flex-col">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold text-gray-900 dark:text-white">
+                      {plugin.name}
+                    </h3>
+                    <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                      {plugin.id} · {plugin.version}
+                    </p>
                   </div>
-                  <div className="space-y-4">
-                    <h4 className="font-medium text-gray-900 dark:text-white">Getting Started</h4>
-                    <ol className="space-y-2 text-sm text-gray-600 dark:text-gray-400 list-decimal list-inside">
-                      <li>Run <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">npm create nocode-plugin</code></li>
-                      <li>Choose plugin type and template</li>
-                      <li>Develop with TypeScript/React</li>
-                      <li>Test in the IDE</li>
-                      <li>Publish to marketplace</li>
-                    </ol>
-                  </div>
+                  <span
+                    className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${
+                      plugin.enabled
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-gray-100 text-gray-500'
+                    }`}
+                  >
+                    {plugin.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+
+                {plugin.description && (
+                  <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">
+                    {plugin.description}
+                  </p>
+                )}
+
+                {plugin.permissions.length > 0 && (
+                  <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                    Permissions: {plugin.permissions.join(', ')}
+                  </p>
+                )}
+
+                <div className="mt-auto flex items-center justify-end gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => void toggle(plugin)}
+                  >
+                    {plugin.enabled ? 'Disable' : 'Enable'}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => void uninstall(plugin)}
+                  >
+                    <Trash2 className="mr-1 h-4 w-4" />
+                    Uninstall
+                  </Button>
                 </div>
               </Card>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
-
-        {/* Right Panel - Plugin Details */}
-        <div className="w-80 border-l border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-4 overflow-y-auto">
-          {selectedPlugin ? (
-            <div className="space-y-4">
-              <h3 className="font-semibold text-gray-900 dark:text-white">Plugin Details</h3>
-              <Card className="p-4">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 bg-primary-100 dark:bg-primary-900/30 rounded-lg flex items-center justify-center">
-                    <Puzzle className="w-6 h-6 text-primary-600 dark:text-primary-400" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-gray-900 dark:text-white">{selectedPlugin.name}</h4>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">v{selectedPlugin.version}</p>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{selectedPlugin.description}</p>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Author:</span><span className="font-medium">{selectedPlugin.author}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Version:</span><span className="font-medium">{selectedPlugin.version}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Category:</span><span className="font-medium">{selectedPlugin.category}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Status:</span><span className={`font-medium ${activeTab === 'installed' && selectedPlugin.enabled ? 'text-green-600' : 'text-gray-600'}`}>{activeTab === 'installed' ? (selectedPlugin.enabled ? 'Enabled' : 'Disabled') : 'Not Installed'}</span></div>
-                </div>
-                <div className="flex gap-2 mt-4">
-                  {activeTab === 'installed' && (
-                    <>
-                      <Button variant={selectedPlugin.enabled ? 'secondary' : 'primary'} className="w-full" onClick={() => {}}>
-                        {selectedPlugin.enabled ? 'Disable' : 'Enable'}
-                      </Button>
-                      <Button variant="ghost" className="w-full"><Settings className="w-4 h-4 mr-1" /> Configure</Button>
-                    </>
-                  )}
-                  {activeTab === 'marketplace' && (
-                    <Button variant="primary" className="w-full">Install</Button>
-                  )}
-                </div>
-              </Card>
-            </div>
-          ) : (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              <Puzzle className="w-12 h-12 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
-              <p>Select a plugin to view details</p>
-            </div>
-          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

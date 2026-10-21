@@ -1941,6 +1941,7 @@ dependencies = [
  "nocode-codegen",
  "nocode-ide",
  "nocode-model",
+ "nocode-plugins",
  "rand 0.8.8",
  "rsa",
  "sea-orm",

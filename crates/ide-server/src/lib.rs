@@ -9,10 +9,12 @@ pub mod db;
 pub mod error;
 pub mod generation;
 pub mod migration;
+pub mod plugins;
 pub mod preview;
 pub mod projects;
 pub mod server;
 
 pub use auth::JwtKeys;
+pub use plugins::{PluginRegistry, PluginSummary};
 pub use preview::{BuildManager, BuildRecord, BuildState, BuildTarget, PreviewConfig};
 pub use server::{build_router, serve, AppState, ServerConfig};
