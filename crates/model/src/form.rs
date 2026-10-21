@@ -59,7 +59,7 @@ impl std::fmt::Display for FormId {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct FormField {
-    pub id: FieldId,
+    pub id: FormFieldId,
     pub name: String,
     pub label: String,
     pub field_type: FieldType,
@@ -72,15 +72,15 @@ pub struct FormField {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
-pub struct FieldId(pub Uuid);
+pub struct FormFieldId(pub Uuid);
 
-impl FieldId {
+impl FormFieldId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
 }
 
-impl Default for FieldId {
+impl Default for FormFieldId {
     fn default() -> Self {
         Self::new()
     }
@@ -177,7 +177,7 @@ pub enum ValidationRule {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ConditionalVisibility {
-    pub field_id: FieldId,
+    pub field_id: FormFieldId,
     pub operator: VisibilityOperator,
     pub value: serde_json::Value,
 }
@@ -228,7 +228,7 @@ pub struct FormLayout {
     pub columns: u8,
     pub column_gap: String,
     pub row_gap: String,
-    pub fields: IndexMap<FieldId, FieldLayout>,
+    pub fields: IndexMap<FormFieldId, FieldLayout>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -252,7 +252,7 @@ pub struct CustomValidator {
     pub name: String,
     pub expression: String,
     pub message: String,
-    pub fields: Vec<FieldId>,
+    pub fields: Vec<FormFieldId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -261,7 +261,7 @@ pub struct FormPermissions {
     pub read_roles: Vec<String>,
     pub update_roles: Vec<String>,
     pub delete_roles: Vec<String>,
-    pub field_permissions: IndexMap<FieldId, FieldPermissions>,
+    pub field_permissions: IndexMap<FormFieldId, FieldPermissions>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]

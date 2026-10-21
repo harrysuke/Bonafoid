@@ -3430,7 +3430,12 @@
                   "$ref": "#/definitions/ChartType"
                 },
                 "config": {
-                  "$ref": "#/definitions/ChartConfig"
+                  "description": "Boxed: `ChartConfig` is 632 bytes and made this enum 664 bytes all on its own. `Box` is transparent to serde and schemars, so the wire format is unchanged.",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/ChartConfig"
+                    }
+                  ]
                 },
                 "data_source": {
                   "type": "string"
@@ -5090,7 +5095,7 @@
       ],
       "properties": {
         "field_id": {
-          "$ref": "#/definitions/FieldId"
+          "$ref": "#/definitions/FormFieldId"
         },
         "operator": {
           "$ref": "#/definitions/VisibilityOperator"
@@ -5428,7 +5433,7 @@
         "fields": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/FieldId"
+            "$ref": "#/definitions/FormFieldId"
           }
         },
         "message": {
@@ -5563,7 +5568,7 @@
           "minimum": 0.0
         },
         "retry": {
-          "$ref": "#/definitions/RetryConfig3"
+          "$ref": "#/definitions/RetryConfig"
         },
         "timeout_ms": {
           "type": "integer",
@@ -6586,7 +6591,7 @@
         "fields": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/FieldId2"
+            "$ref": "#/definitions/EntityFieldId"
           }
         },
         "id": {
@@ -6629,7 +6634,7 @@
           "$ref": "#/definitions/EntityFieldType"
         },
         "id": {
-          "$ref": "#/definitions/FieldId2"
+          "$ref": "#/definitions/EntityFieldId"
         },
         "name": {
           "type": "string"
@@ -6652,6 +6657,10 @@
           ]
         }
       }
+    },
+    "EntityFieldId": {
+      "type": "string",
+      "format": "uuid"
     },
     "EntityFieldType": {
       "oneOf": [
@@ -6971,7 +6980,7 @@
         "fields": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/FieldId2"
+            "$ref": "#/definitions/EntityFieldId"
           }
         },
         "id": {
@@ -7050,7 +7059,7 @@
       ],
       "properties": {
         "from_field": {
-          "$ref": "#/definitions/FieldId2"
+          "$ref": "#/definitions/EntityFieldId"
         },
         "id": {
           "$ref": "#/definitions/RelationId"
@@ -7071,7 +7080,7 @@
           "$ref": "#/definitions/EntityId"
         },
         "to_field": {
-          "$ref": "#/definitions/FieldId2"
+          "$ref": "#/definitions/EntityFieldId"
         }
       }
     },
@@ -7318,14 +7327,6 @@
           "type": "boolean"
         }
       }
-    },
-    "FieldId": {
-      "type": "string",
-      "format": "uuid"
-    },
-    "FieldId2": {
-      "type": "string",
-      "format": "uuid"
     },
     "FieldLayout": {
       "type": "object",
@@ -8276,7 +8277,7 @@
           "$ref": "#/definitions/FieldType"
         },
         "id": {
-          "$ref": "#/definitions/FieldId"
+          "$ref": "#/definitions/FormFieldId"
         },
         "label": {
           "type": "string"
@@ -8302,6 +8303,10 @@
           }
         }
       }
+    },
+    "FormFieldId": {
+      "type": "string",
+      "format": "uuid"
     },
     "FormId": {
       "type": "string",
@@ -10279,6 +10284,7 @@
       }
     },
     "RetryConfig": {
+      "description": "How many times to retry, and how long to wait between attempts.",
       "type": "object",
       "required": [
         "initial_interval_ms",
@@ -10288,95 +10294,31 @@
       ],
       "properties": {
         "initial_interval_ms": {
+          "description": "Delay before the first retry, in milliseconds.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0
         },
         "max_attempts": {
+          "description": "Total attempts, including the first one.",
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0
         },
         "max_interval_ms": {
+          "description": "Ceiling for the backoff delay, in milliseconds.",
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0
         },
         "multiplier": {
-          "type": "number",
-          "format": "double"
-        }
-      }
-    },
-    "RetryConfig2": {
-      "type": "object",
-      "required": [
-        "initial_interval_ms",
-        "max_attempts",
-        "max_interval_ms",
-        "multiplier",
-        "retryable_status_codes"
-      ],
-      "properties": {
-        "initial_interval_ms": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0.0
-        },
-        "max_attempts": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "max_interval_ms": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0.0
-        },
-        "multiplier": {
-          "type": "number",
-          "format": "double"
-        },
-        "retryable_status_codes": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "uint16",
-            "minimum": 0.0
-          }
-        }
-      }
-    },
-    "RetryConfig3": {
-      "type": "object",
-      "required": [
-        "initial_interval_ms",
-        "max_attempts",
-        "max_interval_ms",
-        "multiplier",
-        "retryable_codes"
-      ],
-      "properties": {
-        "initial_interval_ms": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0.0
-        },
-        "max_attempts": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0.0
-        },
-        "max_interval_ms": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0.0
-        },
-        "multiplier": {
+          "description": "Factor the delay is multiplied by after each attempt.",
           "type": "number",
           "format": "double"
         },
         "retryable_codes": {
+          "description": "Response status codes that should be retried.",
+          "default": [],
           "type": "array",
           "items": {
             "type": "integer",
@@ -10772,7 +10714,7 @@
                   "$ref": "#/definitions/HttpMethod"
                 },
                 "retry": {
-                  "$ref": "#/definitions/RetryConfig2"
+                  "$ref": "#/definitions/RetryConfig"
                 },
                 "timeout_ms": {
                   "type": "integer",
@@ -13367,7 +13309,7 @@
         "retry_config": {
           "anyOf": [
             {
-              "$ref": "#/definitions/RetryConfig2"
+              "$ref": "#/definitions/RetryConfig"
             },
             {
               "type": "null"

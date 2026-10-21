@@ -64,7 +64,7 @@ const DEFAULT_RETRY = {
   max_attempts: 3,
   max_interval_ms: 5000,
   multiplier: 2,
-  retryable_status_codes: [429, 500, 502, 503, 504],
+  retryable_codes: [429, 500, 502, 503, 504],
 };
 
 /** Default `WorkflowNodeType` payload for a palette entry. */

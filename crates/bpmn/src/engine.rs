@@ -776,12 +776,10 @@ fn describe_service_task(implementation: &ServiceTaskImplementation) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nocode_model::retry::RetryConfig;
     use nocode_model::{
         EndEventType, NodeConfig, NodePosition, StartEventType, TaskType, WorkflowEdge,
     };
-    // `nocode_model::RetryConfig` is ambiguous at the crate root (page and
-    // workflow each define one), so name the module explicitly.
-    use nocode_model::workflow::RetryConfig;
 
     fn start(name: &str) -> WorkflowNode {
         node(

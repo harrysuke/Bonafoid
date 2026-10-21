@@ -63,7 +63,7 @@ impl std::fmt::Display for EntityId {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct EntityField {
-    pub id: FieldId,
+    pub id: EntityFieldId,
     pub name: String,
     pub field_type: EntityFieldType,
     pub nullable: bool,
@@ -76,15 +76,15 @@ pub struct EntityField {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
-pub struct FieldId(pub Uuid);
+pub struct EntityFieldId(pub Uuid);
 
-impl FieldId {
+impl EntityFieldId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
 }
 
-impl Default for FieldId {
+impl Default for EntityFieldId {
     fn default() -> Self {
         Self::new()
     }
@@ -173,9 +173,9 @@ pub struct EntityRelation {
     pub id: RelationId,
     pub name: String,
     pub relation_type: RelationType,
-    pub from_field: FieldId,
+    pub from_field: EntityFieldId,
     pub to_entity: EntityId,
-    pub to_field: FieldId,
+    pub to_field: EntityFieldId,
     pub on_delete: OnDelete,
     pub on_update: OnUpdate,
 }
@@ -199,7 +199,7 @@ impl Default for RelationId {
 pub struct EntityIndex {
     pub id: IndexId,
     pub name: String,
-    pub fields: Vec<FieldId>,
+    pub fields: Vec<EntityFieldId>,
     pub unique: bool,
     pub index_type: IndexType,
     pub condition: Option<String>,
@@ -236,7 +236,7 @@ pub struct EntityConstraint {
     pub id: ConstraintId,
     pub name: String,
     pub constraint_type: ConstraintType,
-    pub fields: Vec<FieldId>,
+    pub fields: Vec<EntityFieldId>,
     pub expression: Option<String>,
 }
 

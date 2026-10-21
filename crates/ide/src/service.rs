@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use nocode_model::entity::{EntityField, EntityFieldType, FieldId};
+use nocode_model::entity::{EntityField, EntityFieldId, EntityFieldType};
 use nocode_model::{DatabaseDriver, Entity, FrontendFramework, Project};
 
 /// Serialized summary of a completed code-generation run.
@@ -22,7 +22,7 @@ pub fn project_json(project: &Project) -> Result<String, String> {
 
 fn uuid_pk(name: &str, order: usize) -> EntityField {
     EntityField {
-        id: FieldId::new(),
+        id: EntityFieldId::new(),
         name: name.to_string(),
         field_type: EntityFieldType::Uuid,
         nullable: false,
@@ -37,7 +37,7 @@ fn uuid_pk(name: &str, order: usize) -> EntityField {
 
 fn field(name: &str, field_type: EntityFieldType, nullable: bool, order: usize) -> EntityField {
     EntityField {
-        id: FieldId::new(),
+        id: EntityFieldId::new(),
         name: name.to_string(),
         field_type,
         nullable,

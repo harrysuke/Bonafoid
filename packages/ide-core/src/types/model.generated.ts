@@ -705,7 +705,7 @@ export type ComponentType = {
 } | {
   config: {
     chart_type: ChartType;
-    config: ChartConfig;
+    config: unknown;
     data_source: string;
   };
   type: "Chart";
@@ -1036,7 +1036,7 @@ export interface ComponentVariant {
 }
 
 export interface ConditionalVisibility {
-  field_id: FieldId;
+  field_id: FormFieldId;
   operator: VisibilityOperator;
   value: unknown;
 }
@@ -1112,7 +1112,7 @@ export type CurrencyDisplay = "symbol" | "code" | "name" | "narrow_symbol";
 
 export interface CustomValidator {
   expression: string;
-  fields: Array<FieldId>;
+  fields: Array<FormFieldId>;
   message: string;
   name: string;
 }
@@ -1146,7 +1146,7 @@ export interface DataSource {
 export interface DataSourceConfig {
   cache: CacheConfig;
   debounce_ms?: number | null;
-  retry: RetryConfig3;
+  retry: RetryConfig;
   timeout_ms: number;
   transform_error?: string | null;
   transform_response?: string | null;
@@ -1365,7 +1365,7 @@ export interface Entity {
 export interface EntityConstraint {
   constraint_type: ConstraintType;
   expression?: string | null;
-  fields: Array<FieldId2>;
+  fields: Array<EntityFieldId>;
   id: ConstraintId;
   name: string;
 }
@@ -1375,13 +1375,15 @@ export interface EntityField {
   comment?: string | null;
   default?: unknown;
   field_type: EntityFieldType;
-  id: FieldId2;
+  id: EntityFieldId;
   name: string;
   nullable: boolean;
   order: number;
   unique: boolean;
   validation?: string | null;
 }
+
+export type EntityFieldId = string;
 
 export type EntityFieldType = {
   config: {
@@ -1434,7 +1436,7 @@ export type EntityId = string;
 
 export interface EntityIndex {
   condition?: string | null;
-  fields: Array<FieldId2>;
+  fields: Array<EntityFieldId>;
   id: IndexId;
   index_type: IndexType;
   name: string;
@@ -1453,14 +1455,14 @@ export interface EntityOptions {
 }
 
 export interface EntityRelation {
-  from_field: FieldId2;
+  from_field: EntityFieldId;
   id: RelationId;
   name: string;
   on_delete: OnDelete;
   on_update: OnUpdate;
   relation_type: RelationType;
   to_entity: EntityId;
-  to_field: FieldId2;
+  to_field: EntityFieldId;
 }
 
 export interface EnvironmentConfig {
@@ -1516,10 +1518,6 @@ export interface FeatureFlags {
   webhooks: boolean;
   workflows: boolean;
 }
-
-export type FieldId = string;
-
-export type FieldId2 = string;
 
 export interface FieldLayout {
   column_span: number;
@@ -1701,7 +1699,7 @@ export interface FormField {
   conditional_visibility?: ConditionalVisibility | null;
   default_value?: unknown;
   field_type: FieldType;
-  id: FieldId;
+  id: FormFieldId;
   label: string;
   name: string;
   order: number;
@@ -1709,6 +1707,8 @@ export interface FormField {
   ui_props: FieldUiProps;
   validation_rules: Array<ValidationRule>;
 }
+
+export type FormFieldId = string;
 
 export type FormId = string;
 
@@ -2185,22 +2185,7 @@ export interface RetryConfig {
   max_attempts: number;
   max_interval_ms: number;
   multiplier: number;
-}
-
-export interface RetryConfig2 {
-  initial_interval_ms: number;
-  max_attempts: number;
-  max_interval_ms: number;
-  multiplier: number;
-  retryable_status_codes: Array<number>;
-}
-
-export interface RetryConfig3 {
-  initial_interval_ms: number;
-  max_attempts: number;
-  max_interval_ms: number;
-  multiplier: number;
-  retryable_codes: Array<number>;
+  retryable_codes?: Array<number>;
 }
 
 export type RlsCommand = "all" | "select" | "insert" | "update" | "delete";
@@ -2292,7 +2277,7 @@ export type ServiceTaskImplementation = {
     body_template?: string | null;
     headers: Record<string, string>;
     method: HttpMethod;
-    retry: RetryConfig2;
+    retry: RetryConfig;
     timeout_ms: number;
     url: string;
   };
@@ -2860,7 +2845,7 @@ export interface WorkflowSettings {
   exclusive_gateway_default: boolean;
   history_level: HistoryLevel;
   is_executable: boolean;
-  retry_config?: RetryConfig2 | null;
+  retry_config?: RetryConfig | null;
   timeout?: string | null;
   variables_serialization: SerializationFormat;
 }

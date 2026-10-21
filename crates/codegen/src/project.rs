@@ -854,14 +854,14 @@ mod tests {
 
     #[tokio::test]
     async fn generate_project_writes_all_artifacts() {
-        use nocode_model::entity::{EntityField, EntityFieldType, FieldId};
+        use nocode_model::entity::{EntityField, EntityFieldId, EntityFieldType};
         use nocode_model::{Entity, Form, Page, Workflow};
 
         let mut project = Project::new("Artifacts Demo");
 
         let mut entity = Entity::new("Product");
         entity.fields.push(EntityField {
-            id: FieldId::new(),
+            id: EntityFieldId::new(),
             name: "id".to_string(),
             field_type: EntityFieldType::Uuid,
             nullable: false,
@@ -873,7 +873,7 @@ mod tests {
             order: 0,
         });
         entity.fields.push(EntityField {
-            id: FieldId::new(),
+            id: EntityFieldId::new(),
             name: "name".to_string(),
             field_type: EntityFieldType::String {
                 max_length: Some(120),

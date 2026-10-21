@@ -287,8 +287,8 @@ mod tests {
     }
 
     fn populated_project() -> nocode_model::Project {
-        use nocode_model::entity::{EntityField, EntityFieldType, FieldId as EntityFieldId};
-        use nocode_model::form::{FieldId as FormFieldId, FieldType, FormField};
+        use nocode_model::entity::{EntityField, EntityFieldId, EntityFieldType};
+        use nocode_model::form::{FieldType, FormField, FormFieldId};
         use nocode_model::page::{
             ActionConfig, ActionType, BindingSource, BindingTarget, ComponentType, DataSource,
             DataSourceConfig, DataSourceType, Page, PageAction, PageComponent,
@@ -601,14 +601,14 @@ mod tests {
     /// Two entities joined by a `BelongsTo` relation: Order.customer_id -> Customer.id.
     fn project_with_relation() -> nocode_model::Project {
         use nocode_model::entity::{
-            EntityField, EntityFieldType, EntityRelation, FieldId, OnDelete, OnUpdate, RelationId,
-            RelationType,
+            EntityField, EntityFieldId, EntityFieldType, EntityRelation, OnDelete, OnUpdate,
+            RelationId, RelationType,
         };
         use nocode_model::{Entity, Project};
 
         fn uuid_field(name: &str, order: usize, nullable: bool) -> EntityField {
             EntityField {
-                id: FieldId::new(),
+                id: EntityFieldId::new(),
                 name: name.to_string(),
                 field_type: EntityFieldType::Uuid,
                 nullable,
@@ -626,7 +626,7 @@ mod tests {
         let mut customer = Entity::new("Customer");
         customer.fields.push(uuid_field("id", 0, false));
         customer.fields.push(EntityField {
-            id: FieldId::new(),
+            id: EntityFieldId::new(),
             name: "name".to_string(),
             field_type: EntityFieldType::String {
                 max_length: Some(80),

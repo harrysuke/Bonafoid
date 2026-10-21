@@ -232,14 +232,10 @@ pub enum HttpMethod {
     Options,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
-pub struct RetryConfig {
-    pub max_attempts: u32,
-    pub initial_interval_ms: u64,
-    pub max_interval_ms: u64,
-    pub multiplier: f64,
-    pub retryable_status_codes: Vec<u16>,
-}
+// `RetryConfig` now lives in the shared `retry` module: the page, workflow
+// and project modules each defined their own, which made
+// `nocode_model::RetryConfig` ambiguous.
+use crate::retry::RetryConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]

@@ -1,4 +1,5 @@
 use crate::form::FormId;
+use crate::retry::RetryConfig;
 use crate::workflow::{HttpMethod, WorkflowId};
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
@@ -250,7 +251,10 @@ pub enum ComponentType {
     Chart {
         chart_type: ChartType,
         data_source: String,
-        config: ChartConfig,
+        /// Boxed: `ChartConfig` is 632 bytes and made this enum 664 bytes
+        /// all on its own. `Box` is transparent to serde and schemars, so
+        /// the wire format is unchanged.
+        config: Box<ChartConfig>,
     },
     StatCard {
         value: String,
@@ -1004,15 +1008,6 @@ pub struct DataSourceConfig {
     pub debounce_ms: Option<u32>,
     pub transform_response: Option<String>,
     pub transform_error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
-pub struct RetryConfig {
-    pub max_attempts: u32,
-    pub initial_interval_ms: u64,
-    pub max_interval_ms: u64,
-    pub multiplier: f64,
-    pub retryable_codes: Vec<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]

@@ -20,8 +20,9 @@
  * `model.schema.json` artifact in CI so the two cannot drift silently.
  *
  * Names match the Rust `schemars` names to keep parity. `nocode_model::entity`
- * and `nocode_model::form` both define a `FieldId`; the aliases below keep them
- * distinct at the TypeScript boundary.
+ * and `nocode_model::form` used to both define a `FieldId`, which made the
+ * crate-root re-export ambiguous; they are now `EntityFieldId` and
+ * `FormFieldId`, and the aliases below mirror those names.
  */
 
 /** Any `*Id` newtype wrapping `Uuid` serializes as a string. */
@@ -94,7 +95,7 @@ export interface Entity {
   updated_at: string;
 }
 
-/** `nocode_model::entity::FieldId` (distinct from `nocode_model::form::FieldId`). */
+/** `nocode_model::entity::EntityFieldId`. */
 export type EntityFieldId = Uuid;
 
 export type AutoGenerate =
@@ -248,7 +249,7 @@ export interface EntityOptions {
 
 export type FormId = Uuid;
 
-/** `nocode_model::form::FieldId` (distinct from `nocode_model::entity::FieldId`). */
+/** `nocode_model::form::FormFieldId`. */
 export type FormFieldId = Uuid;
 
 export interface SelectOption {

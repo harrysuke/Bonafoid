@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use nocode_codegen::{generate_backend, generate_database, generate_frontend, generate_project};
 use nocode_model::Project;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "nocode-xtask")]
@@ -180,7 +180,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_project(path: &PathBuf) -> Result<Project> {
+fn load_project(path: &Path) -> Result<Project> {
     let content = std::fs::read_to_string(path)?;
     let project: Project = serde_json::from_str(&content)?;
     Ok(project)
@@ -202,7 +202,7 @@ fn print_generated_summary(generated: &nocode_codegen::project::GeneratedProject
     println!("Desktop files: {}", generated.targets.desktop.files().len());
 }
 
-async fn build_desktop(desktop_dir: &PathBuf) -> Result<()> {
+async fn build_desktop(desktop_dir: &Path) -> Result<()> {
     let mut cmd = tokio::process::Command::new("cargo");
     cmd.arg("tauri").arg("build");
     cmd.current_dir(desktop_dir);
@@ -229,7 +229,7 @@ async fn build_tauri(profile: &str) -> Result<()> {
     Ok(())
 }
 
-async fn build_web(frontend_dir: &PathBuf) -> Result<()> {
+async fn build_web(frontend_dir: &Path) -> Result<()> {
     let mut cmd = tokio::process::Command::new("npm");
     cmd.arg("run").arg("build");
     cmd.current_dir(frontend_dir);
@@ -241,7 +241,7 @@ async fn build_web(frontend_dir: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn create_new_project(name: &str, output: &PathBuf) -> Result<()> {
+fn create_new_project(name: &str, output: &Path) -> Result<()> {
     let project_dir = output.join(name.to_lowercase().replace(' ', "-"));
     std::fs::create_dir_all(&project_dir)?;
 

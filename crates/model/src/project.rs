@@ -1,3 +1,4 @@
+use crate::retry::RetryConfig;
 use crate::{Entity, Form, Page, Theme, Workflow};
 use chrono::{DateTime, Utc};
 use indexmap::IndexMap;
@@ -338,14 +339,6 @@ pub struct WebhookConfig {
     pub timeout_seconds: u32,
     pub retry: RetryConfig,
     pub allowed_events: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
-pub struct RetryConfig {
-    pub max_attempts: u32,
-    pub initial_interval_ms: u64,
-    pub max_interval_ms: u64,
-    pub multiplier: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
