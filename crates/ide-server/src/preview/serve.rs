@@ -157,10 +157,13 @@ async fn proxy_api(
     })?;
 
     let authority = format!("127.0.0.1:{}", run.port);
+    // The proxy's own route is /preview/{id}/api/*, and the generated
+    // backend's API root is /api, so the segment is kept when forwarding.
+    // Dropping it sent requests to /v1/... and every entity route 404ed.
     let uri = if path.is_empty() {
-        format!("http://{authority}/")
+        format!("http://{authority}/api")
     } else {
-        format!("http://{authority}/{path}")
+        format!("http://{authority}/api/{path}")
     };
 
     let mut outgoing = HyperRequest::builder()
@@ -242,4 +245,79 @@ fn port_of(authority: &str) -> u16 {
         .next()
         .and_then(|port| port.parse().ok())
         .unwrap_or(80)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The URL the proxy forwards a request to.
+    ///
+    /// The proxy's own route is /preview/{build}/api/* and the generated
+    /// backend's API root is /api, so the segment has to survive the hop.
+    /// Dropping it sent every entity request to /v1/... and the backend
+    /// answered 404.
+    fn forwarded_uri(path: &str) -> String {
+        let authority = "127.0.0.1:4242";
+        if path.is_empty() {
+            format!("http://{authority}/api")
+        } else {
+            format!("http://{authority}/api/{path}")
+        }
+    }
+
+    #[test]
+    fn the_api_segment_is_kept_when_forwarding() {
+        assert_eq!(
+            forwarded_uri("v1/product"),
+            "http://127.0.0.1:4242/api/v1/product"
+        );
+        assert_eq!(
+            forwarded_uri("v1/product/7"),
+            "http://127.0.0.1:4242/api/v1/product/7"
+        );
+        assert_eq!(
+            forwarded_uri("v1/forms/contact"),
+            "http://127.0.0.1:4242/api/v1/forms/contact"
+        );
+    }
+
+    #[test]
+    fn the_api_root_forwards_to_the_api_root() {
+        assert_eq!(forwarded_uri(""), "http://127.0.0.1:4242/api");
+    }
+
+    #[test]
+    fn hop_by_hop_headers_are_not_forwarded() {
+        for name in [
+            "connection",
+            "keep-alive",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "upgrade",
+            "host",
+            "Connection",
+            "HOST",
+        ] {
+            assert!(is_hop_by_hop(name), "{name} should not be forwarded");
+        }
+    }
+
+    #[test]
+    #[ignore = "Phase 4.5 must stop forwarding these to generated code"]
+    fn the_request_headers_that_must_not_cross_the_hop_are_dropped() {
+        // The IDE server's own credentials must not reach generated code.
+        // The proxy forwards every header that is not hop-by-hop, so today
+        // these three all cross. Phase 4.5 tightens the list; when it does,
+        // this test becomes the thing that has to be inverted and un-ignored.
+        for name in ["authorization", "cookie", "x-csrf-token"] {
+            assert!(
+                !is_hop_by_hop(name),
+                "{name} is currently forwarded to the generated backend"
+            );
+        }
+    }
 }

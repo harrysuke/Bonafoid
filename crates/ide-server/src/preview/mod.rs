@@ -57,6 +57,9 @@ pub use manager::{
 pub use runs::{RunConfig, RunManager, RunRecord, RunStatus};
 pub use serve::preview_server_router;
 
+#[cfg(test)]
+mod live_tests;
+
 /// Body of `POST /api/v1/projects/:id/preview/build`.
 #[derive(Debug, Default, Deserialize)]
 pub struct StartBuildRequest {

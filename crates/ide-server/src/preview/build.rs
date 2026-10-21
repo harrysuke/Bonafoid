@@ -189,7 +189,11 @@ async fn drive(
             .arg("build")
             .arg("--release")
             .current_dir(record.workspace.join("frontend"))
-            .env("API_BASE", &config.api_base);
+            // The generated frontend calls `{API_BASE}/api/v1/{entity}`, so
+            // API_BASE has to be the build's own preview URL, including the
+            // build id. Without it the bundle called /preview/api/v1/...,
+            // which the proxy read as a build called "api".
+            .env("API_BASE", format!("{}/{}", config.api_base, build_id));
         // Trunk downloads wasm-bindgen on first use; hosts without internet
         // (or users who pre-seeded the cache) can force offline mode.
         if config.trunk_offline {
