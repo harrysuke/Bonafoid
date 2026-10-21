@@ -9,36 +9,64 @@ use serde_json::Value;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
+/// Every helper this module registers, as `(name, definition)` pairs.
+///
+/// A single table so the names and the registrations cannot drift apart,
+/// and so the template lint can enumerate them. `register_helpers`
+/// iterates it; `helper_names` exposes just the names.
+fn helper_definitions() -> Vec<(&'static str, Box<dyn HelperDef + Send + Sync + 'static>)> {
+    vec![
+        ("lower", Box::new(CaseHelper(CaseOp::Lower))),
+        ("upper", Box::new(CaseHelper(CaseOp::Upper))),
+        ("capitalize", Box::new(CaseHelper(CaseOp::Capitalize))),
+        ("snake", Box::new(CaseHelper(CaseOp::Snake))),
+        ("pascal", Box::new(CaseHelper(CaseOp::Pascal))),
+        ("camel", Box::new(CaseHelper(CaseOp::Camel))),
+        ("kebab", Box::new(CaseHelper(CaseOp::Kebab))),
+        ("trim", Box::new(CaseHelper(CaseOp::Trim))),
+        ("json", Box::new(CaseHelper(CaseOp::Json))),
+        ("eq", Box::new(CmpHelper(CmpOp::Eq))),
+        ("ne", Box::new(CmpHelper(CmpOp::Ne))),
+        ("gt", Box::new(CmpHelper(CmpOp::Gt))),
+        ("gte", Box::new(CmpHelper(CmpOp::Gte))),
+        ("lt", Box::new(CmpHelper(CmpOp::Lt))),
+        ("lte", Box::new(CmpHelper(CmpOp::Lte))),
+        ("and", Box::new(CmpHelper(CmpOp::And))),
+        ("or", Box::new(CmpHelper(CmpOp::Or))),
+        ("not", Box::new(CmpHelper(CmpOp::Not))),
+    ]
+}
+
+/// The names of every registered helper.
+///
+/// The template lint uses this. A bare `{{snake}}` calls the `snake`
+/// helper instead of resolving the field, and renders EMPTY with no error
+/// at all — see `no_bare_helper_calls` in the tests.
+pub fn helper_names() -> Vec<&'static str> {
+    helper_definitions()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
+}
+
 /// Register the helper functions used by the codegen templates.
 ///
 /// Templates historically used Jinja/Twig-style filters (`{{x | lower}}`),
 /// which Handlebars does not support. These helpers provide the equivalent
 /// functionality in Handlebars call syntax (`{{lower x}}`), plus comparison
 /// helpers for `{{#if (eq a b)}}` style conditions.
+///
+/// Note that Handlebars 5 ships `eq`, `ne`, `gt`, `gte`, `lt`, `lte`,
+/// `and`, `or` and `not` as built-ins; these shadow them, which is
+/// deliberate so the comparison semantics are ours and not the library's.
 pub fn register_helpers(reg: &mut Handlebars) {
     // Code generation must never HTML-escape output: generic types such as
     // `Option<String>` would otherwise be emitted as `Option&lt;String&gt;`.
     reg.register_escape_fn(handlebars::no_escape);
 
-    reg.register_helper("lower", Box::new(CaseHelper(CaseOp::Lower)));
-    reg.register_helper("upper", Box::new(CaseHelper(CaseOp::Upper)));
-    reg.register_helper("capitalize", Box::new(CaseHelper(CaseOp::Capitalize)));
-    reg.register_helper("snake", Box::new(CaseHelper(CaseOp::Snake)));
-    reg.register_helper("pascal", Box::new(CaseHelper(CaseOp::Pascal)));
-    reg.register_helper("camel", Box::new(CaseHelper(CaseOp::Camel)));
-    reg.register_helper("kebab", Box::new(CaseHelper(CaseOp::Kebab)));
-    reg.register_helper("trim", Box::new(CaseHelper(CaseOp::Trim)));
-    reg.register_helper("json", Box::new(CaseHelper(CaseOp::Json)));
-
-    reg.register_helper("eq", Box::new(CmpHelper(CmpOp::Eq)));
-    reg.register_helper("ne", Box::new(CmpHelper(CmpOp::Ne)));
-    reg.register_helper("gt", Box::new(CmpHelper(CmpOp::Gt)));
-    reg.register_helper("gte", Box::new(CmpHelper(CmpOp::Gte)));
-    reg.register_helper("lt", Box::new(CmpHelper(CmpOp::Lt)));
-    reg.register_helper("lte", Box::new(CmpHelper(CmpOp::Lte)));
-    reg.register_helper("and", Box::new(CmpHelper(CmpOp::And)));
-    reg.register_helper("or", Box::new(CmpHelper(CmpOp::Or)));
-    reg.register_helper("not", Box::new(CmpHelper(CmpOp::Not)));
+    for (name, helper) in helper_definitions() {
+        reg.register_helper(name, helper);
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -283,6 +311,133 @@ mod tests {
             failures.is_empty(),
             "templates failed to parse:\n{}",
             failures.join("\n")
+        );
+    }
+
+    /// Find every `{{helper}}` in `line` — a helper call with NO argument.
+    ///
+    /// Returns the helper name and the column it was found at.
+    ///
+    /// A bare `{{snake}}` does not resolve the field called `snake`. It
+    /// calls the registered `snake` *helper*, which then converts a missing
+    /// argument to the empty string, so the template renders an empty
+    /// identifier and nothing anywhere reports an error. It has bitten
+    /// this codebase twice: the forms template lost its PascalCase names,
+    /// and the API client emitted `submit_` instead of
+    /// `submit_products_api` (commit 877e0b3).
+    fn bare_helper_calls<'a>(line: &str, helpers: &[&'a str]) -> Vec<(&'a str, usize)> {
+        let bytes = line.as_bytes();
+        let mut found = Vec::new();
+        let mut index = 0;
+
+        while index + 1 < bytes.len() {
+            if bytes[index] != b'{' || bytes[index + 1] != b'{' {
+                index += 1;
+                continue;
+            }
+
+            // `{{{` is the unescaped variant; its expression starts one
+            // character later.
+            let mut expr_start = index + 2;
+            if expr_start < bytes.len() && bytes[expr_start] == b'{' {
+                expr_start += 1;
+            }
+
+            // Find the closing `}}`.
+            let rest = &line[expr_start..];
+            let Some(end) = rest.find("}}") else {
+                break;
+            };
+            let expr = rest[..end].trim();
+
+            // Strip the block/comment markers so `{{#if ...}}`, `{{/if}}`
+            // and `{{! ...}}` are not mistaken for a call.
+            let expr = expr
+                .trim_start_matches(['#', '/', '!', '>', '^'])
+                .trim_start_matches('&')
+                .trim();
+
+            // A path like `{{this.snake}}` is a field access, not a call.
+            if !expr.contains('.') && !expr.contains(' ') {
+                if let Some(name) = helpers.iter().find(|name| **name == expr) {
+                    found.push((*name, index));
+                }
+            }
+
+            index = expr_start + end + 2;
+        }
+
+        found
+    }
+
+    /// No template may call a registered helper without an argument.
+    ///
+    /// `{{snake}}` silently renders an empty string where a field was
+    /// meant. Catching it here is far cheaper than finding it in a
+    /// generated-code compile fixture, or in a user's generated app.
+    #[test]
+    fn no_bare_helper_calls() {
+        let helpers = helper_names();
+        assert!(
+            !helpers.is_empty(),
+            "the helper list is empty, so this lint would pass vacuously"
+        );
+
+        let mut failures = Vec::new();
+        for (name, content) in all_templates() {
+            for (index, line) in content.lines().enumerate() {
+                for (helper, column) in bare_helper_calls(line, &helpers) {
+                    failures.push(format!(
+                        "{name}:{}:{}  `{{{{{helper}}}}}` calls the {helper} helper \
+                         instead of resolving the field — write `{{{{this.{helper}}}}}`",
+                        index + 1,
+                        column + 1,
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "templates call a helper with no argument:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    /// The lint must actually detect the bug it exists for.
+    #[test]
+    fn the_bare_helper_lint_detects_a_bare_call() {
+        let helpers = helper_names();
+
+        assert_eq!(
+            bare_helper_calls("pub async fn submit_{{snake}}(", &helpers),
+            vec![("snake", 20)],
+            "the column is the 0-based index of the opening brace"
+        );
+        assert_eq!(
+            bare_helper_calls("{{this.snake}}", &helpers),
+            Vec::new(),
+            "a field access is not a helper call"
+        );
+        assert_eq!(
+            bare_helper_calls("{{snake this.name}}", &helpers),
+            Vec::new(),
+            "a helper call with an argument is fine"
+        );
+        assert_eq!(
+            bare_helper_calls("{{#if (eq a b)}}", &helpers),
+            Vec::new(),
+            "a block helper is not a bare call"
+        );
+        assert_eq!(
+            bare_helper_calls("{{/if}}", &helpers),
+            Vec::new(),
+            "a block close is not a bare call"
+        );
+        assert_eq!(
+            bare_helper_calls("{{! a {{snake}} comment }}", &helpers),
+            Vec::new(),
+            "a comment is not a bare call"
         );
     }
 
