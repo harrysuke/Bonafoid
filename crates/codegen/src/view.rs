@@ -1385,7 +1385,387 @@ fn emit_component(
             out.push(token_close("div", depth));
         }
 
-        _ => fallback(out),
+        // ---- Structural components with no data source ----
+        //
+        // These render as static HTML on purpose. The emitter writes raw
+        // HTML strings into a Leptos `view!` macro, so there is no way to
+        // attach a signal to an element, and a control that looks
+        // interactive but does nothing is worse than one that does not
+        // pretend to be interactive. The Phase 1 work removed the dead
+        // buttons from the IDE for the same reason.
+        "Tabs" => {
+            // The model has no per-tab content — `children` hang off the
+            // Tabs itself, not off individual tabs — so the strip is a
+            // static list of the tab names.
+            if let Some(tabs) = config.get("tabs").and_then(|v| v.as_array()) {
+                if !tabs.is_empty() {
+                    out.push(token_open(
+                        "div",
+                        "class=\"flex gap-1 border-b border-slate-200\"",
+                        depth,
+                    ));
+                    for tab in tabs {
+                        let label = tab.get("label").and_then(|v| v.as_str()).unwrap_or("");
+                        let disabled = tab
+                            .get("disabled")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let class = if disabled {
+                            "px-3 py-2 text-sm font-medium text-slate-300"
+                        } else {
+                            "px-3 py-2 text-sm font-medium text-slate-700 border-b-2 border-blue-500"
+                        };
+                        out.push(token_open("span", &format!("class=\"{class}\""), depth + 1));
+                        out.push(token_text(label, depth + 2));
+                        out.push(token_close("span", depth + 1));
+                    }
+                    out.push(token_close("div", depth));
+                }
+            }
+            out.push(token_open("div", "class=\"pt-4\"", depth));
+            emit_children(&children, depth + 1, by_id, out);
+            out.push(token_close("div", depth));
+        }
+        "Accordion" => {
+            // `<details>`/`<summary>` gives a real, working accordion with
+            // no JavaScript at all.
+            out.push(token_open(
+                "div",
+                "class=\"divide-y divide-slate-200\"",
+                depth,
+            ));
+            if let Some(items) = config.get("items").and_then(|v| v.as_array()) {
+                for item in items {
+                    let label = item.get("label").and_then(|v| v.as_str()).unwrap_or("");
+                    out.push(token_open("details", "class=\"py-2\"", depth + 1));
+                    out.push(token_open(
+                        "summary",
+                        "class=\"cursor-pointer text-sm font-medium text-slate-700\"",
+                        depth + 2,
+                    ));
+                    out.push(token_text(label, depth + 3));
+                    out.push(token_close("summary", depth + 2));
+                    out.push(token_open("div", "class=\"pl-4 pt-2\"", depth + 2));
+                    if let Some(item_children) = item.get("children").and_then(|v| v.as_array()) {
+                        let ids: Vec<nocode_model::page::ComponentId> = item_children
+                            .iter()
+                            .filter_map(|value| serde_json::from_value(value.clone()).ok())
+                            .collect();
+                        emit_children(&ids, depth + 3, by_id, out);
+                    }
+                    out.push(token_close("div", depth + 2));
+                    out.push(token_close("details", depth + 1));
+                }
+            }
+            emit_children(&children, depth + 1, by_id, out);
+            out.push(token_close("div", depth));
+        }
+
+        // ---- Data-driven components ----
+        //
+        // These read from a data source. The page-level DataBinding fetches
+        // the data, but the component tree does not receive it, so the
+        // renderer states which source it expects. This is the same
+        // contract the Table renderer already has.
+        "Chart" => {
+            let data_source = config_str(&config, "data_source");
+            let chart_type = config_str(&config, "chart_type");
+            let chart_type = if chart_type.is_empty() {
+                "chart".to_string()
+            } else {
+                chart_type
+            };
+            out.push(token_open(
+                "div",
+                "class=\"rounded-lg border border-slate-200 bg-white p-4\"",
+                depth,
+            ));
+            out.push(token_open(
+                "div",
+                "class=\"mb-2 text-xs font-medium uppercase tracking-wide text-slate-500\"",
+                depth + 1,
+            ));
+            out.push(token_text(&chart_type, depth + 2));
+            out.push(token_close("div", depth + 1));
+            out.push(token_open(
+                "div",
+                "class=\"flex h-40 items-center justify-center rounded border border-dashed border-slate-200 text-sm text-slate-400\"",
+                depth + 1,
+            ));
+            out.push(token_text(
+                &format!("(chart data from {data_source})"),
+                depth + 2,
+            ));
+            out.push(token_close("div", depth + 1));
+            out.push(token_close("div", depth));
+        }
+        "Tree" | "Transfer" | "Cascader" | "TreeSelect" => {
+            let data_source = config_str(&config, "data_source");
+            let label = match name.as_str() {
+                "Tree" => "tree",
+                "Transfer" => "transfer",
+                "Cascader" => "cascader",
+                _ => "tree select",
+            };
+            out.push(token_open(
+                "div",
+                "class=\"rounded-lg border border-slate-200 bg-white p-4\"",
+                depth,
+            ));
+            out.push(token_open(
+                "div",
+                "class=\"mb-2 text-xs font-medium uppercase tracking-wide text-slate-500\"",
+                depth + 1,
+            ));
+            out.push(token_text(label, depth + 2));
+            out.push(token_close("div", depth + 1));
+            out.push(token_open(
+                "div",
+                "class=\"flex min-h-16 items-center justify-center rounded border border-dashed border-slate-200 text-sm text-slate-400\"",
+                depth + 1,
+            ));
+            out.push(token_text(&format!("(data from {data_source})"), depth + 2));
+            out.push(token_close("div", depth + 1));
+            out.push(token_close("div", depth));
+        }
+
+        // ---- Native form controls ----
+        //
+        // These have a real HTML equivalent that works with no JavaScript
+        // and no framework, which is what the raw-HTML emitter can express.
+        "ColorPicker" => {
+            let alpha = config
+                .get("alpha")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            out.push(token_open(
+                "div",
+                "class=\"flex items-center gap-2\"",
+                depth,
+            ));
+            out.push(token_void(
+                "input",
+                "type=\"color\" class=\"h-8 w-14 cursor-pointer rounded border border-slate-300\"",
+                depth + 1,
+            ));
+            if alpha {
+                out.push(token_void(
+                    "input",
+                    "type=\"range\" min=\"0\" max=\"1\" step=\"0.01\" class=\"w-32\"",
+                    depth + 1,
+                ));
+            }
+            if let Some(presets) = config.get("preset_colors").and_then(|v| v.as_array()) {
+                for preset in presets {
+                    let colour = preset.as_str().unwrap_or("");
+                    if colour.is_empty() {
+                        continue;
+                    }
+                    out.push(token_void(
+                        "span",
+                        &format!(
+                            "title=\"{colour}\" class=\"inline-block h-5 w-5 rounded border border-slate-300\" style=\"background-color: {colour}\""
+                        ),
+                        depth + 1,
+                    ));
+                }
+            }
+            out.push(token_close("div", depth));
+        }
+        "DatePicker" => {
+            let show_time = config
+                .get("show_time")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let range = config
+                .get("range")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let input_type = if show_time { "datetime-local" } else { "date" };
+            let attrs = format!(
+                "type=\"{input_type}\" class=\"rounded border border-slate-300 px-2 py-1\""
+            );
+            out.push(token_open(
+                "div",
+                "class=\"flex items-center gap-2\"",
+                depth,
+            ));
+            out.push(token_void("input", &attrs, depth + 1));
+            if range {
+                out.push(token_text("to", depth + 1));
+                out.push(token_void("input", &attrs, depth + 1));
+            }
+            out.push(token_close("div", depth));
+        }
+        "TimePicker" => {
+            // The HTML `step` attribute is in seconds. Take the coarsest
+            // unit the config names, so the default of hour=1, minute=1,
+            // second=1 steps by the hour.
+            let step = config
+                .get("step")
+                .map(|value| {
+                    let hour = value.get("hour").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let minute = value.get("minute").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let second = value.get("second").and_then(|v| v.as_u64()).unwrap_or(0);
+                    if hour > 0 {
+                        hour * 3600
+                    } else if minute > 0 {
+                        minute * 60
+                    } else {
+                        second.max(1)
+                    }
+                })
+                .unwrap_or(60);
+            out.push(token_void(
+                "input",
+                &format!(
+                    "type=\"time\" step=\"{step}\" class=\"rounded border border-slate-300 px-2 py-1\""
+                ),
+                depth,
+            ));
+        }
+        "Rate" => {
+            let count = config.get("count").and_then(|v| v.as_u64()).unwrap_or(5);
+            let character = config_str(&config, "character");
+            let character = if character.is_empty() {
+                "*".to_string()
+            } else {
+                character
+            };
+            // All the radios in one group share a name, so selecting one
+            // deselects the others. The component id identifies the group.
+            let group = format!("rate-{}", component.id.0);
+            out.push(token_open(
+                "div",
+                "class=\"flex items-center gap-1\" role=\"radiogroup\" aria-label=\"Rating\"",
+                depth,
+            ));
+            for index in 1..=count.max(1) {
+                out.push(token_void(
+                    "input",
+                    &format!(
+                        "type=\"radio\" name=\"{group}\" class=\"h-4 w-4\" aria-label=\"{character} {index}\""
+                    ),
+                    depth + 1,
+                ));
+                out.push(token_text(&character, depth + 1));
+            }
+            out.push(token_close("div", depth));
+        }
+        "Slider" => {
+            let min = config.get("min").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let max = config.get("max").and_then(|v| v.as_f64()).unwrap_or(100.0);
+            let step = config.get("step").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            out.push(token_open("div", "class=\"space-y-1\"", depth));
+            out.push(token_void(
+                "input",
+                &format!(
+                    "type=\"range\" min=\"{min}\" max=\"{max}\" step=\"{step}\" class=\"w-full\""
+                ),
+                depth + 1,
+            ));
+            if let Some(marks) = config.get("marks").and_then(|v| v.as_object()) {
+                if !marks.is_empty() {
+                    out.push(token_open(
+                        "div",
+                        "class=\"flex justify-between text-xs text-slate-500\"",
+                        depth + 1,
+                    ));
+                    for (label, value) in marks {
+                        out.push(token_open("span", "", depth + 2));
+                        out.push(token_text(&format!("{label}: {value}"), depth + 3));
+                        out.push(token_close("span", depth + 2));
+                    }
+                    out.push(token_close("div", depth + 1));
+                }
+            }
+            out.push(token_close("div", depth));
+        }
+        "Mention" => {
+            let prefix = config_str(&config, "prefix");
+            let suggestions = config
+                .get("suggestions")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let list_id = format!("mention-{depth}");
+            out.push(token_open("div", "class=\"space-y-1\"", depth));
+            out.push(token_void(
+                "input",
+                &format!(
+                    "type=\"text\" list=\"{list_id}\" placeholder=\"{prefix}\" class=\"w-full rounded border border-slate-300 px-2 py-1\""
+                ),
+                depth + 1,
+            ));
+            if !suggestions.is_empty() {
+                out.push(token_open(
+                    "datalist",
+                    &format!("id=\"{list_id}\""),
+                    depth + 1,
+                ));
+                for suggestion in suggestions {
+                    let value = suggestion.as_str().unwrap_or("");
+                    if value.is_empty() {
+                        continue;
+                    }
+                    out.push(token_void(
+                        "option",
+                        &format!("value=\"{value}\""),
+                        depth + 2,
+                    ));
+                }
+                out.push(token_close("datalist", depth + 1));
+            }
+            out.push(token_close("div", depth));
+        }
+        "Custom" => {
+            let component_name = config_str(&config, "component_name");
+            let component_name = if component_name.is_empty() {
+                "custom".to_string()
+            } else {
+                component_name
+            };
+            out.push(token_open(
+                "div",
+                "class=\"rounded-lg border border-dashed border-slate-300 p-3\"",
+                depth,
+            ));
+            out.push(token_open(
+                "div",
+                "class=\"text-xs font-medium uppercase tracking-wide text-slate-500\"",
+                depth + 1,
+            ));
+            out.push(token_text(&component_name, depth + 2));
+            out.push(token_close("div", depth + 1));
+            if let Some(props) = config.get("props").and_then(|v| v.as_object()) {
+                if !props.is_empty() {
+                    out.push(token_open(
+                        "dl",
+                        "class=\"mt-2 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-xs\"",
+                        depth + 1,
+                    ));
+                    for (key, value) in props {
+                        out.push(token_open("dt", "class=\"text-slate-500\"", depth + 2));
+                        out.push(token_text(key, depth + 3));
+                        out.push(token_close("dt", depth + 2));
+                        out.push(token_open("dd", "class=\"text-slate-800\"", depth + 2));
+                        out.push(token_text(&value.to_string(), depth + 3));
+                        out.push(token_close("dd", depth + 2));
+                    }
+                    out.push(token_close("dl", depth + 1));
+                }
+            }
+            out.push(token_close("div", depth));
+        }
+
+        _ => {
+            fallback(out);
+            // A fallback used to DROP the component's children: the labelled
+            // box never called emit_children, so a Tabs containing a Button
+            // lost the Button entirely. Emit them so nothing silently
+            // disappears.
+            emit_children(&children, depth + 1, by_id, out);
+        }
     }
 
     let _ = ComponentId::new();
@@ -1710,4 +2090,409 @@ pub fn project_view(project: &Project, _driver: &DatabaseDriver) -> Value {
         "frontend": project.settings.frontend,
         "settings": project.settings,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nocode_model::page::{ComponentId, ComponentType, Page, PageComponent};
+    use nocode_model::Project;
+
+    /// Build a page with one component of the given type.
+    fn page_with(component: ComponentType) -> Page {
+        let mut page = Page::new("Test");
+        page.components.push(PageComponent {
+            id: ComponentId::new(),
+            component,
+            props: Default::default(),
+            bindings: Vec::new(),
+            events: Vec::new(),
+            conditions: Vec::new(),
+            slots: Default::default(),
+            style_overrides: Default::default(),
+        });
+        page
+    }
+
+    /// The rendered HTML of a single-component page, flattened to a string.
+    fn render(component: ComponentType) -> String {
+        let page = page_with(component);
+        let tokens = component_tokens(&page.components);
+        tokens
+            .iter()
+            .map(|token| {
+                if token.get("is_text").and_then(|v| v.as_bool()) == Some(true) {
+                    token
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string()
+                } else if token.get("is_void").and_then(|v| v.as_bool()) == Some(true) {
+                    format!(
+                        "<{tag} {attrs}>",
+                        tag = token.get("tag").and_then(|v| v.as_str()).unwrap_or(""),
+                        attrs = token.get("attrs").and_then(|v| v.as_str()).unwrap_or(""),
+                    )
+                } else if token.get("is_open").and_then(|v| v.as_bool()) == Some(true) {
+                    format!(
+                        "<{tag} {attrs}>",
+                        tag = token.get("tag").and_then(|v| v.as_str()).unwrap_or(""),
+                        attrs = token.get("attrs").and_then(|v| v.as_str()).unwrap_or(""),
+                    )
+                } else {
+                    format!(
+                        "</{tag}>",
+                        tag = token.get("tag").and_then(|v| v.as_str()).unwrap_or(""),
+                    )
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("")
+    }
+
+    /// The fallback box, as it appears in the rendered output.
+    ///
+    /// Matched on the whole class list, not just `border-dashed` — several
+    /// real renderers use a dashed border for their own empty state.
+    const FALLBACK_MARKER: &str = "border-slate-300 p-2 text-xs text-slate-400";
+
+    #[test]
+    fn every_palette_available_type_has_a_renderer() {
+        // These 13 are the types the IDE palette offers that used to fall
+        // back to a labelled box.
+        let cases: Vec<(&str, ComponentType)> = vec![
+            (
+                "Tabs",
+                ComponentType::Tabs {
+                    tabs: vec![nocode_model::page::TabConfig {
+                        key: "a".into(),
+                        label: "First".into(),
+                        icon: None,
+                        disabled: false,
+                        closable: false,
+                    }],
+                    children: Vec::new(),
+                },
+            ),
+            (
+                "Accordion",
+                ComponentType::Accordion {
+                    items: vec![nocode_model::page::AccordionItem {
+                        key: "a".into(),
+                        label: "Item".into(),
+                        icon: None,
+                        disabled: false,
+                        children: Vec::new(),
+                    }],
+                    children: Vec::new(),
+                },
+            ),
+            (
+                "Chart",
+                ComponentType::Chart {
+                    chart_type: nocode_model::page::ChartType::Bar,
+                    data_source: "orders".into(),
+                    config: Box::new(nocode_model::page::ChartConfig::default()),
+                },
+            ),
+            (
+                "Tree",
+                ComponentType::Tree {
+                    data_source: "categories".into(),
+                    field_names: nocode_model::page::TreeFieldNames {
+                        title: "name".into(),
+                        key: "id".into(),
+                        children: "children".into(),
+                    },
+                    checkable: false,
+                    draggable: false,
+                },
+            ),
+            (
+                "ColorPicker",
+                ComponentType::ColorPicker {
+                    format: "hex".into(),
+                    alpha: false,
+                    preset_colors: vec!["#ff0000".into()],
+                },
+            ),
+            (
+                "DatePicker",
+                ComponentType::DatePicker {
+                    format: "YYYY-MM-DD".into(),
+                    show_time: false,
+                    range: false,
+                    disabled_date: None,
+                },
+            ),
+            (
+                "TimePicker",
+                ComponentType::TimePicker {
+                    format: "HH:mm".into(),
+                    use12_hours: false,
+                    step: nocode_model::page::TimeStep {
+                        hour: 1,
+                        minute: 0,
+                        second: 0,
+                    },
+                },
+            ),
+            (
+                "Rate",
+                ComponentType::Rate {
+                    count: 5,
+                    allow_half: false,
+                    allow_clear: true,
+                    character: "*".into(),
+                },
+            ),
+            (
+                "Slider",
+                ComponentType::Slider {
+                    min: 0.0,
+                    max: 10.0,
+                    step: 1.0,
+                    range: false,
+                    marks: Default::default(),
+                    tooltip: false,
+                },
+            ),
+            (
+                "Transfer",
+                ComponentType::Transfer {
+                    data_source: "users".into(),
+                    titles: Vec::new(),
+                    operations: Vec::new(),
+                    filterable: false,
+                },
+            ),
+            (
+                "Cascader",
+                ComponentType::Cascader {
+                    data_source: "places".into(),
+                    field_names: nocode_model::page::CascaderFieldNames {
+                        label: "name".into(),
+                        value: "id".into(),
+                        children: "children".into(),
+                    },
+                    expand_trigger: "click".into(),
+                    change_on_select: false,
+                },
+            ),
+            (
+                "TreeSelect",
+                ComponentType::TreeSelect {
+                    data_source: "places".into(),
+                    field_names: nocode_model::page::TreeSelectFieldNames {
+                        title: "name".into(),
+                        key: "id".into(),
+                        children: "children".into(),
+                    },
+                    tree_default_expand_all: false,
+                    show_search: false,
+                },
+            ),
+            (
+                "Mention",
+                ComponentType::Mention {
+                    suggestions: vec!["alice".into()],
+                    prefix: "@".into(),
+                    split: " ".into(),
+                },
+            ),
+        ];
+
+        for (name, component) in cases {
+            let html = render(component);
+            assert!(
+                !html.contains(FALLBACK_MARKER),
+                "{name} still renders the fallback box:\n{html}"
+            );
+            assert!(!html.is_empty(), "{name} rendered nothing at all");
+        }
+    }
+
+    #[test]
+    fn the_fallback_keeps_its_children() {
+        // A fallback used to DROP the component's children entirely, so a
+        // Tabs containing a Button lost the Button.
+        let button_id = ComponentId::new();
+        let mut page = Page::new("Test");
+        page.components.push(PageComponent {
+            id: ComponentId::new(),
+            component: ComponentType::Tabs {
+                tabs: Vec::new(),
+                children: vec![button_id.clone()],
+            },
+            props: Default::default(),
+            bindings: Vec::new(),
+            events: Vec::new(),
+            conditions: Vec::new(),
+            slots: Default::default(),
+            style_overrides: Default::default(),
+        });
+        page.components.push(PageComponent {
+            id: button_id,
+            component: ComponentType::Button {
+                label: "Save".into(),
+                variant: nocode_model::page::ButtonVariant::Primary,
+                size: nocode_model::page::ButtonSize::Middle,
+                icon: None,
+                loading: false,
+                disabled: false,
+                action: String::new(),
+            },
+            props: Default::default(),
+            bindings: Vec::new(),
+            events: Vec::new(),
+            conditions: Vec::new(),
+            slots: Default::default(),
+            style_overrides: Default::default(),
+        });
+
+        let tokens = component_tokens(&page.components);
+        let text: String = tokens
+            .iter()
+            .filter_map(|token| token.get("text").and_then(|v| v.as_str()))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        assert!(
+            text.contains("Save"),
+            "the nested button was dropped:\n{text}"
+        );
+    }
+
+    #[test]
+    fn the_pickers_use_native_controls() {
+        assert!(render(ComponentType::ColorPicker {
+            format: "hex".into(),
+            alpha: false,
+            preset_colors: Vec::new(),
+        })
+        .contains("type=\"color\""));
+
+        assert!(render(ComponentType::DatePicker {
+            format: "YYYY-MM-DD".into(),
+            show_time: false,
+            range: false,
+            disabled_date: None,
+        })
+        .contains("type=\"date\""));
+
+        assert!(render(ComponentType::DatePicker {
+            format: "YYYY-MM-DD HH:mm".into(),
+            show_time: true,
+            range: false,
+            disabled_date: None,
+        })
+        .contains("type=\"datetime-local\""));
+
+        assert!(render(ComponentType::TimePicker {
+            format: "HH:mm".into(),
+            use12_hours: false,
+            step: nocode_model::page::TimeStep {
+                hour: 0,
+                minute: 15,
+                second: 0,
+            },
+        })
+        .contains("type=\"time\""));
+
+        assert!(render(ComponentType::Slider {
+            min: 0.0,
+            max: 10.0,
+            step: 1.0,
+            range: false,
+            marks: Default::default(),
+            tooltip: false,
+        })
+        .contains("type=\"range\""));
+    }
+
+    #[test]
+    fn the_rate_radios_share_one_group_name() {
+        // Every radio in a group must have the SAME name, or they are not
+        // a group at all and selecting one leaves the others checked.
+        let html = render(ComponentType::Rate {
+            count: 5,
+            allow_half: false,
+            allow_clear: true,
+            character: "*".into(),
+        });
+
+        let names: Vec<&str> = html
+            .match_indices("name=\"")
+            .map(|(index, _)| {
+                let rest = &html[index + 6..];
+                &rest[..rest.find('"').expect("closing quote")]
+            })
+            .collect();
+
+        assert_eq!(names.len(), 5, "expected five radios in:\n{html}");
+        assert!(
+            names.windows(2).all(|pair| pair[0] == pair[1]),
+            "the radios are not one group, they have different names: {names:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_config_does_not_produce_a_broken_widget() {
+        // The IDE's palette starts every component with an empty config, so
+        // every renderer has to cope with that.
+        for component in [
+            ComponentType::Tabs {
+                tabs: Vec::new(),
+                children: Vec::new(),
+            },
+            ComponentType::Accordion {
+                items: Vec::new(),
+                children: Vec::new(),
+            },
+            ComponentType::Mention {
+                suggestions: Vec::new(),
+                prefix: "@".into(),
+                split: " ".into(),
+            },
+            ComponentType::Custom {
+                component_name: String::new(),
+                props: Default::default(),
+            },
+        ] {
+            let html = render(component);
+            assert!(!html.is_empty());
+            assert!(
+                !html.contains("undefined") && !html.contains("null"),
+                "an empty config leaked a placeholder value:\n{html}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_page_view_carries_its_route_and_components() {
+        let mut page = Page::new("Products");
+        page.path = "/products".into();
+        page.components.push(PageComponent {
+            id: ComponentId::new(),
+            component: ComponentType::Html {
+                content: "Hello".into(),
+                sanitize: true,
+            },
+            props: Default::default(),
+            bindings: Vec::new(),
+            events: Vec::new(),
+            conditions: Vec::new(),
+            slots: Default::default(),
+            style_overrides: Default::default(),
+        });
+
+        let project = Project::new("Acme");
+        let view = page_view(&page, &project);
+
+        assert_eq!(
+            view.get("route").and_then(|v| v.as_str()),
+            Some("/products")
+        );
+        assert!(view.get("components").is_some());
+    }
 }

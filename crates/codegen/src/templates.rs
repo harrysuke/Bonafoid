@@ -740,6 +740,136 @@ mod tests {
             .pages
             .insert(products_page.id.clone(), products_page);
 
+        // A page that exercises every component type the palette offers
+        // which has a dedicated renderer. The compile fixture then proves
+        // the generated Leptos `view!` macro is valid for all of them,
+        // not just the handful the first page used.
+        let mut gallery_page = Page::new("Gallery");
+        gallery_page.path = "/gallery".to_string();
+        gallery_page.title = "Gallery".to_string();
+
+        let mut gallery_components: Vec<PageComponent> = Vec::new();
+        let mut push = |component: ComponentType| {
+            gallery_components.push(PageComponent {
+                id: nocode_model::page::ComponentId::new(),
+                component,
+                props: Default::default(),
+                bindings: vec![],
+                events: vec![],
+                conditions: vec![],
+                slots: Default::default(),
+                style_overrides: Default::default(),
+            });
+        };
+
+        push(ComponentType::Tabs {
+            tabs: vec![nocode_model::page::TabConfig {
+                key: "one".to_string(),
+                label: "One".to_string(),
+                icon: None,
+                disabled: false,
+                closable: false,
+            }],
+            children: vec![],
+        });
+        push(ComponentType::Accordion {
+            items: vec![nocode_model::page::AccordionItem {
+                key: "one".to_string(),
+                label: "Details".to_string(),
+                icon: None,
+                disabled: false,
+                children: vec![],
+            }],
+            children: vec![],
+        });
+        push(ComponentType::Chart {
+            chart_type: nocode_model::page::ChartType::Bar,
+            data_source: "products_api".to_string(),
+            config: Box::default(),
+        });
+        push(ComponentType::Tree {
+            data_source: "products_api".to_string(),
+            field_names: nocode_model::page::TreeFieldNames {
+                title: "name".to_string(),
+                key: "id".to_string(),
+                children: "children".to_string(),
+            },
+            checkable: false,
+            draggable: false,
+        });
+        push(ComponentType::ColorPicker {
+            format: "hex".to_string(),
+            alpha: true,
+            preset_colors: vec!["#ff0000".to_string()],
+        });
+        push(ComponentType::DatePicker {
+            format: "YYYY-MM-DD".to_string(),
+            show_time: true,
+            range: true,
+            disabled_date: None,
+        });
+        push(ComponentType::TimePicker {
+            format: "HH:mm".to_string(),
+            use12_hours: false,
+            step: nocode_model::page::TimeStep {
+                hour: 0,
+                minute: 15,
+                second: 0,
+            },
+        });
+        push(ComponentType::Rate {
+            count: 5,
+            allow_half: false,
+            allow_clear: true,
+            character: "*".to_string(),
+        });
+        push(ComponentType::Slider {
+            min: 0.0,
+            max: 100.0,
+            step: 1.0,
+            range: false,
+            marks: Default::default(),
+            tooltip: false,
+        });
+        push(ComponentType::Transfer {
+            data_source: "products_api".to_string(),
+            titles: vec!["Available".to_string(), "Selected".to_string()],
+            operations: vec![],
+            filterable: false,
+        });
+        push(ComponentType::Cascader {
+            data_source: "products_api".to_string(),
+            field_names: nocode_model::page::CascaderFieldNames {
+                label: "name".to_string(),
+                value: "id".to_string(),
+                children: "children".to_string(),
+            },
+            expand_trigger: "click".to_string(),
+            change_on_select: false,
+        });
+        push(ComponentType::TreeSelect {
+            data_source: "products_api".to_string(),
+            field_names: nocode_model::page::TreeSelectFieldNames {
+                title: "name".to_string(),
+                key: "id".to_string(),
+                children: "children".to_string(),
+            },
+            tree_default_expand_all: false,
+            show_search: false,
+        });
+        push(ComponentType::Mention {
+            suggestions: vec!["alice".to_string()],
+            prefix: "@".to_string(),
+            split: " ".to_string(),
+        });
+        push(ComponentType::Custom {
+            component_name: "MyWidget".to_string(),
+            props: Default::default(),
+        });
+
+        gallery_page.components.extend(gallery_components);
+        project.pages.insert(gallery_page.id.clone(), gallery_page);
+
         project
     }
 
