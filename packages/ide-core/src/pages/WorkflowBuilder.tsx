@@ -245,6 +245,7 @@ export function WorkflowBuilder() {
       setSelectedWorkflowId(id);
       setBpmnMode('idle');
       setBpmnXml('');
+      setNewWorkflowName('');
     } catch (error) {
       setMessage(`Import failed: ${describe(error)}`);
     } finally {
@@ -271,7 +272,7 @@ export function WorkflowBuilder() {
           <Button variant="secondary" size="sm" onClick={() => void runWorkflow(true)} disabled={!workflow || busy}>
             <Square className="w-4 h-4 mr-1" /> Run to end
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => { setBpmnXml(''); setBpmnMode('import'); }} disabled={!workflow || busy}>
+          <Button variant="secondary" size="sm" onClick={() => { setBpmnXml(''); setBpmnMode('import'); }} disabled={busy}>
             <Upload className="w-4 h-4 mr-1" /> Import BPMN
           </Button>
           <Button variant="secondary" size="sm" onClick={() => void runExport()} disabled={!workflow || busy}>

@@ -76,8 +76,14 @@ pub fn parse_bpmn(xml: &str, name: &str) -> Result<Workflow> {
 
     // --- Pass 2: nodes ---
     let mut nodes = Vec::new();
+    // Map BPMN element ids to generated node ids as we go, so sequence flows
+    // can be resolved by id (names may be empty or duplicated).
+    let mut id_map: std::collections::HashMap<String, NodeId> = std::collections::HashMap::new();
     for element in process.children().filter(|n| n.is_element()) {
         let tag = element.tag_name().name();
+        if tag == "sequenceFlow" {
+            continue;
+        }
         let id = element.attribute("id").unwrap_or("").to_string();
         if id.is_empty() {
             continue;
@@ -160,31 +166,16 @@ pub fn parse_bpmn(xml: &str, name: &str) -> Result<Workflow> {
         };
 
         if let Some(node_type) = node_type {
+            let node_id = NodeId(Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::new_v4()));
+            id_map.insert(id.clone(), node_id.clone());
             nodes.push(WorkflowNode {
-                id: NodeId(Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::new_v4())),
+                id: node_id,
                 name: node_name,
                 node_type,
                 position: NodePosition { x, y },
                 config: Default::default(),
                 documentation: None,
             });
-        }
-    }
-
-    // Map BPMN element ids to generated node ids.
-    let mut id_map: std::collections::HashMap<String, NodeId> = std::collections::HashMap::new();
-    for element in process.children().filter(|n| n.is_element()) {
-        let tag = element.tag_name().name();
-        if tag == "sequenceFlow" {
-            continue;
-        }
-        if let Some(id) = element.attribute("id") {
-            if let Some(node) = nodes
-                .iter()
-                .find(|n| n.name == element.attribute("name").unwrap_or(tag))
-            {
-                id_map.insert(id.to_string(), node.id.clone());
-            }
         }
     }
 
