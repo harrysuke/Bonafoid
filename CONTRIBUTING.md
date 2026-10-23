@@ -1,4 +1,4 @@
-# Contributing to Bonafoid IDE
+# Contributing to Bonafoid
 
 Thank you for your interest in contributing! This document explains how to set up
 your environment, the conventions we follow, and how to submit changes.
@@ -129,6 +129,6 @@ to the maintainers.
 
 ## License
 
-No-Code IDE is published under the AGPL-3.0-or-later. By contributing, you agree that
+Bonafoid is published under the AGPL-3.0-or-later. By contributing, you agree that
 your contributions are licensed under the same terms. Generated applications belong to
 their authors.
