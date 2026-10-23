@@ -1,4 +1,4 @@
-# Contributing to No-Code IDE
+# Contributing to Bonafoid IDE
 
 Thank you for your interest in contributing! This document explains how to set up
 your environment, the conventions we follow, and how to submit changes.
