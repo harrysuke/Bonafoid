@@ -4,8 +4,6 @@
 
 ## Brand Assets
 
-Assets sourced from workspace: `D:\laragon\www\playground\Nocode\favicon_io`
-
 - `android-chrome-192x192.png` (61,479 bytes) — brand logo (square, high-res)
 - `android-chrome-512x512.png` (361,520 bytes) — brand logo (square, max-res)
 - `apple-touch-icon.png` (55,097 bytes) — submark / touch icon
