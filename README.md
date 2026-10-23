@@ -23,27 +23,6 @@ apps/
 xtask/        Build / code-generation CLI
 ```
 
-## Running
-
-```cmd
-# Rust core / tests
-cargo test --workspace
-
-# Web IDE server (Axum + SeaORM)
-cargo run -p nocode-ide-server; 
-
-# Desktop IDE (Tauri)
-cd apps\ide-tauri && npm install && npm run tauri:dev; 
-
-# Docker
-docker compose up --build
-
-npm run dev:web / npm run tauri:dev from root.
-
-# BPMN import (5 files copied to bpmn/; mapping at bpmn/import-map.json)
-# Use xtask/import-bpmn.py (PowerShell XML parse available if python missing)
-```
-
 ## Prerequisites
 
 - Rust (stable) and Cargo
@@ -168,6 +147,13 @@ cargo test --workspace --lib
 # Heavy, opt-in: generate a project and compile it.
 cargo test -p nocode-codegen -- --ignored generated_backend_compiles
 cargo test -p nocode-codegen -- --ignored generated_frontend_compiles
+```
+
+## Docker
+
+```cmd
+# Docker
+docker compose up --build
 ```
 
 ## License
