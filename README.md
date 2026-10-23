@@ -23,17 +23,6 @@ apps/
 xtask/        Build / code-generation CLI
 ```
 
-## Workflow / BPMN
-
-Imported BPMN 2.0 workflows (Phase B/C, `D:\\nocode-ide\\bpmn/`):
-- Car-Wash (`Customer`) — 8 nodes, 6 edges
-- Pizza-Store (`Pizza customer`) — 8 nodes, 6 edges
-- Recruitment-and-Selection (`Employee selection and recruitment`) — 22 nodes, 27 edges
-- SelfServeRestaurant (`Guest food consumption`) — 9 nodes, 6 edges
-- Smart-Parking (`Motorists`) — 12 nodes, 12 edges
-
-Parse via `crates/bpmn/src/xml.rs`; import via `xtask/import-bpmn.py`.
-
 ## Running
 
 ```cmd
