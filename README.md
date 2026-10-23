@@ -1,6 +1,6 @@
 # Bonafoid
 
-An open-source workflow platform IDE that generates web, desktop (Tauri) and mobile
+An open-source workflow platform that generates web, desktop (Tauri) and mobile
 (PWA) applications from visual models, with full BPMN 2.0 workflow support.
 
 This repository contains the Rust core (model, codegen, plugins, BPMN engine,
