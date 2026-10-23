@@ -1161,14 +1161,35 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         idMap.set(node.id, next);
         node.id = next;
       });
-      parsed.edges.forEach((edge) => {
-        const source = idMap.get(edge.source) ?? edge.source;
-        const target = idMap.get(edge.target) ?? edge.target;
-        edge.id = generateId();
-        edge.source = source;
-        edge.target = target;
-      });
-      const workflow: GeneratedWorkflow = { ...parsed, id: generateId() };
+      // Drop edges whose endpoints don't resolve to imported nodes so the
+      // canvas never renders dangling connections.
+      const edges = parsed.edges
+        .filter((edge) => idMap.has(edge.source) && idMap.has(edge.target))
+        .map((edge) => ({
+          ...edge,
+          id: generateId(),
+          source: idMap.get(edge.source) as string,
+          target: idMap.get(edge.target) as string,
+        }));
+      // Fill in any fields the importer omitted so downstream codegen/engine
+      // reads always see a complete workflow document.
+      const now = new Date().toISOString();
+      const template = newWorkflow(parsed.name || 'Imported Process');
+      const workflow: GeneratedWorkflow = {
+        ...template,
+        ...parsed,
+        id: generateId(),
+        name: parsed.name || 'Imported Process',
+        version: parsed.version || '1.0.0',
+        description: parsed.description ?? null,
+        edges,
+        variables: Array.isArray(parsed.variables) ? parsed.variables : [],
+        signals: Array.isArray(parsed.signals) ? parsed.signals : [],
+        timers: Array.isArray(parsed.timers) ? parsed.timers : [],
+        settings: parsed.settings ?? template.settings,
+        created_at: parsed.created_at || now,
+        updated_at: parsed.updated_at || now,
+      };
       commit({
         ...current,
         workflows: {
