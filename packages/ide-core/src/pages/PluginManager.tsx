@@ -221,8 +221,8 @@ export function PluginManager() {
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {visible.map((plugin) => (
-              <Card key={plugin.id} className="flex flex-col">
-                <div className="mb-2 flex items-start justify-between gap-2">
+              <Card key={plugin.id} className="flex flex-col" aria-label={`Plugin ${plugin.name}`}>
+                <div className="mb-2 flex items-start justify-between gap-2" role="region" aria-label="Plugin details">
                   <div className="min-w-0">
                     <h3 className="truncate font-semibold text-gray-900 dark:text-white">
                       {plugin.name}

@@ -1,3 +1,10 @@
+// The generated crate exposes a COMPLETE typed client for the backend -
+// every entity's CRUD functions, every field parser, every form submit -
+// but the generated pages use only a subset of it. That is the point: the
+// pages are what the user designed, and the rest of the client is there
+// for the pages they design next.
+#![allow(dead_code)]
+
 mod api;
 mod app;
 mod components;

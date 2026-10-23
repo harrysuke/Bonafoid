@@ -27,16 +27,32 @@ pub struct PluginRow {
     pub enabled: bool,
     pub created_at: String,
     pub updated_at: String,
+    pub user_id: String,
 }
 
 fn map_row(row: &QueryResult) -> Result<PluginRow, ApiError> {
     Ok(PluginRow {
         id: row.try_get("", "id").map_err(ApiError::from)?,
+        user_id: row.try_get("", "user_id").map_err(ApiError::from)?,
         manifest: row.try_get("", "manifest").map_err(ApiError::from)?,
         enabled: row.try_get::<i64>("", "enabled").map_err(ApiError::from)? != 0,
         created_at: row.try_get("", "created_at").map_err(ApiError::from)?,
         updated_at: row.try_get("", "updated_at").map_err(ApiError::from)?,
     })
+}
+
+/// All plugin rows across every user.
+pub async fn list_plugins_for_all_users(
+    db: &DatabaseConnection,
+) -> Result<Vec<PluginRow>, ApiError> {
+    let rows = db
+        .query_all(statement(
+            "SELECT id, user_id, manifest, enabled, created_at, updated_at FROM plugins",
+            vec![],
+        ))
+        .await
+        .map_err(ApiError::from)?;
+    rows.iter().map(map_row).collect()
 }
 
 /// Every plugin installed by `user_id`, oldest first.
@@ -46,7 +62,7 @@ pub async fn list_plugins(
 ) -> Result<Vec<PluginRow>, ApiError> {
     let rows = db
         .query_all(statement(
-            "SELECT id, manifest, enabled, created_at, updated_at FROM plugins \
+            "SELECT id, user_id, manifest, enabled, created_at, updated_at FROM plugins \
              WHERE user_id = ? ORDER BY created_at ASC, id ASC",
             vec![text(user_id)],
         ))
@@ -63,7 +79,7 @@ pub async fn get_plugin(
 ) -> Result<Option<PluginRow>, ApiError> {
     let rows = db
         .query_all(statement(
-            "SELECT id, manifest, enabled, created_at, updated_at FROM plugins \
+            "SELECT id, user_id, manifest, enabled, created_at, updated_at FROM plugins \
              WHERE user_id = ? AND id = ?",
             vec![text(user_id), text(id)],
         ))

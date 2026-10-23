@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  ide-server:
+    build: .
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_URL=sqlite:db/ide.db
+    volumes:
+      - ./db:/app/db

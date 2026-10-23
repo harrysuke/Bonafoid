@@ -10,6 +10,8 @@ import { getPlatform } from '../platform/registry';
 import { useUIStore } from '../stores/uiStore';
 import { useProjectStore } from '../stores/projectStore';
 import { Toaster } from './Toaster';
+import { SidebarUserDropdown } from './SidebarUserDropdown';
+import brandLogo from '../assets/brand/android-chrome-512x512.png';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
@@ -39,6 +41,7 @@ export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showSidebarUserMenu, setShowSidebarUserMenu] = useState(false);
 
   const {
     project,
@@ -86,7 +89,7 @@ export function Layout() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors flex flex-row">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
@@ -104,8 +107,8 @@ export function Layout() {
         <div className="flex h-16 items-center justify-between px-4 border-b border-gray-200 dark:border-slate-700">
           {!sidebarCollapsed && (
             <h1 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              <Code className="w-6 h-6 text-primary-600" />
-              No-Code IDE
+              <img src={brandLogo} alt="" className="w-6 h-6 rounded" />
+              Bonafoid
             </h1>
           )}
           <button
@@ -169,18 +172,30 @@ export function Layout() {
                 </div>
               )}
             </div>
-            <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
-              className="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowSidebarUserMenu(!showSidebarUserMenu)}
+                className="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                aria-label="Open sidebar user menu"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              {showSidebarUserMenu && (
+                <div className="absolute left-0 bottom-full mb-2 z-[70]">
+                  <SidebarUserDropdown
+                    user={user ? { email: user.email } : undefined}
+                    onSettings={() => { setShowSidebarUserMenu(false); navigate('/settings'); }}
+                    onLogout={platform.logout ? () => { setShowSidebarUserMenu(false); void platform.logout?.().then(() => navigate('/login')); } : undefined}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </aside>
 
       {/* Main content */}
-      <div className={`lg:pl-64 transition-all duration-300 ${sidebarCollapsed ? 'lg:pl-16' : ''}`}>
+      <div className={`flex-1 transition-all duration-300 min-w-0 ${sidebarCollapsed ? 'lg:pl-2' : 'lg:pl-2'}`} style={{ minWidth: 0 }}>
         {/* Top header */}
         <header className="sticky top-0 z-30 bg-white dark:bg-slate-800 shadow-sm border-b border-gray-200 dark:border-slate-700">
           <div className="flex items-center justify-between h-16 px-4 sm:px-6">
@@ -257,7 +272,7 @@ export function Layout() {
                 </button>
 
                 {showUserMenu && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 py-1 z-50">
+                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 py-1 z-[60]">
                     <div className="px-4 py-2 border-b border-gray-100 dark:border-slate-700">
                       <p className="text-sm font-medium text-gray-900 dark:text-white">
                         {user?.email ?? 'Not signed in'}
@@ -293,7 +308,7 @@ export function Layout() {
         </header>
 
         {/* Page content */}
-        <main className="p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">
           <Outlet />
         </main>
       </div>

@@ -3,6 +3,9 @@
 use leptos::prelude::*;
 
 use crate::api;
+// An entity with no editable fields (only a primary key) never calls the
+// parsers, so the import is allowed to go unused.
+#[allow(unused_imports)]
 use crate::convert;
 use crate::types::*;
 

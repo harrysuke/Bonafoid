@@ -1,34 +1,46 @@
-//! Rendered page component for `{{this.name}}`.
+//! Rendered page component for `{{this.name_comment}}`.
 
 use leptos::prelude::*;
-use leptos::ev::SubmitEvent;
+// A page with no API data source and no API action uses neither of these.
+#[allow(unused_imports)]
 use serde_json::Value;
 
+#[allow(unused_imports)]
 use crate::api;
 
 #[component]
 pub fn {{this.pascal}}() -> impl IntoView {
     // Data source signals
-{{#each data_sources}}{{#if (eq source_type.type "api")}}    let ({{this.snake}}, set_{{this.snake}}) = signal(Value::Null);
+{{#each data_sources}}{{#if (eq source_type.type "api")}}    #[allow(unused_variables)]
+    let ({{this.snake}}, set_{{this.snake}}) = signal(Value::Null);
+    #[allow(unused_variables)]
     let load_{{this.snake}} = move || {
         leptos::task::spawn_local(async move {
             match api::request("{{source_type.method}}", "{{source_type.endpoint}}", None::<&Value>).await {
                 Ok(v) => set_{{this.snake}}.set(v),
-                Err(e) => leptos::logging::log!("Failed to load {{this.name}}: {:?}", e),
+                Err(e) => leptos::logging::log!("Failed to load {{this.name_rust}}: {:?}", e),
             }
         });
     };
 {{/if}}{{/each}}
 
     // Page actions
-{{#each actions}}    let {{name}} = move || {
+    //
+    // Each action becomes a closure. The name is `action_<index>_<snake>`
+    // because the action's display name ("Create Record") is not a valid
+    // Rust identifier and two actions can share a name.
+{{#each actions}}    #[allow(dead_code, unused_variables)]
+    let action_{{@index}}_{{name_snake}} = move || {
 {{#if (eq config.type "navigate")}}        leptos::task::spawn_local(async move {
             leptos_router::use_navigate()("{{config.path}}", Default::default());
         });
-{{else if (eq config.type "call_api")}}        leptos::task::spawn_local(async move {
-            let _ = api::submit_{{config.data_source_id}}(&Value::Null).await;
+{{else if (eq config.type "call_api")}}{{#if config.path}}        leptos::task::spawn_local(async move {
+            let _ = api::request("{{config.method}}", "{{config.path}}", None::<&Value>).await;
         });
-{{else}}        leptos::logging::log!("Action {{name}} ({{config.type}}) not yet implemented");
+{{else}}        // This action targets a data source with no HTTP endpoint, so
+        // there is nothing to call.
+        leptos::logging::log!("Action {{name}} has no endpoint to call");
+{{/if}}{{else}}        leptos::logging::log!("Action {{name}} ({{config.type}}) not yet implemented");
 {{/if}}    };
 {{/each}}
 
@@ -39,7 +51,7 @@ pub fn {{this.pascal}}() -> impl IntoView {
     view! {
         <section class="mx-auto max-w-6xl px-4 py-8 space-y-8">
             <header class="space-y-2">
-                <h1 class="text-3xl font-bold">{{this.name}}</h1>
+                <h1 class="text-3xl font-bold">{{this.name_rust}}</h1>
 {{#if description}}                <p class="text-slate-600">{{description}}</p>
 {{/if}}            </header>
 

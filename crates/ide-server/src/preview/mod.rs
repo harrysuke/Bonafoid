@@ -394,6 +394,36 @@ mod tests {
         assert!(error.contains("throwaway"), "{error}");
     }
 
+    /// The default project must have a WORKING preview, with no operator
+    /// configuration.
+    ///
+    /// This used to be false: the default driver was Postgres, and a
+    /// Postgres project needs IDE_PREVIEW_DATABASE_URL or its preview is
+    /// refused outright. Now the default is SQLite, which always gets a
+    /// throwaway database.
+    ///
+    /// The refusal path still matters — a user CAN choose Postgres — so
+    /// `non_sqlite_previews_are_refused_without_an_explicit_database` above
+    /// has to keep covering it deliberately. That test no longer describes
+    /// what a default project does, so this one does.
+    #[test]
+    fn the_default_project_gets_a_working_preview() {
+        let project = nocode_model::Project::new("Acme");
+        assert_eq!(
+            project.settings.database.driver,
+            DatabaseDriver::SQLite,
+            "the default driver changed; this test is about the default"
+        );
+
+        let url = preview_database_url(
+            &project.settings.database.driver,
+            &project.settings.database.url,
+            None,
+        )
+        .expect("a default project must have a working preview");
+        assert_eq!(url, "sqlite://preview.db?mode=rwc");
+    }
+
     async fn test_router() -> Router {
         static KEYS: OnceLock<Arc<crate::auth::JwtKeys>> = OnceLock::new();
         let keys = KEYS

@@ -154,15 +154,38 @@ fn register_templates(reg: &mut Handlebars) -> Result<()> {
 }
 
 /// SeaORM driver feature flags for the given database driver.
-fn seaorm_driver_features(driver: &DatabaseDriver) -> Vec<&'static str> {
+///
+/// Every driver gets an EXPLICIT arm. This used to end in
+/// `_ => vec!["sqlx-postgres"]`, a catch-all that quietly compiled
+/// SQL Server and Oracle projects as Postgres — a backend that spoke the
+/// wrong dialect under the right name.
+///
+/// SeaORM 0.12 ships exactly three SQLx drivers: sqlite, mysql and
+/// postgres. There is no SQL Server or Oracle driver, so a backend for
+/// either cannot be generated. Refusing is the honest answer; the
+/// alternative is an app that looks like it works and does not.
+fn seaorm_driver_features(driver: &DatabaseDriver) -> Result<Vec<&'static str>> {
     match driver {
-        DatabaseDriver::SQLite => vec!["sqlx-sqlite"],
-        DatabaseDriver::MySQL => vec!["sqlx-mysql"],
-        _ => vec!["sqlx-postgres"],
+        DatabaseDriver::SQLite => Ok(vec!["sqlx-sqlite"]),
+        DatabaseDriver::MySQL => Ok(vec!["sqlx-mysql"]),
+        DatabaseDriver::Postgres => Ok(vec!["sqlx-postgres"]),
+        DatabaseDriver::SqlServer => Err(anyhow::anyhow!(
+            "SeaORM 0.12 has no SQL Server driver, so a backend cannot be generated \
+             for a SQL Server project. Use PostgreSQL, MySQL or SQLite."
+        )),
+        DatabaseDriver::Oracle => Err(anyhow::anyhow!(
+            "SeaORM 0.12 has no Oracle driver, so a backend cannot be generated \
+             for an Oracle project. Use PostgreSQL, MySQL or SQLite."
+        )),
     }
 }
 
-fn generate_cargo_toml(project: &Project) -> Result<String> {
+/// The generated backend's `Cargo.toml`.
+///
+/// Public because the manifest is a legitimate output in its own right,
+/// and because a test needs to check that the project name cannot inject
+/// TOML into it.
+pub fn generate_cargo_toml(project: &Project) -> Result<String> {
     let driver = project.settings.database.driver.clone();
     let mut seaorm_features = vec![
         "macros",
@@ -171,7 +194,7 @@ fn generate_cargo_toml(project: &Project) -> Result<String> {
         "with-json",
         "runtime-tokio-rustls",
     ];
-    seaorm_features.extend(seaorm_driver_features(&driver));
+    seaorm_features.extend(seaorm_driver_features(&driver)?);
     let seaorm_features = seaorm_features
         .iter()
         .map(|f| format!("\"{}\"", f))
@@ -226,20 +249,48 @@ fn generate_cargo_toml(project: &Project) -> Result<String> {
 name = "{}"
 version = "{}"
 edition = "2021"
-description = "Generated backend for {}"
+description = "{}"
 
 [workspace]
 
 [dependencies]
 "#,
-        project.slug, project.version, project.name
+        toml_escape(&project.slug),
+        toml_escape(&project.version),
+        toml_escape(&format!("Generated backend for {}", project.name)),
     );
-
     for (name, spec) in deps {
         cargo.push_str(&format!("{} = {}\n", name, spec));
     }
 
     Ok(cargo)
+}
+
+/// Escape the contents of a TOML basic string.
+///
+/// The project name and version come from the user, and they are written
+/// into the generated manifest. A name containing a quote and a newline
+/// would otherwise close the string and inject TOML sections — and that
+/// manifest is what cargo reads before it runs the generated crate's build
+/// script, which is arbitrary code.
+///
+/// The surrounding quotes are the template's job; this only escapes what
+/// goes between them.
+fn toml_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            // Control characters are not allowed in a TOML basic string.
+            ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", ch as u32)),
+            ch => out.push(ch),
+        }
+    }
+    out
 }
 
 #[derive(Debug, Default)]

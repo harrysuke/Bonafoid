@@ -100,10 +100,6 @@ impl BuildRecord {
     ) -> Self {
         let now = Utc::now();
         let workspace = root.join(&id);
-        let backend_bin_dir = root
-            .parent()
-            .map(|parent| parent.join(".cargo-target").join("debug"))
-            .unwrap_or_else(|| workspace.join("backend").join("target").join("debug"));
         Self {
             id,
             project_id,
@@ -112,7 +108,11 @@ impl BuildRecord {
             state: BuildState::Queued,
             error: None,
             dist_dir: workspace.join("frontend").join("dist"),
-            backend_bin_dir,
+            // The backend binary's location is only known after the build
+            // succeeds; `set_backend_binary` fills it in. It is set here to
+            // the per-user cargo target dir so the record never reports a
+            // path from a different user's directory.
+            backend_bin_dir: std::path::PathBuf::new(),
             backend_binary: None,
             workspace,
             created_at: now,
@@ -186,6 +186,22 @@ impl PreviewConfig {
         self
     }
 
+    /// The cargo target directory for one user's builds.
+    ///
+    /// PER USER, NOT PER PROJECT, and not shared. The generated crate is
+    /// named after the project slug and the binary lands at
+    /// `<target>/debug/<slug>`, but a slug is unique only WITHIN a user
+    /// (the projects table has a unique index on (user_id, slug)). With one
+    /// shared directory, two users with a project named "Blog" would write
+    /// to the same path, and the second build would overwrite the first
+    /// user's binary — which the first user could then be made to run.
+    ///
+    /// Per user rather than per project, so a user's own projects still
+    /// share the compiled dependencies and the incremental build stays fast.
+    pub fn cargo_target_dir_for(&self, user_id: &str) -> PathBuf {
+        per_user_dir(&self.cargo_target_dir, user_id)
+    }
+
     pub fn from_env() -> Self {
         let root = std::env::var("IDE_PREVIEW_ROOT")
             .map(PathBuf::from)
@@ -229,6 +245,19 @@ impl PreviewConfig {
         }
         .absolutize()
     }
+}
+
+/// A directory under `base` that belongs to one user.
+///
+/// The user id is hashed rather than used directly: it comes from a JWT
+/// claim, and a path is built from it. Hashing also means the id cannot
+/// contain a separator, a `..`, or anything else that would escape
+/// `base`.
+pub fn per_user_dir(base: &std::path::Path, user_id: &str) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(user_id.as_bytes());
+    let name: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    base.join(name)
 }
 
 /// Registry of preview builds plus the concurrency gate.
@@ -481,5 +510,70 @@ mod tests {
             "unexpected verbatim path: {}",
             relative.root.display()
         );
+    }
+
+    /// Two users must never share a cargo target directory.
+    ///
+    /// The generated crate is named after the project slug and the binary
+    /// lands at <target>/debug/<slug>, but a slug is unique only WITHIN a
+    /// user. A shared target directory would let one user's build
+    /// overwrite another user's binary, and the first user could then be
+    /// made to run it.
+    #[test]
+    fn the_cargo_target_dir_is_per_user() {
+        let config = PreviewConfig {
+            root: PathBuf::from("preview-workspaces"),
+            api_base: String::new(),
+            timeout: Duration::from_secs(1),
+            max_parallel: 1,
+            cargo_target_dir: PathBuf::from("preview-workspaces/.cargo-target"),
+            trunk_offline: false,
+            preview_database_url: None,
+        };
+
+        let alice = config.cargo_target_dir_for("alice");
+        let bob = config.cargo_target_dir_for("bob");
+        assert_ne!(alice, bob, "two users share a cargo target directory");
+        assert!(alice.starts_with(&config.cargo_target_dir));
+        assert!(bob.starts_with(&config.cargo_target_dir));
+    }
+
+    /// The same user always gets the same directory, so their own projects
+    /// still share the compiled dependencies.
+    #[test]
+    fn the_cargo_target_dir_is_stable_per_user() {
+        let config = PreviewConfig {
+            root: PathBuf::from("preview-workspaces"),
+            api_base: String::new(),
+            timeout: Duration::from_secs(1),
+            max_parallel: 1,
+            cargo_target_dir: PathBuf::from("preview-workspaces/.cargo-target"),
+            trunk_offline: false,
+            preview_database_url: None,
+        };
+        assert_eq!(
+            config.cargo_target_dir_for("alice"),
+            config.cargo_target_dir_for("alice")
+        );
+    }
+
+    /// The directory name is derived from a hash, so no user id can put a
+    /// separator, a `..` or anything else into the path.
+    #[test]
+    fn a_user_id_cannot_escape_the_target_dir() {
+        let base = PathBuf::from("preview-workspaces/.cargo-target");
+        for user_id in ["../../etc", "a/b", "..", "a\\b", ""] {
+            let dir = per_user_dir(&base, user_id);
+            assert!(
+                dir.starts_with(&base),
+                "{user_id:?} escaped the target dir: {}",
+                dir.display()
+            );
+            assert_eq!(
+                dir.parent(),
+                Some(base.as_path()),
+                "{user_id:?} produced more than one path component"
+            );
+        }
     }
 }

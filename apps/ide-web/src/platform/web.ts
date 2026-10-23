@@ -15,6 +15,8 @@
 
 import type {
   BpmnValidationReport,
+  DatabaseDriver,
+  DatabaseSettings,
   GenerationReport,
   PlatformApi,
   PlatformPlugin,
@@ -22,6 +24,7 @@ import type {
   PlatformUser,
   PreviewBuildTarget,
 } from '@nocode/ide-core';
+import { applyDatabaseDriver } from '@nocode/ide-core';
 import { currentUser as sessionUser, logout as endSession } from '../auth/session';
 import {
   bpmnApi,
@@ -94,9 +97,12 @@ export const webPlatform: PlatformApi = {
   async setDbDriver(driver: string): Promise<string> {
     return mutateWorkingCopy((project) => {
       const settings = project as {
-        settings: { database: { driver: string } };
+        settings: { database: { driver: string; url: string } };
       };
-      settings.settings.database.driver = driver;
+      settings.settings.database = applyDatabaseDriver(
+        settings.settings.database as DatabaseSettings,
+        driver as DatabaseDriver,
+      );
     });
   },
 

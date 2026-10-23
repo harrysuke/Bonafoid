@@ -40,6 +40,7 @@ export * from './pages';
 export * from './types/project';
 export * from './utils/helpers';
 export * from './utils/dataModel';
+export * from './utils/databaseModel';
 export * from './utils/formModel';
 export * from './utils/listModel';
 export * from './utils/pageModel';

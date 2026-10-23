@@ -1,4 +1,4 @@
-//! SeaORM entity and DTOs for {{entity.name}}.
+//! SeaORM entity and DTOs for {{entity.name_comment}}.
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 {{/if}}
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
-#[sea_orm(table_name = "{{entity.table}}")]
+#[sea_orm(table_name = "{{entity.table_rust}}")]
 pub struct Model {
 {{#each entity.fields}}    {{#if is_primary_key}}#[sea_orm(primary_key{{#if is_integer}}, auto_increment = true{{else}}, auto_increment = false{{/if}})]
     {{/if}}pub {{rust_ident}}: {{rust_field_type}},
@@ -34,7 +34,7 @@ impl ActiveModelBehavior for ActiveModel {}
     }
 }
 
-{{/each}}/// Payload for creating a {{entity.name}}.
+{{/each}}/// Payload for creating a {{entity.name_comment}}.
 ///
 /// Binary fields are omitted: a browser gives a file input a path, not the
 /// bytes, so there is no value the frontend could send that would
@@ -45,7 +45,7 @@ pub struct Create{{entity.pascal}} {
 {{#each entity.fields}}{{#unless is_primary_key}}{{#if can_edit}}    pub {{rust_ident}}: {{rust_field_type}},
 {{/if}}{{/unless}}{{/each}}}
 
-/// Payload for partially updating a {{entity.name}}.
+/// Payload for partially updating a {{entity.name_comment}}.
 ///
 /// Each field is `Option<base>`, matching the generated frontend DTOs: a `None`
 /// field is left unchanged. Wrapping the already-optional `rust_field_type`
@@ -56,7 +56,7 @@ pub struct Update{{entity.pascal}} {
 {{#each entity.fields}}{{#unless is_primary_key}}{{#if can_edit}}    pub {{rust_ident}}: Option<{{rust_type}}>,
 {{/if}}{{/unless}}{{/each}}}
 
-/// API representation of a {{entity.name}}.
+/// API representation of a {{entity.name_comment}}.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct {{entity.pascal}}Response {
 {{#each entity.fields}}    pub {{rust_ident}}: {{rust_field_type}},

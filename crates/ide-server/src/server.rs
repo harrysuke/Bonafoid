@@ -123,6 +123,11 @@ pub async fn serve(config: ServerConfig, state: AppState) -> Result<()> {
 
     let router = build_router(state.clone(), &config.web_dist);
 
+    // Replay plugin installations from the database at startup.
+    if let Err(error) = state.plugins.replay(&state.db).await {
+        tracing::warn!(%error, "failed to replay plugins from database");
+    }
+
     // Idle teardown for hosted previews so a long-lived server does not
     // accumulate generated backend processes.
     let idle = state.runs.clone();

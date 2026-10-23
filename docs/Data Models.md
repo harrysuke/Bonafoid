@@ -10,7 +10,7 @@
 
 ## 1. Core Data Model Overview
 
-This document defines the core data structures for the No-Code IDE platform. These models represent the domain entities used throughout the application - from the visual builders in the IDE to the generated application schemas.
+This document defines the core data structures for the Bonafoid platform. These models represent the domain entities used throughout the application - from the visual builders in the IDE to the generated application schemas.
 
 ### 1.1 Model Architecture
 
@@ -904,29 +904,30 @@ pub struct ProjectSettings {
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
-pub struct DatabaseSettings {
+pub struct DatabaseConfig {
     pub driver: DatabaseDriver,
-    pub host: Option<String>,
-    pub port: Option<u16>,
-    pub database: String,
-    pub username: Option<String>,
-    pub password: Option<String>,
-    pub url: Option<String>,
-    pub ssl: bool,
+    pub url: String,
+    pub max_connections: u32,
+    pub min_connections: u32,
+    pub connect_timeout_seconds: u64,
+    pub idle_timeout_seconds: u64,
+    pub max_lifetime_seconds: u64,
+    pub schema: Option<String>,
+    pub migrations: MigrationConfig,
     pub ssl_mode: SslMode,
-    pub pool_min: u32,
-    pub pool_max: u32,
-    pub auto_migrate: bool,
-    pub migrations_path: String,
+    pub pool_options: PoolOptions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DatabaseDriver {
-    #[default]
-    PostgreSQL,
+    Postgres,
     MySQL,
+    /// The default: a project needs no database server to run.
+    #[default]
     SQLite,
+    SqlServer,
+    Oracle,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -1278,5 +1279,5 @@ pub struct Session {
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0 | 2026-10-15 | Data Architect | Initial Draft - Complete data models for No-Code IDE platform |
+| 1.0 | 2026-10-15 | Data Architect | Initial Draft - Complete data models for Bonafoid platform |
 | 1.1 | 2026-10-16 | Engineering | Add Web IDE server models (User, IdeProject, RefreshToken, Session) |

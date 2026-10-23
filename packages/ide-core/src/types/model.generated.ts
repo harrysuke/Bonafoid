@@ -1238,7 +1238,7 @@ export interface DatabaseConfig {
   url: string;
 }
 
-export type DatabaseDriver = "postgres" | "mysql" | "sqlite" | "sql_server" | "oracle";
+export type DatabaseDriver = "sqlite" | "postgres" | "mysql" | "sql_server" | "oracle";
 
 export interface DatabaseQuery {
   group_by: Array<string>;

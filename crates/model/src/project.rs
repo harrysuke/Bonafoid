@@ -356,18 +356,60 @@ pub struct DatabaseConfig {
     pub pool_options: PoolOptions,
 }
 
+/// The database a project uses.
+///
+/// SQLite is the default because a project must work with nothing
+/// installed. Postgres was the default before, which meant a new project's
+/// hosted preview was REFUSED unless an operator set
+/// IDE_PREVIEW_DATABASE_URL — the preview only hands a throwaway database
+/// to a SQLite project, never to any other driver
+/// (crates/ide-server/src/preview/mod.rs:278-289).
+///
+/// The variant order is the order the IDE offers them in, and it starts
+/// with the default.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
 pub enum DatabaseDriver {
     #[default]
+    #[serde(rename = "sqlite", alias = "s_q_lite")]
+    SQLite,
     Postgres,
     #[serde(rename = "mysql", alias = "my_s_q_l")]
     MySQL,
-    #[serde(rename = "sqlite", alias = "s_q_lite")]
-    SQLite,
     SqlServer,
     Oracle,
+}
+
+impl DatabaseDriver {
+    /// The connection string a project uses when it has not chosen one.
+    ///
+    /// ONE source of truth: the IDE, the desktop service and the code
+    /// generator all read this, so a new project and a generated backend
+    /// can never disagree about what an unset URL means.
+    ///
+    /// SQLite's URL carries `?mode=rwc` because SQLite refuses to create a
+    /// missing file without it, and a project that cannot create its own
+    /// database file cannot start.
+    pub fn default_url(&self) -> &'static str {
+        match self {
+            DatabaseDriver::SQLite => "sqlite://app.db?mode=rwc",
+            DatabaseDriver::Postgres => "postgres://postgres:postgres@localhost:5432/app",
+            DatabaseDriver::MySQL => "mysql://user:pass@localhost:3306/app",
+            // SeaORM 0.12 has no SQL Server or Oracle driver, so there is no
+            // URL this generator could honestly offer.
+            DatabaseDriver::SqlServer | DatabaseDriver::Oracle => "",
+        }
+    }
+
+    /// True when `url` is this driver's default connection string.
+    ///
+    /// Used when the driver changes: a URL the user never touched should
+    /// follow the new driver, while one they did touch should be left
+    /// alone.
+    pub fn is_default_url(&self, url: &str) -> bool {
+        url.trim() == self.default_url()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -758,6 +800,11 @@ impl Project {
             .join("-");
 
         let now = Utc::now();
+        let mut settings = ProjectSettings::default();
+        // A project that has not chosen a connection string gets the
+        // default one for its driver, so it can be generated and run
+        // without a database server or an edit.
+        settings.database.url = settings.database.driver.default_url().to_string();
         Self {
             id: ProjectId::new(),
             name: name.to_string(),
@@ -765,7 +812,7 @@ impl Project {
             description: None,
             version: "0.1.0".to_string(),
             icon: None,
-            settings: ProjectSettings::default(),
+            settings,
             forms: IndexMap::new(),
             entities: IndexMap::new(),
             workflows: IndexMap::new(),
@@ -785,6 +832,77 @@ impl Project {
 mod tests {
     use super::*;
     use serde_json::{json, Value};
+
+    /// A new project must run with nothing installed.
+    ///
+    /// SQLite is the default because a Postgres project needs a database
+    /// server AND, because the preview only hands a throwaway database to a
+    /// SQLite project, no operator configuration either. This test pins
+    /// both halves: the driver and a connection string that actually works.
+    #[test]
+    fn a_new_project_defaults_to_sqlite_with_a_usable_url() {
+        let project = Project::new("Acme");
+
+        assert_eq!(project.settings.database.driver, DatabaseDriver::SQLite);
+        assert_eq!(
+            project.settings.database.url, "sqlite://app.db?mode=rwc",
+            "a new project must arrive with a connection string that works"
+        );
+    }
+
+    /// The default driver and the default URL must not drift apart.
+    ///
+    /// The IDE, the desktop service and the code generator all read
+    /// `default_url()`, so there is one answer to "what does an unset URL
+    /// mean" — and this pins that the enum's own default agrees with it.
+    #[test]
+    fn the_default_driver_and_its_default_url_agree() {
+        assert_eq!(
+            DatabaseDriver::default(),
+            DatabaseDriver::SQLite,
+            "the default driver changed; update the docs and the tests that assume SQLite"
+        );
+        assert_eq!(
+            DatabaseDriver::default().default_url(),
+            "sqlite://app.db?mode=rwc"
+        );
+        // A SQLite URL without `mode=rwc` cannot create its own file, so
+        // the default must carry it.
+        assert!(DatabaseDriver::SQLite.default_url().contains("mode=rwc"));
+    }
+
+    /// The TypeScript copy of the default URLs must match the Rust one.
+    ///
+    /// `packages/ide-core/src/utils/databaseModel.ts` carries the same
+    /// table for the web host, because the IDE and the generated backend
+    /// have to agree about what an unset URL means. Two tables in two
+    /// languages drift, so this reads the TypeScript and compares.
+    #[test]
+    fn the_typescript_default_urls_match_the_rust_ones() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/ide-core/src/utils/databaseModel.ts");
+        let source = std::fs::read_to_string(&path)
+            .expect("the TypeScript default-URL table must be readable");
+
+        for driver in [
+            DatabaseDriver::SQLite,
+            DatabaseDriver::Postgres,
+            DatabaseDriver::MySQL,
+        ] {
+            let key = match driver {
+                DatabaseDriver::SQLite => "sqlite",
+                DatabaseDriver::Postgres => "postgres",
+                DatabaseDriver::MySQL => "mysql",
+                _ => continue,
+            };
+            let expected = driver.default_url();
+            assert!(
+                source.contains(&format!("{key}: '{expected}'")),
+                "the TypeScript default URL for {key} does not match the Rust one \
+                 ({expected}); the IDE would show a URL the generated backend does not use"
+            );
+        }
+    }
 
     /// Wire values of every enum whose Rust variants end in an acronym.
     ///

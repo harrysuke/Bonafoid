@@ -1,0 +1,27 @@
+{
+  "Smart-Parking.bpmn": {
+    "gateways": 0,
+    "process": "Smart-Parking.bpmn",
+    "tasks": 0
+  },
+  "Pizza-Store.bpmn": {
+    "gateways": 0,
+    "process": "Pizza-Store.bpmn",
+    "tasks": 0
+  },
+  "Car-Wash.bpmn": {
+    "gateways": 0,
+    "process": "Car-Wash.bpmn",
+    "tasks": 0
+  },
+  "Recruitment-and-Selection.bpmn": {
+    "gateways": 0,
+    "process": "Recruitment-and-Selection.bpmn",
+    "tasks": 0
+  },
+  "SelfServeRestaurant.bpmn": {
+    "gateways": 0,
+    "process": "SelfServeRestaurant.bpmn",
+    "tasks": 0
+  }
+}

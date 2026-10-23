@@ -504,8 +504,8 @@
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                  │
 │  ┌─ Environment Configuration ──────────────────────────────────────────────┐ │
-│  │ Database:  [PostgreSQL ▼]                                                │ │
-│  │ URL:       [postgresql://user:pass@localhost:5432/db]                   │ │
+│  │ Database:  [SQLite ▼]                                                    │ │
+│  │ URL:       [sqlite://app.db?mode=rwc]                                    │ │
 │  │ Features:  [✓] Auth [✓] API [✓] Workflows [✓] Files [✓] Audit Log      │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                  │

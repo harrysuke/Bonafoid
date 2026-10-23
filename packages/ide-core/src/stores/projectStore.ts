@@ -1394,7 +1394,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         await platform.updateProject(JSON.stringify(project));
         await platform.saveProject(projectPath);
         set({ isDirty: false, error: null });
-      } catch {
+      } catch (e) {
+        set({ error: describeError(e) });
         return;
       }
     },

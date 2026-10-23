@@ -32,9 +32,15 @@ export type Uuid = string;
 /* Project                                                                     */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The database drivers a project can use.
+ *
+ * SQLite is first because it is the default: a project needs no database
+ * server to run. The order must match `DB_DRIVERS` below.
+ */
 export type DatabaseDriver =
-  | 'postgres'
   | 'sqlite'
+  | 'postgres'
   | 'mysql'
   | 'sql_server'
   | 'oracle';
@@ -465,10 +471,16 @@ export interface Option {
   label: string;
 }
 
-/** Values must match the `snake_case` serde representation of `DatabaseDriver`. */
+/**
+ * The database drivers a project can choose, in the order they are offered.
+ *
+ * Values must match the `snake_case` serde representation of
+ * `DatabaseDriver`. SQLite is first because it is the default: a project
+ * needs no database server to run.
+ */
 export const DB_DRIVERS: Option[] = [
-  { value: 'postgres', label: 'PostgreSQL' },
   { value: 'sqlite', label: 'SQLite' },
+  { value: 'postgres', label: 'PostgreSQL' },
   { value: 'mysql', label: 'MySQL' },
   { value: 'sql_server', label: 'SQL Server' },
   { value: 'oracle', label: 'Oracle' },

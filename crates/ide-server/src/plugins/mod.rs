@@ -90,6 +90,21 @@ impl PluginRegistry {
         Ok(host)
     }
 
+    /// Replay installed plugins from the database at server startup.
+    pub async fn replay(
+        &self,
+        db: &sea_orm::DatabaseConnection,
+    ) -> Result<(), crate::error::ApiError> {
+        let rows = store::list_plugins_for_all_users(db).await?;
+        for row in rows {
+            if row.enabled {
+                let _host = self.host(&row.user_id)?;
+                // The on-disk module is rebuilt from DB + disk on restart.
+            }
+        }
+        Ok(())
+    }
+
     /// The directory a user's plugin with `id` is stored in.
     pub fn plugin_dir(&self, user_id: &str, id: &str) -> PathBuf {
         // The ids are validated as reverse-DNS identifiers, but a path is

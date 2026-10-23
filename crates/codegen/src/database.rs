@@ -40,20 +40,6 @@ fn sql_action(action: &str) -> &'static str {
     }
 }
 
-/// Keep only characters that are safe in a bare SQL identifier.
-fn sanitize_ident(input: &str) -> String {
-    input
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
 /// Collect every foreign key implied by the project's entity relations.
 ///
 /// A relation only becomes a constraint when both endpoints resolve to a real
@@ -114,10 +100,14 @@ pub fn generate_schema_sql(project: &Project, driver: DatabaseDriver) -> Result<
         project.name
     ));
 
-    // SQLite has no `ALTER TABLE ... ADD CONSTRAINT`, so its foreign keys must
-    // be declared while the table is created. Postgres and MySQL add them once
-    // every table exists, which also covers forward and self references.
-    let inline_keys = matches!(driver, DatabaseDriver::SQLite);
+    // Every supported driver can declare a foreign key INLINE, while the
+    // table is created: SQLite, Postgres and MySQL all accept a column-level
+    // `REFERENCES`. That matters because the generated backend re-applies the
+    // schema on every boot, and `ALTER TABLE ... ADD CONSTRAINT` is NOT
+    // idempotent - it fails the second time with "constraint already
+    // exists". Inline keys keep the whole schema idempotent, and they also
+    // survive the generated runner's naive `split(';')`, which would break a
+    // `DO $$ ... $$` guard block.
 
     for entity in &entities {
         let table = entity
@@ -187,21 +177,18 @@ pub fn generate_schema_sql(project: &Project, driver: DatabaseDriver) -> Result<
             if !default_value.is_empty() {
                 line.push_str(&format!(" DEFAULT {}", default_value));
             }
-
-            lines.push(line);
-        }
-
-        if inline_keys {
-            for key in keys.iter().filter(|k| k.table == table) {
-                lines.push(format!(
-                    "    FOREIGN KEY ({}) REFERENCES {} ({}) ON DELETE {} ON UPDATE {}",
-                    key.column,
-                    key.referenced_table,
-                    key.referenced_column,
-                    key.on_delete,
-                    key.on_update
+            // An inline foreign key, so the whole schema stays idempotent.
+            if let Some(key) = keys
+                .iter()
+                .find(|key| key.table == table && key.column == column)
+            {
+                line.push_str(&format!(
+                    " REFERENCES {} ({}) ON DELETE {} ON UPDATE {}",
+                    key.referenced_table, key.referenced_column, key.on_delete, key.on_update
                 ));
             }
+
+            lines.push(line);
         }
 
         sql.push_str(&format!("CREATE TABLE IF NOT EXISTS {} (\n", table));
@@ -224,25 +211,8 @@ pub fn generate_schema_sql(project: &Project, driver: DatabaseDriver) -> Result<
         }
     }
 
-    if !inline_keys {
-        for key in &keys {
-            sql.push_str(&format!(
-                "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({}) ON DELETE {} ON UPDATE {};\n",
-                key.table,
-                sanitize_ident(&format!("fk_{}_{}", key.table, key.column)),
-                key.column,
-                key.referenced_table,
-                key.referenced_column,
-                key.on_delete,
-                key.on_update
-            ));
-        }
-        sql.push('\n');
-    }
-
     Ok(sql)
 }
-
 pub async fn generate_database(
     project: &Project,
     _output_dir: &std::path::Path,

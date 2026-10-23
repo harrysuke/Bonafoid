@@ -19,6 +19,8 @@ pub struct PwaOutput {
     pub manifest: String,
     pub service_worker: String,
     pub offline_page: String,
+    /// The install icons, as binary PNG bytes.
+    pub icons: Vec<(PathBuf, Vec<u8>)>,
 }
 
 impl PwaOutput {
@@ -36,6 +38,101 @@ impl PwaOutput {
         );
         files
     }
+}
+
+/// A solid-brand PNG icon with a white disc in the middle.
+///
+/// The PWA manifest names icon files, and a manifest that points at files
+/// that do not exist makes the app uninstallable. Rather than ship a
+/// manifest that 404s, the icons are generated: a real PNG, encoded here so
+/// the generator needs no image library.
+///
+/// The encoding is deliberately simple: 8-bit RGBA, no interlacing, and a
+/// zlib stream built from stored (uncompressed) deflate blocks. That is a
+/// valid zlib stream, so any decoder reads it.
+fn png_icon(size: u32) -> Vec<u8> {
+    // The brand colour the IDE uses for its primary actions.
+    const BACKGROUND: [u8; 4] = [0x02, 0x84, 0xc7, 0xff];
+    const FOREGROUND: [u8; 4] = [0xff, 0xff, 0xff, 0xff];
+
+    // The raw image data: one filter byte (0 = None) per row, then RGBA.
+    let mut raw = Vec::with_capacity((size * (1 + size * 4)) as usize);
+    let centre = (size as f64 - 1.0) / 2.0;
+    let radius = size as f64 * 0.32;
+    for y in 0..size {
+        raw.push(0); // filter: None
+        for x in 0..size {
+            let dx = x as f64 - centre;
+            let dy = y as f64 - centre;
+            let pixel = if dx * dx + dy * dy <= radius * radius {
+                FOREGROUND
+            } else {
+                BACKGROUND
+            };
+            raw.extend_from_slice(&pixel);
+        }
+    }
+
+    // zlib stream: 2-byte header, stored deflate blocks, Adler-32.
+    let mut zlib = vec![0x78, 0x01];
+    let mut offset = 0usize;
+    while offset < raw.len() {
+        let len = (raw.len() - offset).min(0xffff);
+        let last = offset + len == raw.len();
+        zlib.push(if last { 1 } else { 0 }); // BFINAL, BTYPE=00 (stored)
+        zlib.extend_from_slice(&(len as u16).to_le_bytes());
+        zlib.extend_from_slice(&(!(len as u16)).to_le_bytes());
+        zlib.extend_from_slice(&raw[offset..offset + len]);
+        offset += len;
+    }
+    zlib.extend_from_slice(&adler32(&raw).to_be_bytes());
+
+    let mut png = Vec::new();
+    png.extend_from_slice(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]);
+
+    let mut ihdr = Vec::new();
+    ihdr.extend_from_slice(&size.to_be_bytes());
+    ihdr.extend_from_slice(&size.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]); // 8-bit, RGBA, deflate, adaptive, no interlace
+    write_chunk(&mut png, b"IHDR", &ihdr);
+    write_chunk(&mut png, b"IDAT", &zlib);
+    write_chunk(&mut png, b"IEND", &[]);
+    png
+}
+
+/// Append one PNG chunk: length, type, data, CRC.
+fn write_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+    out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    out.extend_from_slice(kind);
+    out.extend_from_slice(data);
+    let mut crc_input = Vec::with_capacity(4 + data.len());
+    crc_input.extend_from_slice(kind);
+    crc_input.extend_from_slice(data);
+    out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
+}
+
+/// The CRC-32 (IEEE) of `data`.
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffffu32;
+    for byte in data {
+        crc ^= *byte as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+/// The Adler-32 checksum of `data`, as zlib requires.
+fn adler32(data: &[u8]) -> u32 {
+    let mut a = 1u32;
+    let mut b = 0u32;
+    for byte in data {
+        a = (a + *byte as u32) % 65521;
+        b = (b + a) % 65521;
+    }
+    (b << 16) | a
 }
 
 /// Desktop (Tauri) shell scaffolding.
@@ -182,10 +279,18 @@ self.addEventListener("fetch", (event) => {{
         name = project.name,
     );
 
+    // The icons the manifest names. They are generated rather than
+    // referenced, so the manifest never points at a file that is missing.
+    let icons = vec![
+        (PathBuf::from("public/icons/icon-192.png"), png_icon(192)),
+        (PathBuf::from("public/icons/icon-512.png"), png_icon(512)),
+    ];
+
     PwaOutput {
         manifest,
         service_worker,
         offline_page,
+        icons,
     }
 }
 

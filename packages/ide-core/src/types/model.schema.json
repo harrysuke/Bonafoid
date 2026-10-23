@@ -6014,11 +6014,12 @@
       }
     },
     "DatabaseDriver": {
+      "description": "The database a project uses.\n\nSQLite is the default because a project must work with nothing installed. Postgres was the default before, which meant a new project's hosted preview was REFUSED unless an operator set IDE_PREVIEW_DATABASE_URL — the preview only hands a throwaway database to a SQLite project, never to any other driver (crates/ide-server/src/preview/mod.rs:278-289).\n\nThe variant order is the order the IDE offers them in, and it starts with the default.",
       "type": "string",
       "enum": [
+        "sqlite",
         "postgres",
         "mysql",
-        "sqlite",
         "sql_server",
         "oracle"
       ]

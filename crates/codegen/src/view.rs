@@ -655,8 +655,11 @@ pub fn entity_view(entity: &Entity, project: &Project, driver: &DatabaseDriver) 
 
     json!({
         "name": entity.name,
+        "name_rust": escape_rust_string(&entity.name),
+        "name_comment": escape_line_comment(&entity.name),
         "plural_name": entity.plural_name,
         "table": table,
+        "table_rust": escape_rust_string(&table),
         "snake": snake(&entity.name),
         "pascal": pascal(&entity.name),
         "camel": camel(&entity.name),
@@ -838,6 +841,8 @@ pub fn form_view(form: &Form) -> Value {
         .collect();
     json!({
         "name": form.name,
+        "name_rust": escape_rust_string(&form.name),
+        "name_comment": escape_line_comment(&form.name),
         "pascal": pascal(&form.name),
         "camel": camel(&form.name),
         "snake": snake(&form.name),
@@ -977,15 +982,32 @@ fn child_ids(component: &ComponentType) -> Vec<nocode_model::page::ComponentId> 
     }
 }
 
+/// Data source id -> display name, so a placeholder can name its source
+/// instead of showing a raw UUID.
+pub type SourceNames = HashMap<String, String>;
+
+/// The label a component uses to refer to its data source.
+///
+/// A component stores the data source's id. Showing the id in generated
+/// markup is noise, so the display name is used when it is known.
+fn source_label(config: &Value, names: &SourceNames) -> String {
+    let id = config_str(config, "data_source");
+    if id.is_empty() {
+        return String::new();
+    }
+    names.get(&id).cloned().unwrap_or(id)
+}
+
 fn emit_children(
     children: &[nocode_model::page::ComponentId],
     depth: usize,
     by_id: &HashMap<nocode_model::page::ComponentId, &PageComponent>,
+    names: &SourceNames,
     out: &mut Vec<Value>,
 ) {
     for id in children {
         if let Some(child) = by_id.get(id) {
-            emit_component(child, depth, by_id, out);
+            emit_component(child, depth, by_id, names, out);
         }
     }
 }
@@ -999,6 +1021,7 @@ fn emit_component(
     component: &PageComponent,
     depth: usize,
     by_id: &HashMap<nocode_model::page::ComponentId, &PageComponent>,
+    names: &SourceNames,
     out: &mut Vec<Value>,
 ) {
     use nocode_model::page::ComponentId;
@@ -1020,7 +1043,7 @@ fn emit_component(
         // ---- Layout ----
         "Container" => {
             out.push(token_open("div", "class=\"space-y-4\"", depth));
-            emit_children(&children, depth + 1, by_id, out);
+            emit_children(&children, depth + 1, by_id, names, out);
             out.push(token_close("div", depth));
         }
         "Grid" => {
@@ -1032,7 +1055,7 @@ fn emit_component(
                 ),
                 depth,
             ));
-            emit_children(&children, depth + 1, by_id, out);
+            emit_children(&children, depth + 1, by_id, names, out);
             out.push(token_close("div", depth));
         }
         "Flex" => {
@@ -1047,7 +1070,7 @@ fn emit_component(
                 &format!("class=\"flex flex-{direction} flex-wrap gap-4\""),
                 depth,
             ));
-            emit_children(&children, depth + 1, by_id, out);
+            emit_children(&children, depth + 1, by_id, names, out);
             out.push(token_close("div", depth));
         }
         "Card" => {
@@ -1061,7 +1084,7 @@ fn emit_component(
                 out.push(token_text(&header, depth + 2));
                 out.push(token_close("h3", depth + 1));
             }
-            emit_children(&children, depth + 1, by_id, out);
+            emit_children(&children, depth + 1, by_id, names, out);
             if let Some(footer) = config_owned(&config, "footer") {
                 out.push(token_open(
                     "p",
@@ -1391,7 +1414,7 @@ fn emit_component(
                 "class=\"space-y-4 rounded-lg border border-slate-200 bg-white p-4\"",
                 depth,
             ));
-            emit_children(&children, depth + 1, by_id, out);
+            emit_children(&children, depth + 1, by_id, names, out);
             out.push(token_void(
                 "button",
                 "type=\"submit\" class=\"rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700\"",
@@ -1400,7 +1423,7 @@ fn emit_component(
             out.push(token_close("form", depth));
         }
         "Table" => {
-            let data_source = config_str(&config, "data_source");
+            let data_source = source_label(&config, names);
             out.push(token_open(
                 "div",
                 "class=\"overflow-x-auto rounded-lg border border-slate-200\"",
@@ -1454,7 +1477,7 @@ fn emit_component(
             out.push(token_close("div", depth));
         }
         "DetailView" => {
-            let data_source = config_str(&config, "data_source");
+            let data_source = source_label(&config, names);
             out.push(token_open("div", "class=\"space-y-4\"", depth));
             if let Some(fields) = config.get("fields").and_then(|v| v.as_array()) {
                 for field in fields {
@@ -1482,7 +1505,7 @@ fn emit_component(
             out.push(token_close("div", depth));
         }
         "List" => {
-            let data_source = config_str(&config, "data_source");
+            let data_source = source_label(&config, names);
             out.push(token_open("div", "class=\"space-y-2\"", depth));
             out.push(token_text(&format!("(list from {data_source})"), depth + 1));
             out.push(token_close("div", depth));
@@ -1526,7 +1549,7 @@ fn emit_component(
                 }
             }
             out.push(token_open("div", "class=\"pt-4\"", depth));
-            emit_children(&children, depth + 1, by_id, out);
+            emit_children(&children, depth + 1, by_id, names, out);
             out.push(token_close("div", depth));
         }
         "Accordion" => {
@@ -1554,13 +1577,13 @@ fn emit_component(
                             .iter()
                             .filter_map(|value| serde_json::from_value(value.clone()).ok())
                             .collect();
-                        emit_children(&ids, depth + 3, by_id, out);
+                        emit_children(&ids, depth + 3, by_id, names, out);
                     }
                     out.push(token_close("div", depth + 2));
                     out.push(token_close("details", depth + 1));
                 }
             }
-            emit_children(&children, depth + 1, by_id, out);
+            emit_children(&children, depth + 1, by_id, names, out);
             out.push(token_close("div", depth));
         }
 
@@ -1571,7 +1594,7 @@ fn emit_component(
         // renderer states which source it expects. This is the same
         // contract the Table renderer already has.
         "Chart" => {
-            let data_source = config_str(&config, "data_source");
+            let data_source = source_label(&config, names);
             let chart_type = config_str(&config, "chart_type");
             let chart_type = if chart_type.is_empty() {
                 "chart".to_string()
@@ -1603,7 +1626,7 @@ fn emit_component(
             out.push(token_close("div", depth));
         }
         "Tree" | "Transfer" | "Cascader" | "TreeSelect" => {
-            let data_source = config_str(&config, "data_source");
+            let data_source = source_label(&config, names);
             let label = match name.as_str() {
                 "Tree" => "tree",
                 "Transfer" => "transfer",
@@ -1867,7 +1890,7 @@ fn emit_component(
             // box never called emit_children, so a Tabs containing a Button
             // lost the Button entirely. Emit them so nothing silently
             // disappears.
-            emit_children(&children, depth + 1, by_id, out);
+            emit_children(&children, depth + 1, by_id, names, out);
         }
     }
 
@@ -1875,7 +1898,7 @@ fn emit_component(
 }
 
 /// Flatten a page's component tree into Leptos `view!` tokens.
-fn component_tokens(components: &[PageComponent]) -> Vec<Value> {
+fn component_tokens(components: &[PageComponent], names: &SourceNames) -> Vec<Value> {
     use nocode_model::page::ComponentId;
     let by_id: HashMap<ComponentId, &PageComponent> =
         components.iter().map(|c| (c.id.clone(), c)).collect();
@@ -1886,14 +1909,30 @@ fn component_tokens(components: &[PageComponent]) -> Vec<Value> {
     let mut out = Vec::new();
     for component in components {
         if !child_id_set.contains(&component.id) {
-            emit_component(component, 0, &by_id, &mut out);
+            emit_component(component, 0, &by_id, names, &mut out);
         }
     }
     out
 }
 
 /// Data source view for the page template.
-fn data_source_view(ds: &DataSource) -> Value {
+/// The HTTP path a data source reads from, if it has one.
+///
+/// A `Database` source reads the entity's collection endpoint, which is the
+/// same path the generated backend exposes. Resolving it here is what lets
+/// a page action call a path that actually exists instead of guessing.
+fn data_source_api_path(ds: &DataSource, project: &Project) -> Option<String> {
+    match &ds.source_type {
+        DataSourceType::Api { endpoint, .. } => Some(endpoint.clone()),
+        DataSourceType::Database { entity_id, .. } => project
+            .entities
+            .get(entity_id)
+            .map(|entity| format!("/api/v1/{}", snake(&entity.name))),
+        _ => None,
+    }
+}
+
+fn data_source_view(ds: &DataSource, project: &Project) -> Value {
     let cfg = &ds.config;
     let source_type = match &ds.source_type {
         DataSourceType::Api {
@@ -1931,6 +1970,7 @@ fn data_source_view(ds: &DataSource) -> Value {
         "name": ds.name,
         "snake": snake(&ds.id),
         "source_type": source_type,
+        "api_path": data_source_api_path(ds, project),
         "auto_load": ds.auto_load,
         "polling_interval": ds.polling_interval,
         "config": cfg,
@@ -1938,19 +1978,45 @@ fn data_source_view(ds: &DataSource) -> Value {
 }
 
 /// Page action view for the template.
-fn action_view(action: &PageAction) -> Value {
+///
+/// A `CallApi` action names a DATA SOURCE, not a URL, so the URL has to be
+/// resolved here: the data source knows which endpoint it reads (an entity
+/// collection for a `Database` source, its own endpoint for an `Api` one).
+/// The method comes from the action's own parameters, which is where the
+/// IDE's List Builder puts it.
+fn action_view(action: &PageAction, page: &Page, project: &Project) -> Value {
     let cfg = match &action.config {
         nocode_model::page::ActionConfig::Navigate { path, .. } => {
             json!({ "type": "navigate", "path": path })
         }
-        nocode_model::page::ActionConfig::CallApi { data_source_id, .. } => {
-            json!({ "type": "call_api", "data_source_id": data_source_id })
+        nocode_model::page::ActionConfig::CallApi {
+            data_source_id,
+            params,
+            ..
+        } => {
+            let source = page.data_sources.iter().find(|ds| ds.id == *data_source_id);
+            let method = params
+                .get("method")
+                .cloned()
+                .unwrap_or_else(|| "GET".to_string());
+            let path = source.and_then(|ds| data_source_api_path(ds, project));
+            json!({
+                "type": "call_api",
+                "data_source_id": data_source_id,
+                "method": method.to_uppercase(),
+                "path": path,
+                "id_param": params.get("id").cloned(),
+            })
         }
         _ => json!({ "type": format!("{:?}", action.config) }),
     };
     json!({
         "id": action.id,
         "name": action.name,
+        // A Rust identifier for the generated closure. The raw action name
+        // ("Create Record") is not a valid identifier, and two actions can
+        // share a name, so the caller appends an index.
+        "name_snake": snake(&action.name),
         "config": cfg,
     })
 }
@@ -1958,11 +2024,27 @@ fn action_view(action: &PageAction) -> Value {
 pub fn page_view(page: &Page, project: &Project) -> Value {
     let _ = project;
     let route = normalize_route(&page.path);
-    let tokens = component_tokens(&page.components);
-    let data_sources: Vec<Value> = page.data_sources.iter().map(data_source_view).collect();
-    let actions: Vec<Value> = page.actions.iter().map(action_view).collect();
+    // A component refers to its data source by id; the generated markup
+    // names it, so the id -> name map is built here.
+    let mut source_names: SourceNames = SourceNames::new();
+    for source in &page.data_sources {
+        source_names.insert(source.id.clone(), source.name.clone());
+    }
+    let tokens = component_tokens(&page.components, &source_names);
+    let data_sources: Vec<Value> = page
+        .data_sources
+        .iter()
+        .map(|ds| data_source_view(ds, project))
+        .collect();
+    let actions: Vec<Value> = page
+        .actions
+        .iter()
+        .map(|action| action_view(action, page, project))
+        .collect();
     json!({
         "name": page.name,
+        "name_rust": escape_rust_string(&page.name),
+        "name_comment": escape_line_comment(&page.name),
         "pascal": pascal(&page.name),
         "camel": camel(&page.name),
         "snake": snake(&page.name),
@@ -1971,7 +2053,13 @@ pub fn page_view(page: &Page, project: &Project) -> Value {
         "route": route,
         "is_index": route == "/",
         "title": if page.title.is_empty() { page.name.clone() } else { page.title.clone() },
+        "title_rust": escape_rust_string(if page.title.is_empty() {
+            &page.name
+        } else {
+            &page.title
+        }),
         "description": page.description,
+        "description_rust": escape_rust_string(page.description.as_deref().unwrap_or("")),
         "components": page.components,
         "tokens": tokens,
         "data_sources": data_sources,
@@ -2182,9 +2270,21 @@ pub fn project_view(project: &Project, _driver: &DatabaseDriver) -> Value {
         .replace('\\', "\\\\")
         .replace('"', "\\\"");
 
+    // The project name is user text and it reaches generated source in
+    // three different syntaxes, each of which has its own escaping rules.
+    // Without this, a name containing a quote breaks the generated Rust, a
+    // name containing a newline injects Rust code through a doc comment,
+    // and a name containing a tag injects markup into the generated page.
+    let name_rust = escape_rust_string(&project.name);
+    let name_comment = escape_line_comment(&project.name);
+    let name_html = escape_html(&project.name);
+
     json!({
         "id": project.id.to_string(),
         "name": project.name,
+        "name_rust": name_rust,
+        "name_comment": name_comment,
+        "name_html": name_html,
         "slug": project.slug,
         "version": project.version,
         "description": project.description,
@@ -2193,6 +2293,54 @@ pub fn project_view(project: &Project, _driver: &DatabaseDriver) -> Value {
         "frontend": project.settings.frontend,
         "settings": project.settings,
     })
+}
+
+/// Escape a value so it can sit inside a Rust string literal.
+///
+/// The generated crate's source is compiled and then run, and the project
+/// name is user text: a quote would end the literal and the rest of the
+/// name would be read as Rust code.
+pub fn escape_rust_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\0' => out.push_str("\\0"),
+            ch if (ch as u32) < 0x20 => {
+                out.push_str(&format!("\\u{{{:x}}}", ch as u32));
+            }
+            ch => out.push(ch),
+        }
+    }
+    out
+}
+
+/// Escape a value so it can sit inside a `//` line comment.
+///
+/// A newline would end the comment, and everything after it would be
+/// read as code.
+pub fn escape_line_comment(value: &str) -> String {
+    value.replace(['\r', '\n'], " ")
+}
+
+/// Escape a value for HTML text content.
+pub fn escape_html(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            ch => out.push(ch),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -2220,7 +2368,7 @@ mod tests {
     /// The rendered HTML of a single-component page, flattened to a string.
     fn render(component: ComponentType) -> String {
         let page = page_with(component);
-        let tokens = component_tokens(&page.components);
+        let tokens = component_tokens(&page.components, &SourceNames::new());
         tokens
             .iter()
             .map(|token| {
@@ -2453,7 +2601,7 @@ mod tests {
             style_overrides: Default::default(),
         });
 
-        let tokens = component_tokens(&page.components);
+        let tokens = component_tokens(&page.components, &SourceNames::new());
         let text: String = tokens
             .iter()
             .filter_map(|token| token.get("text").and_then(|v| v.as_str()))

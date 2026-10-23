@@ -1,4 +1,4 @@
-# No-Code IDE
+# Bonafoid
 
 An open-source no-code platform IDE that generates web, desktop (Tauri) and mobile
 (PWA) applications from visual models, with full BPMN 2.0 workflow support.
@@ -14,13 +14,45 @@ crates/
   model/      Domain models (Form, Entity, Workflow, Page, Theme, Project)
   codegen/    Model -> backend / frontend / database / docker / k8s / targets
   plugins/    wasmtime-based plugin host
-  bpmn/       BPMN 2.0 engine (+ optional NAPI bridge)
+  bpmn/       BPMN 2.0 engine (+ optional NAPI bridge); import .bpmn from workspace via xtask/import-bpmn.py
   ide/        egui IDE core (state, commands, backend, app shell)
   ide-server/ Web IDE server (Axum + SeaORM): auth, projects, BPMN, previews
 apps/
   ide-web/    Browser IDE (React + Vite, served by ide-server)
   ide-tauri/  Desktop IDE (React + Tauri v2)
 xtask/        Build / code-generation CLI
+```
+
+## Workflow / BPMN
+
+Imported BPMN 2.0 workflows (Phase B/C, `D:\\nocode-ide\\bpmn/`):
+- Car-Wash (`Customer`) — 8 nodes, 6 edges
+- Pizza-Store (`Pizza customer`) — 8 nodes, 6 edges
+- Recruitment-and-Selection (`Employee selection and recruitment`) — 22 nodes, 27 edges
+- SelfServeRestaurant (`Guest food consumption`) — 9 nodes, 6 edges
+- Smart-Parking (`Motorists`) — 12 nodes, 12 edges
+
+Parse via `crates/bpmn/src/xml.rs`; import via `xtask/import-bpmn.py`.
+
+## Running
+
+```cmd
+# Rust core / tests
+cargo test --workspace
+
+# Web IDE server (Axum + SeaORM)
+cargo run -p nocode-ide-server; 
+
+# Desktop IDE (Tauri)
+cd apps\ide-tauri && npm install && npm run tauri:dev; 
+
+# Docker
+docker compose up --build
+
+npm run dev:web / npm run tauri:dev from root.
+
+# BPMN import (5 files copied to bpmn/; mapping at bpmn/import-map.json)
+# Use xtask/import-bpmn.py (PowerShell XML parse available if python missing)
 ```
 
 ## Prerequisites
@@ -85,7 +117,17 @@ npm run tauri:dev
 `npm run dev` alone starts just the Vite web frontend on http://localhost:1420.
 `npm run tauri:build` produces a bundled desktop binary.
 
-## Run the web IDE server
+## Quickstart (web IDE)
+
+```powershell
+npm ci && npm run build:web
+cargo run -p nocode-ide-server
+# open http://127.0.0.1:8081
+```
+
+Key environment variables: `DATABASE_URL`, `IDE_PREVIEW_ROOT`, `IDE_PREVIEW_TIMEOUT_SECS`, `IDE_PREVIEW_PARALLEL`, `IDE_PREVIEW_API_BASE`, `IDE_PREVIEW_TRUNK_OFFLINE`, `IDE_PREVIEW_DATABASE_URL`, `IDE_PLUGIN_ROOT`, `PREVIEW_PUBLIC_ORIGIN`.
+
+Note: `packages/ide-core/` is the shared core (stores, pages, platform types); `crates/plugins/` provides the WebAssembly sandbox.
 
 ```powershell
 npm run build:web
@@ -94,7 +136,10 @@ cargo run -p nocode-ide-server
 ```
 
 The server hosts the IDE at `/` and the hosted preview/proxy under
-`/preview/{buildId}`. See the completion plan for the full quickstart.
+`/preview/{buildId}`.
+
+**New to Bonafoid?** [docs/user-manual.md](docs/user-manual.md) walks
+through building a CRUD application from sign-in to deployment.
 
 ## Run a generated application (backend + Leptos frontend)
 
@@ -138,7 +183,7 @@ cargo test -p nocode-codegen -- --ignored generated_frontend_compiles
 
 ## License
 
-No-Code IDE is published under the AGPL-3.0-or-later. The full text is in
+Bonafoid is published under the AGPL-3.0-or-later. The full text is in
 [LICENSE](LICENSE).
 
 ## Security

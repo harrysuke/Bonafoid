@@ -24,18 +24,15 @@
     "@hookform/resolvers": "^3.3.0",
     "@monaco-editor/react": "^4.6.0",
     "@tanstack/react-query": "^5.0.0",
-    "axios": "^1.6.0",
     "clsx": "^2.0.0",
     "date-fns": "^3.0.0",
     "lucide-react": "^0.294.0",
     "monaco-editor": "^0.45.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-hook-form": "^7.49.0",
     "react-router-dom": "^6.20.0",
     "reactflow": "^11.10.0",
     "tailwind-merge": "^2.0.0",
-    "zod": "^3.22.0",
     "zustand": "^4.4.0"
   },
   "devDependencies": {

@@ -1018,6 +1018,10 @@ mod tests {
     }
 
     /// A relation must become a real foreign key, not just a CREATE TABLE.
+    ///
+    /// The key is INLINE on the column for every driver, because the
+    /// generated backend re-applies the schema on every boot and
+    /// `ALTER TABLE ... ADD CONSTRAINT` is not idempotent.
     #[test]
     fn relations_become_foreign_keys_in_the_ddl() {
         use nocode_model::DatabaseDriver;
@@ -1026,11 +1030,12 @@ mod tests {
         let sql = crate::database::generate_schema_sql(&project, DatabaseDriver::Postgres).unwrap();
 
         assert!(
-            sql.contains(
-                "ALTER TABLE orders ADD CONSTRAINT fk_orders_customer_id FOREIGN KEY \
-                 (customer_id) REFERENCES customers (id) ON DELETE CASCADE ON UPDATE CASCADE;"
-            ),
+            sql.contains("REFERENCES customers (id) ON DELETE CASCADE ON UPDATE CASCADE"),
             "foreign key missing from schema:\n{sql}"
+        );
+        assert!(
+            !sql.contains("ALTER TABLE"),
+            "the schema must stay idempotent, so it must not use ALTER TABLE:\n{sql}"
         );
     }
 
@@ -1044,7 +1049,7 @@ mod tests {
 
         assert!(
             sql.contains(
-                "FOREIGN KEY (customer_id) REFERENCES customers (id) \
+                "customer_id TEXT REFERENCES customers (id) \
                  ON DELETE CASCADE ON UPDATE CASCADE"
             ),
             "inlined foreign key missing from schema:\n{sql}"
@@ -1329,6 +1334,188 @@ mod tests {
         );
     }
 
+    /// A project whose names try to break out of the generated source.
+    ///
+    /// The project name, the entity name, the field name, the form name and
+    /// the page name all reach generated Rust — in string literals, in doc
+    /// comments and in a #[sea_orm(table_name = "...")] attribute. A name
+    /// with a quote, a newline or a bracket in it is an injection into the
+    /// generated crate, which then runs its own build script.
+    fn hostile_project() -> nocode_model::Project {
+        use nocode_model::entity::{EntityField, EntityFieldId, EntityFieldType};
+        use nocode_model::form::{FieldType, FormField, FormFieldId};
+        use nocode_model::page::{Page, PageComponent};
+        use nocode_model::{Entity, Form, Project};
+
+        let mut project = Project::new("Acme \"Portal\"\n[dependencies]\nevil = \"1\"");
+        project.description = Some("A \"demo\" <script>app</script>".to_string());
+
+        let mut entity = Entity::new("Pro\"duct");
+        entity.fields.push(EntityField {
+            id: EntityFieldId::new(),
+            name: "id".to_string(),
+            field_type: EntityFieldType::Uuid,
+            nullable: false,
+            unique: true,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 0,
+        });
+        entity.fields.push(EntityField {
+            id: EntityFieldId::new(),
+            name: "na\"me".to_string(),
+            field_type: EntityFieldType::String {
+                max_length: Some(80),
+            },
+            nullable: false,
+            unique: false,
+            default: None,
+            auto_generate: None,
+            validation: None,
+            comment: None,
+            order: 1,
+        });
+        project.entities.insert(entity.id.clone(), entity);
+
+        let mut form = Form::new("Con\"tact");
+        form.fields.push(FormField {
+            id: FormFieldId::new(),
+            name: "email".to_string(),
+            label: "Email".to_string(),
+            field_type: FieldType::Email,
+            required: true,
+            default_value: None,
+            validation_rules: vec![],
+            conditional_visibility: None,
+            ui_props: Default::default(),
+            order: 0,
+        });
+        project.forms.insert(form.id.clone(), form);
+
+        let mut page = Page::new("Pa\"ge");
+        page.path = "/pa-ge".to_string();
+        page.title = "A \"title\" with <tags>".to_string();
+        page.description = Some("A \"description\"\nwith a newline".to_string());
+        page.components.push(PageComponent {
+            id: nocode_model::page::ComponentId::new(),
+            component: nocode_model::page::ComponentType::Html {
+                content: "<script>alert(1)</script>".to_string(),
+                sanitize: true,
+            },
+            props: Default::default(),
+            bindings: vec![],
+            events: vec![],
+            conditions: vec![],
+            slots: Default::default(),
+            style_overrides: Default::default(),
+        });
+        project.pages.insert(page.id.clone(), page);
+
+        project
+    }
+
+    /// Run `cargo check` in `dir`, retrying a Windows file lock.
+    ///
+    /// Antivirus and the search indexer hold files that cargo is renaming,
+    /// and the build dies with "os error 32". That is a property of the
+    /// host, not of the generated code, so it is worth one more try. Any
+    /// other failure is returned as-is.
+    fn cargo_check(dir: &std::path::Path, target: Option<&str>) -> bool {
+        for attempt in 1..=3 {
+            let mut command = std::process::Command::new("cargo");
+            command.arg("check").arg("--quiet").current_dir(dir);
+            if let Some(target) = target {
+                command.arg("--target").arg(target);
+            }
+            let output = command.output().expect("failed to run cargo check");
+            if output.status.success() {
+                return true;
+            }
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let locked =
+                stderr.contains("os error 32") || stderr.contains("being used by another process");
+            if !locked || attempt == 3 {
+                eprintln!("cargo check failed:\n{stderr}");
+                return false;
+            }
+            eprintln!("retrying cargo check after a file lock (attempt {attempt})");
+            std::thread::sleep(std::time::Duration::from_secs(15));
+        }
+        false
+    }
+
+    /// The generated code must compile even when the names try to inject.
+    ///
+    /// This is the only place the whole injection surface is exercised: the
+    /// names reach a Rust string literal, a doc comment, a `#[sea_orm]`
+    /// attribute, an HTML attribute and an HTML text node, and each has its
+    /// own escaping rules.
+    #[tokio::test]
+    #[ignore = "invokes cargo check; needs the network and a few minutes"]
+    async fn hostile_names_still_produce_compiling_code() {
+        let project = hostile_project();
+
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join("gen-check-hostile")
+            .join("backend");
+        let _ = std::fs::remove_dir_all(dir.join("src"));
+        let _ = std::fs::remove_dir_all(dir.join("migrations"));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let backend = crate::backend::generate_backend(&project, &dir)
+            .await
+            .expect("the backend generates");
+        for (path, content) in &backend.files {
+            let full = dir.join(path);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, content).unwrap();
+        }
+
+        assert!(
+            cargo_check(&dir, None),
+            "the generated backend did not compile with hostile names"
+        );
+
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join("gen-check-hostile")
+            .join("frontend");
+        let _ = std::fs::remove_dir_all(dir.join("src"));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let frontend = crate::frontend::generate_frontend(&project, &dir)
+            .await
+            .expect("the frontend generates");
+        for (path, content) in &frontend.files {
+            let full = dir.join(path);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, content).unwrap();
+        }
+
+        assert!(
+            cargo_check(&dir, Some("wasm32-unknown-unknown")),
+            "the generated frontend did not compile with hostile names"
+        );
+    }
+
+    /// The generated manifest must not carry injected TOML.
+    #[test]
+    fn the_generated_manifest_escapes_the_project_name() {
+        let project = hostile_project();
+        let manifest =
+            crate::backend::generate_cargo_toml(&project).expect("the manifest generates");
+        assert!(
+            !manifest.contains("[dependencies]\nevil"),
+            "the project name injected a TOML section:\n{manifest}"
+        );
+        // The name is still there, escaped.
+        assert!(manifest.contains(r#"Acme \"Portal\""#), "{manifest}");
+    }
+
+    /// Every generator must produce output for a populated project.
     #[tokio::test]
     async fn populated_project_renders_every_generator() {
         let project = populated_project();
@@ -1514,7 +1701,11 @@ mod tests {
 
     /// A bare `{{snake}}` in a template invokes the registered `snake` *helper*
     /// instead of resolving the field, which silently produced empty names
-    /// (`submit_` instead of `submit_products_api`). Guard the affected names.
+    /// (`submit_` instead of `submit_contact_form`). Guard the affected names.
+    ///
+    /// The client must also not advertise `/api/v1/data-sources/{name}`: the
+    /// generated backend serves no such route, so a client function that
+    /// called it could only ever 404.
     #[tokio::test]
     async fn data_source_client_functions_use_the_real_id() {
         let project = populated_project();
@@ -1528,12 +1719,16 @@ mod tests {
             .expect("api client generated");
 
         assert!(
-            api.contains("pub async fn submit_products_api("),
-            "data source client function is missing or misnamed:\n{api}"
+            api.contains("pub async fn submit_contact_form("),
+            "form client function is missing or misnamed:\n{api}"
         );
         assert!(
             !api.contains("pub async fn submit_("),
-            "data source client function has an empty name:\n{api}"
+            "client function has an empty name:\n{api}"
+        );
+        assert!(
+            !api.contains("/api/v1/data-sources/"),
+            "the client calls a route the generated backend does not serve:\n{api}"
         );
     }
 
@@ -1580,6 +1775,60 @@ mod tests {
         assert!(
             status.success(),
             "generated frontend failed to compile at {}",
+            dir.display()
+        );
+    }
+
+    /// The frontend of a project built by the IDE's List Builder must
+    /// compile.
+    ///
+    /// The List Builder gives its data source a UUID id and its actions
+    /// display names with spaces ("Create Record"). Both used to reach the
+    /// generated Rust verbatim, producing `let Create Record = ...` and
+    /// `api::submit_aaaaaaaa-bbbb-...` - neither a valid identifier, and
+    /// the second named a function that did not exist. A single uncompilable
+    /// page breaks the WHOLE frontend, so this is worth a compile check.
+    ///
+    /// Ignored by default: it invokes `cargo check` and needs network
+    /// access and a few minutes.
+    ///
+    /// Run with:
+    /// `cargo test -p nocode-codegen -- --ignored generated_list_page_frontend_compiles`
+    #[tokio::test]
+    #[ignore]
+    async fn generated_list_page_frontend_compiles() {
+        let (project, _data_source_id) =
+            crate::project::tests::deployability::project_with_a_list_page();
+
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join("gen-check-list-frontend")
+            .join("frontend");
+
+        let _ = std::fs::remove_dir_all(dir.join("src"));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let frontend = crate::frontend::generate_frontend(&project, &dir)
+            .await
+            .unwrap();
+        for (path, content) in &frontend.files {
+            let full = dir.join(path);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, content).unwrap();
+        }
+
+        let status = std::process::Command::new("cargo")
+            .arg("check")
+            .arg("--quiet")
+            .arg("--target")
+            .arg("wasm32-unknown-unknown")
+            .current_dir(&dir)
+            .status()
+            .expect("failed to run cargo check");
+
+        assert!(
+            status.success(),
+            "the generated list page frontend failed to compile at {}",
             dir.display()
         );
     }

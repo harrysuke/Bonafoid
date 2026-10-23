@@ -138,6 +138,12 @@ async fn drive(
         manager.advance(&build_id, BuildState::BuildingBackend);
         manager.append_logs(&build_id, vec!["building backend (cargo build)…".into()]);
         let manifest = record.workspace.join("backend").join("Cargo.toml");
+        // The target directory is per USER, not shared: the generated crate
+        // is named after the project slug and the binary lands at
+        // <target>/debug/<slug>, but a slug is unique only within a user.
+        // A shared directory would let one user's build overwrite another
+        // user's binary.
+        let cargo_target_dir = config.cargo_target_dir_for(&record.user_id);
         // cargo runs the generated crate's build scripts, which is arbitrary
         // code: isolate it from the server environment like a preview run.
         let mut cargo = Command::new("cargo");
@@ -146,7 +152,7 @@ async fn drive(
             .arg("build")
             .arg("--manifest-path")
             .arg(&manifest)
-            .env("CARGO_TARGET_DIR", &config.cargo_target_dir);
+            .env("CARGO_TARGET_DIR", &cargo_target_dir);
         run_command(
             Arc::clone(&manager),
             &build_id,
@@ -156,9 +162,8 @@ async fn drive(
         .await?;
 
         // The generated crate is named after the project slug and the binary
-        // lands in the shared cargo target dir, not in the workspace.
-        let binary = config
-            .cargo_target_dir
+        // lands in the cargo target dir, not in the workspace.
+        let binary = cargo_target_dir
             .join("debug")
             .join(generated_binary_name(&project));
         if !binary.exists() {

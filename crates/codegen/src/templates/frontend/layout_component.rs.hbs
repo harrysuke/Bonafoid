@@ -10,12 +10,12 @@ pub fn Layout(children: Children) -> impl IntoView {
             <header class="bg-slate-900 text-white">
                 <nav class="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3">
                     <A href="/">
-                        <span class="text-lg font-semibold">{{project.name}}</span>
+                        <span class="text-lg font-semibold">{{project.name_rust}}</span>
                     </A>
                     <div class="flex gap-4 text-sm text-slate-200">
 {{#each entities}}                        <A href="/{{this.snake}}">{{this.plural_name}}</A>
-{{/each}}{{#each forms}}                        <A href="/forms/{{this.snake}}">{{this.name}}</A>
-{{/each}}{{#each pages}}                        <A href="{{this.route}}">{{this.name}}</A>
+{{/each}}{{#each forms}}                        <A href="/forms/{{this.snake}}">{{this.name_rust}}</A>
+{{/each}}{{#each pages}}                        <A href="{{this.route}}">{{this.name_rust}}</A>
 {{/each}}                    </div>
                 </nav>
             </header>

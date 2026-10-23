@@ -91,7 +91,7 @@ The product consists of:
 | **IDE Client (Desktop)** | Windows 10/11 (x64), macOS 12+ (ARM64/x64), Linux (AppImage/Flatpak) |
 | **IDE Client (Web)** | Modern browsers (Chrome 100+, Firefox 100+, Safari 15+, Edge 100+) |
 | **IDE Server** | Linux x64/ARM64 (primary), Windows, macOS — Rust 1.75+, SQLite (default) / PostgreSQL 14+ |
-| **Generated Backend** | Linux x64/ARM64, Windows, macOS — Rust 1.75+, PostgreSQL 14+/MySQL 8+/SQLite |
+| **Generated Backend** | Linux x64/ARM64, Windows, macOS — Rust 1.75+, SQLite (default)/PostgreSQL 14+/MySQL 8+ |
 | **Generated Frontend** | Modern browsers (Chrome 100+, Firefox 100+, Safari 15+, Edge 100+) — WASM |
 | **Mobile** | iOS 15+ / Android 12+ via PWA or Tauri v2 mobile (alpha) |
 | **Container** | Docker 24+, Kubernetes 1.27+, Helm 3.12+ |

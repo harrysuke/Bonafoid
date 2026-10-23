@@ -7,7 +7,7 @@ export function Login() {
 
   return (
     <AuthCard
-      title="No-Code IDE"
+      title="Bonafoid"
       subtitle="Sign in to your workspace"
       footer={
         <>

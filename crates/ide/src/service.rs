@@ -171,15 +171,15 @@ impl IdeService {
 
         let mut guard = self.current_project.lock().unwrap();
         let project = guard.as_mut().ok_or("No project loaded")?;
-        project.settings.database.driver = parsed;
-        if project.settings.database.url.trim().is_empty() {
-            project.settings.database.url = match &project.settings.database.driver {
-                DatabaseDriver::SQLite => "sqlite://sample.db?mode=rwc".to_string(),
-                DatabaseDriver::Postgres => {
-                    "postgres://postgres:postgres@localhost:5432/app".to_string()
-                }
-                _ => String::new(),
-            };
+        let previous = project.settings.database.driver.clone();
+        project.settings.database.driver = parsed.clone();
+        // The connection string follows the driver when the user never
+        // touched it. A URL they DID choose is left alone, because they
+        // may know something the default does not.
+        if project.settings.database.url.trim().is_empty()
+            || previous.is_default_url(&project.settings.database.url)
+        {
+            project.settings.database.url = parsed.default_url().to_string();
         }
         project_json(project)
     }
@@ -262,5 +262,68 @@ impl IdeService {
             .map_err(|e| e.to_string())?;
 
         generated.to_zip().map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A new project arrives on SQLite with a working connection string.
+    #[test]
+    fn a_new_project_is_sqlite() {
+        let service = IdeService::new();
+        let json = service.new_project("Acme").expect("new project");
+        let project: Project = serde_json::from_str(&json).expect("project json");
+
+        assert_eq!(project.settings.database.driver, DatabaseDriver::SQLite);
+        assert_eq!(
+            project.settings.database.url, "sqlite://app.db?mode=rwc",
+            "a new project must arrive with a connection string that works"
+        );
+    }
+
+    /// Changing the driver must carry the connection string with it.
+    ///
+    /// A project that arrived on SQLite holds a SQLite URL. Switching to
+    /// Postgres and keeping `sqlite://app.db` would produce a backend that
+    /// cannot connect to the database the user just chose.
+    #[test]
+    fn changing_the_driver_carries_the_default_url() {
+        let service = IdeService::new();
+        service.new_project("Acme").expect("new project");
+
+        let json = service.set_db_driver("postgres").expect("set driver");
+        let project: Project = serde_json::from_str(&json).expect("project json");
+
+        assert_eq!(project.settings.database.driver, DatabaseDriver::Postgres);
+        assert_eq!(
+            project.settings.database.url,
+            DatabaseDriver::Postgres.default_url(),
+            "the connection string did not follow the driver"
+        );
+    }
+
+    /// A connection string the user chose is NOT overwritten.
+    ///
+    /// They may know something the default does not — a managed instance,
+    /// a socket path — so changing the driver leaves their URL alone.
+    #[test]
+    fn a_custom_url_is_kept_when_the_driver_changes() {
+        let service = IdeService::new();
+        let json = service.new_project("Acme").expect("new project");
+        let mut project: Project = serde_json::from_str(&json).expect("project json");
+        project.settings.database.url = "postgres://user:pw@db.internal:5432/app".to_string();
+        service
+            .update_project(&project_json(&project).expect("project json"))
+            .expect("update project");
+
+        let json = service.set_db_driver("postgres").expect("set driver");
+        let project: Project = serde_json::from_str(&json).expect("project json");
+
+        assert_eq!(
+            project.settings.database.url, "postgres://user:pw@db.internal:5432/app",
+            "a URL the user chose must survive a driver change"
+        );
     }
 }

@@ -1,4 +1,4 @@
-//! CRUD handlers for {{entity.name}}.
+//! CRUD handlers for {{entity.name_comment}}.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -18,7 +18,7 @@ pub async fn list(State(db): State<DatabaseConnection>) -> Result<Json<Vec<{{ent
     Ok(Json(items.into_iter().map({{entity.pascal}}Response::from).collect()))
 }
 
-/// Fetch a single {{entity.name}} by id.
+/// Fetch a single {{entity.name_comment}} by id.
 pub async fn get(
     State(db): State<DatabaseConnection>,
     Path(id): Path<{{entity.pk_rust_type}}>,
@@ -30,7 +30,7 @@ pub async fn get(
     Ok(Json({{entity.pascal}}Response::from(item)))
 }
 
-/// Create a new {{entity.name}}.
+/// Create a new {{entity.name_comment}}.
 pub async fn create(
     State(db): State<DatabaseConnection>,
     Json(payload): Json<Create{{entity.pascal}}>,
@@ -45,7 +45,7 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json({{entity.pascal}}Response::from(item))))
 }
 
-/// Update an existing {{entity.name}}.
+/// Update an existing {{entity.name_comment}}.
 pub async fn update(
     State(db): State<DatabaseConnection>,
     Path(id): Path<{{entity.pk_rust_type}}>,
@@ -65,7 +65,7 @@ pub async fn update(
     Ok(Json({{entity.pascal}}Response::from(item)))
 }
 
-/// Delete a {{entity.name}}.
+/// Delete a {{entity.name_comment}}.
 pub async fn delete(
     State(db): State<DatabaseConnection>,
     Path(id): Path<{{entity.pk_rust_type}}>,

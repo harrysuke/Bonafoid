@@ -149,7 +149,7 @@ graph TB
 graph LR
     User["👤 End User"] -->|"Uses Generated Application"| GenApp["Generated App<br/>(Web/Desktop/Mobile)"]
     
-    Dev["👨‍💻 No-Code Developer"] -->|"Uses IDE"| NocodeIDE["No-Code IDE<br/>(Tauri Desktop App)"]
+    Dev["👨‍💻 No-Code Developer"] -->|"Uses IDE"| NocodeIDE["Bonafoid<br/>(Tauri Desktop App)"]
     
     NocodeIDE -->|"Generates Code"| GenApp
     NocodeIDE -->|"Publishes to"| Deployment["Deployment Targets<br/>(Docker/K8s/Web/Tauri)"]
@@ -817,7 +817,7 @@ mindmap
 ```mermaid
 sequenceDiagram
     participant U as User (Developer)
-    participant IDE as No-Code IDE
+    participant IDE as Bonafoid
     participant Model as Model Store
     participant CG as Code Generator
     participant FS as File System
@@ -877,5 +877,5 @@ sequenceDiagram
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0 | 2026-10-15 | System Architect | Initial Draft - Complete system architecture diagrams for No-Code IDE platform |
+| 1.0 | 2026-10-15 | System Architect | Initial Draft - Complete system architecture diagrams for Bonafoid platform |
 | 1.1 | 2026-10-16 | Engineering | Add Web IDE platform split, server/auth/preview/run diagrams, hosted preview architecture |
