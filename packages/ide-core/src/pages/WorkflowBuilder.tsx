@@ -16,6 +16,7 @@ import 'reactflow/dist/style.css';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
+import { Modal } from '../components/ui/Modal';
 import { getPlatform } from '../platform/registry';
 import { useProjectStore } from '../stores/projectStore';
 import {
@@ -605,59 +606,76 @@ export function WorkflowBuilder() {
         </div>
       </div>
 
-      {bpmnMode !== 'idle' && (
-        <div className="border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-              {bpmnMode === 'import' ? 'Paste BPMN 2.0 XML' : 'BPMN 2.0 export'}
-            </h3>
+      <Modal
+        open={bpmnMode === 'import'}
+        title="Import BPMN 2.0"
+        onClose={() => setBpmnMode('idle')}
+        className="max-w-2xl"
+      >
+        <div className="space-y-3">
+          <Input
+            value={newWorkflowName}
+            placeholder="Process name"
+            onChange={(event) => setNewWorkflowName(event.target.value)}
+          />
+          <textarea
+            className="w-full h-56 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 p-2 font-mono text-[11px] text-gray-800 dark:text-gray-200"
+            value={bpmnXml}
+            placeholder="<definitions xmlns=...>"
+            onChange={(event) => setBpmnXml(event.target.value)}
+          />
+          {message && bpmnMode === 'import' && (
+            <p className="text-xs text-red-600 dark:text-red-400">{message}</p>
+          )}
+          <div className="flex gap-2 justify-end">
+            <Button variant="ghost" size="sm" onClick={() => { setBpmnMode('idle'); setMessage(null); }}>
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const blob = new Blob([bpmnXml], { type: 'text/xml' });
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement('a');
+                anchor.href = url;
+                anchor.download = `${workflow?.name ?? 'process'}.bpmn`;
+                anchor.click();
+                URL.revokeObjectURL(url);
+              }}
+              disabled={!bpmnXml}
+            >
+              <FileDown className="w-4 h-4 mr-1" /> Download .bpmn
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => void runImport()} disabled={busy || !bpmnXml.trim()}>
+              <Upload className="w-4 h-4 mr-1" /> Import process
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={bpmnMode === 'export'}
+        title="BPMN 2.0 export"
+        onClose={() => setBpmnMode('idle')}
+        className="max-w-2xl"
+      >
+        <div className="space-y-3">
+          <textarea
+            className="w-full h-56 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 p-2 font-mono text-[11px] text-gray-800 dark:text-gray-200"
+            value={bpmnXml}
+            readOnly
+          />
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+              <AlertTriangle className="w-4 h-4" /> Round-trips through nocode-bpmn on the host.
+            </span>
             <Button variant="ghost" size="sm" onClick={() => setBpmnMode('idle')}>
               Close
             </Button>
           </div>
-          {bpmnMode === 'import' && (
-            <Input
-              value={newWorkflowName}
-              placeholder="Process name"
-              onChange={(event) => setNewWorkflowName(event.target.value)}
-            />
-          )}
-          <textarea
-            className="w-full h-40 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 p-2 font-mono text-[11px] text-gray-800 dark:text-gray-200"
-            value={bpmnXml}
-            readOnly={bpmnMode === 'export'}
-            placeholder="<definitions xmlns=...>"
-            onChange={(event) => setBpmnXml(event.target.value)}
-          />
-          {bpmnMode === 'import' ? (
-            <div className="flex gap-2">
-              <Button variant="primary" size="sm" onClick={() => void runImport()} disabled={busy}>
-                <Upload className="w-4 h-4 mr-1" /> Import process
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  const blob = new Blob([bpmnXml], { type: 'text/xml' });
-                  const url = URL.createObjectURL(blob);
-                  const anchor = document.createElement('a');
-                  anchor.href = url;
-                  anchor.download = `${workflow?.name ?? 'process'}.bpmn`;
-                  anchor.click();
-                  URL.revokeObjectURL(url);
-                }}
-                disabled={!bpmnXml}
-              >
-                <FileDown className="w-4 h-4 mr-1" /> Download .bpmn
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-              <AlertTriangle className="w-4 h-4" /> Round-trips through nocode-bpmn on the host.
-            </div>
-          )}
         </div>
-      )}
+      </Modal>
     </div>
   );
 }
