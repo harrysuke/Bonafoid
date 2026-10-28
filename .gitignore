@@ -1,1 +1,32 @@
+# Rust
+/target/
+apps/*/target/
+apps/ide-tauri/src-tauri/target/
+**/*.rs.bk
+
+# Node
 node_modules/
+apps/ide-web/dist/
+apps/ide-tauri/dist/
+apps/ide-native/dist/
+*.tsbuildinfo
+
+# Local runtime state. These are produced by running the server from the repo
+# root and must never be committed: the database holds user rows, jwt_keys/
+# holds the signing key pair, and preview-workspaces/ holds generated code.
+nocode-ide.db
+nocode-ide.db-shm
+nocode-ide.db-wal
+*.db-journal
+/jwt_keys/
+/preview-workspaces/
+/data/
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local logs
+*.log

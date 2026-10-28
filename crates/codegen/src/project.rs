@@ -1145,12 +1145,12 @@ pub(crate) mod tests {
         let form = Form::new("Contact");
         project.forms.insert(form.id.clone(), form);
 
-    let workflow = Workflow::new("Approval");
-    // Phase C: BPMN workflow imports from D:\\nocode-ide\\bpmn/
-    // Import-map: Car-Wash (Customer), Pizza-Store (Pizza customer),
-    // Recruitment-and-Selection (Employee selection), SelfServeRestaurant (Guest food),
-    // Smart-Parking (Motorists) — 5 workflows parsed by xml::parse_bpmn.
-    project.workflows.insert(workflow.id.clone(), workflow);
+        let workflow = Workflow::new("Approval");
+        // Phase C: BPMN workflow imports from D:\\nocode-ide\\bpmn/
+        // Import-map: Car-Wash (Customer), Pizza-Store (Pizza customer),
+        // Recruitment-and-Selection (Employee selection), SelfServeRestaurant (Guest food),
+        // Smart-Parking (Motorists) — 5 workflows parsed by xml::parse_bpmn.
+        project.workflows.insert(workflow.id.clone(), workflow);
 
         let page = Page::new("Home");
         project.pages.insert(page.id.clone(), page);

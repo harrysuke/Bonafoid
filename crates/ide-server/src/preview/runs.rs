@@ -14,11 +14,27 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
+
+/// Maximum number of log lines retained per run.
+const MAX_RUN_LOG_LINES: usize = 500;
+
+/// How long `stop` waits for a killed child to actually exit before it gives
+/// up and reports that the process survived.
+const STOP_GRACE: Duration = Duration::from_secs(5);
+
+/// How long a line may sit in the pump's buffer before it is published.
+///
+/// Batching only on "25 lines or EOF" made the log of a long-running app empty
+/// until it exited: a preview that prints a startup banner and then serves
+/// forever produced no visible output at all. A short timer keeps the write
+/// rate batched while still showing output promptly.
+const LOG_FLUSH: Duration = Duration::from_millis(250);
 
 /// Lifecycle of one running preview backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -52,6 +68,11 @@ pub struct RunRecord {
     pub last_used_at: DateTime<Utc>,
     /// How many requests were proxied (diagnostics only).
     pub requests: u64,
+    /// The backend's own stdout/stderr, capped at [`MAX_RUN_LOG_LINES`].
+    ///
+    /// The child used to inherit the server's stdio, so a noisy generated app
+    /// flooded the IDE server's log and there was no per-run output at all.
+    pub logs: Vec<String>,
 }
 
 /// Configuration for the run manager.
@@ -88,8 +109,6 @@ struct Process {
 pub struct RunManager {
     records: Mutex<HashMap<String, RunRecord>>,
     processes: Mutex<HashMap<String, Process>>,
-    /// Monotonic clock base for idle accounting.
-    started: Mutex<HashMap<String, Instant>>,
     config: RunConfig,
     shutting_down: AtomicBool,
 }
@@ -116,7 +135,6 @@ impl RunManager {
         Self {
             records: Mutex::new(HashMap::new()),
             processes: Mutex::new(HashMap::new()),
-            started: Mutex::new(HashMap::new()),
             config,
             shutting_down: AtomicBool::new(false),
         }
@@ -198,17 +216,22 @@ impl RunManager {
         if self.shutting_down.load(Ordering::SeqCst) {
             return Err("server is shutting down".into());
         }
-        if self
+        // The quota is PER USER. Counting every running preview on the host
+        // let one user occupy all of the slots, which is a denial of service
+        // against every other user.
+        let running_for_user = self
             .records
             .lock()
             .unwrap()
             .values()
-            .filter(|record| matches!(record.status, RunStatus::Starting | RunStatus::Running))
-            .count()
-            >= self.config.max_runs
-        {
+            .filter(|record| {
+                record.user_id == user_id
+                    && matches!(record.status, RunStatus::Starting | RunStatus::Running)
+            })
+            .count();
+        if running_for_user >= self.config.max_runs {
             return Err(format!(
-                "preview limit reached ({} running); stop one first",
+                "preview limit reached ({} running for this account); stop one first",
                 self.config.max_runs
             ));
         }
@@ -230,24 +253,43 @@ impl RunManager {
         // The child runs generated code: give it a cleared environment, never
         // the IDE server's own (which holds DATABASE_URL, JWT_KEYS_DIR, ...).
         crate::preview::env::isolate(&mut command);
+        // Its own process group, so stopping the preview also stops anything
+        // the generated app forked (a worker thread that spawns a helper, a
+        // dev server wrapper, ...).
+        crate::preview::isolate_process_group(&mut command);
         command
             .args(args)
             .current_dir(&working_dir)
             .env("PORT", port.to_string())
             .stdin(Stdio::null())
-            // Keep the app's logs in the server log: a preview that dies with
-            // no output is impossible to diagnose.
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
+            // Piped, not inherited: the child's output belongs to the run, not
+            // to the IDE server's log.
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
         for (key, value) in env {
             command.env(key, value);
         }
 
-        let child = command
+        let mut child = command
             .spawn()
             .map_err(|error| format!("cannot start backend: {error}"))?;
         let pid = child.id();
+
+        // Pump both pipes into the record. The pumps end when the pipes close,
+        // which happens when the child exits.
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        if let Some(stdout) = stdout {
+            let manager = Arc::clone(self);
+            let id = build_id.to_string();
+            tokio::spawn(async move { manager.pump(stdout, &id).await });
+        }
+        if let Some(stderr) = stderr {
+            let manager = Arc::clone(self);
+            let id = build_id.to_string();
+            tokio::spawn(async move { manager.pump(stderr, &id).await });
+        }
 
         let now = Utc::now();
         let record = RunRecord {
@@ -261,20 +303,61 @@ impl RunManager {
             started_at: now,
             last_used_at: now,
             requests: 0,
+            logs: Vec::new(),
         };
         self.processes
             .lock()
             .unwrap()
             .insert(build_id.to_string(), Process { child });
-        self.started
-            .lock()
-            .unwrap()
-            .insert(build_id.to_string(), Instant::now());
         self.records
             .lock()
             .unwrap()
             .insert(build_id.to_string(), record.clone());
         Ok(record)
+    }
+
+    /// Stream one child pipe into the run's log buffer.
+    async fn pump<R>(self: &Arc<Self>, reader: R, build_id: &str)
+    where
+        R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    {
+        let mut lines = BufReader::new(reader).lines();
+        let mut pending: Vec<String> = Vec::new();
+        loop {
+            let next = tokio::select! {
+                line = lines.next_line() => line,
+                // Only armed when there is something waiting to be published,
+                // so an idle child does not wake the task every 250 ms.
+                () = tokio::time::sleep(LOG_FLUSH), if !pending.is_empty() => {
+                    self.append_logs(build_id, std::mem::take(&mut pending));
+                    continue;
+                }
+            };
+            match next {
+                Ok(Some(line)) => {
+                    tracing::debug!(%build_id, "{line}");
+                    pending.push(line);
+                    if pending.len() >= 25 {
+                        self.append_logs(build_id, std::mem::take(&mut pending));
+                    }
+                }
+                // EOF or a read error: the pipe is gone, so the child is too.
+                _ => break,
+            }
+        }
+        if !pending.is_empty() {
+            self.append_logs(build_id, pending);
+        }
+    }
+
+    fn append_logs(&self, build_id: &str, lines: Vec<String>) {
+        let mut records = self.records.lock().unwrap();
+        if let Some(record) = records.get_mut(build_id) {
+            record.logs.extend(lines);
+            while record.logs.len() > MAX_RUN_LOG_LINES {
+                record.logs.remove(0);
+            }
+        }
     }
 
     /// Poll a starting preview: promotes `Starting` to `Running` once the port
@@ -358,16 +441,48 @@ impl RunManager {
     }
 
     /// Stop a preview and drop its record.
+    ///
+    /// Returns whether a running preview was stopped. The process is killed
+    /// and WAITED FOR before the record (and therefore the port) is released:
+    /// the previous version removed the record first and discarded the wait
+    /// result, so a process that survived the kill looked stopped and its port
+    /// was handed to the next run.
     pub async fn stop(&self, build_id: &str) -> bool {
-        let existed = self.records.lock().unwrap().remove(build_id).is_some();
-        self.started.lock().unwrap().remove(build_id);
         let process = { self.processes.lock().unwrap().remove(build_id) };
-        if let Some(mut process) = process {
-            let _ = process.child.start_kill();
-            // Give the OS a moment to release the port before we forget it.
-            let _ = tokio::time::timeout(Duration::from_secs(5), process.child.wait()).await;
+        let Some(mut process) = process else {
+            // Nothing tracked: drop any leftover record so the id does not
+            // linger and keep counting against the quota.
+            return self.records.lock().unwrap().remove(build_id).is_some();
+        };
+
+        let _ = process.child.start_kill();
+        let gone = match tokio::time::timeout(STOP_GRACE, process.child.wait()).await {
+            // Reaped: the process is definitely gone.
+            Ok(Ok(_)) => true,
+            // The handle is broken, so nothing can be waited on again; treat
+            // the process as gone rather than tracking it forever.
+            Ok(Err(_)) => true,
+            // Still running after the grace period.
+            Err(_) => false,
+        };
+
+        if !gone {
+            tracing::warn!(
+                build_id,
+                pid = process.child.id(),
+                "preview process survived stop(); keeping it tracked"
+            );
+            self.processes
+                .lock()
+                .unwrap()
+                .insert(build_id.to_string(), process);
+            if let Some(record) = self.records.lock().unwrap().get_mut(build_id) {
+                record.status = RunStatus::Failed;
+            }
+            return false;
         }
-        existed
+
+        self.records.lock().unwrap().remove(build_id).is_some()
     }
 
     /// Stop everything (called during graceful shutdown).
@@ -381,8 +496,28 @@ impl RunManager {
 
     /// Stop previews that have not served traffic for `idle_timeout`.
     ///
+    /// Also detects crashes first. A preview that died on its own used to stay
+    /// `Running` until somebody listed runs, so it kept consuming a per-user
+    /// slot for up to a full idle timeout — long after it could serve anything.
+    ///
     /// Returns the ids that were reaped.
     pub async fn reap_idle(&self) -> Vec<String> {
+        // Refresh first so a dead child is marked failed and drops out of the
+        // candidate set below.
+        let active: Vec<String> = {
+            let records = self.records.lock().unwrap();
+            records
+                .iter()
+                .filter(|(_, record)| {
+                    matches!(record.status, RunStatus::Starting | RunStatus::Running)
+                })
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        for id in active {
+            self.refresh(&id).await;
+        }
+
         let idle = self.config.idle_timeout;
         let mut reaped = Vec::new();
         let candidates: Vec<String> = {
@@ -538,6 +673,178 @@ mod tests {
         let reaped = manager.reap_idle().await;
         assert_eq!(reaped, vec!["b4".to_string()]);
         assert!(manager.get("b4").is_none());
+    }
+
+    /// The run quota is per user: one account cannot occupy every slot.
+    #[tokio::test]
+    async fn the_run_quota_is_per_user() {
+        let manager = Arc::new(RunManager::new(RunConfig {
+            max_runs: 1,
+            idle_timeout: Duration::from_secs(600),
+        }));
+        let (program, args) = sleeper();
+        manager
+            .start(RunRequest {
+                build_id: "quota-1",
+                user_id: "alice",
+                project_id: "p1",
+                program: program.clone(),
+                args: &args,
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
+            .await
+            .expect("alice's first preview fits");
+
+        let error = manager
+            .start(RunRequest {
+                build_id: "quota-2",
+                user_id: "alice",
+                project_id: "p2",
+                program: program.clone(),
+                args: &args,
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
+            .await
+            .expect_err("alice's second preview must be refused");
+        assert!(error.contains("preview limit reached"), "{error}");
+
+        // Bob is unaffected by Alice's usage.
+        manager
+            .start(RunRequest {
+                build_id: "quota-3",
+                user_id: "bob",
+                project_id: "p3",
+                program,
+                args: &args,
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
+            .await
+            .expect("bob has his own quota");
+
+        manager.stop_all().await;
+    }
+
+    /// A preview's own output is captured, not dumped into the server log.
+    #[tokio::test]
+    async fn child_output_is_captured_in_the_run_log() {
+        let manager = Arc::new(RunManager::new(RunConfig {
+            max_runs: 2,
+            idle_timeout: Duration::from_secs(600),
+        }));
+        #[cfg(windows)]
+        let (program, args) = (
+            PathBuf::from("cmd.exe"),
+            vec![
+                "/C".to_string(),
+                "echo hello-from-preview & ping -n 5 127.0.0.1 > nul".to_string(),
+            ],
+        );
+        #[cfg(not(windows))]
+        let (program, args) = (
+            PathBuf::from("sh"),
+            vec![
+                "-c".to_string(),
+                "echo hello-from-preview; sleep 5".to_string(),
+            ],
+        );
+
+        manager
+            .start(RunRequest {
+                build_id: "logs-1",
+                user_id: "u1",
+                project_id: "p1",
+                program,
+                args: &args,
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
+            .await
+            .expect("start");
+
+        let mut seen = false;
+        for _ in 0..50 {
+            if manager
+                .get("logs-1")
+                .map(|record| {
+                    record
+                        .logs
+                        .iter()
+                        .any(|line| line.contains("hello-from-preview"))
+                })
+                .unwrap_or(false)
+            {
+                seen = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(seen, "the child's output never reached the run record");
+        manager.stop_all().await;
+    }
+
+    /// A preview that died is noticed by the reaper, so it stops holding a
+    /// quota slot.
+    #[tokio::test]
+    async fn the_reaper_notices_a_crashed_preview() {
+        let manager = Arc::new(RunManager::new(RunConfig {
+            max_runs: 1,
+            // Never idle: only the crash detection can free this record.
+            idle_timeout: Duration::from_secs(600),
+        }));
+        #[cfg(windows)]
+        let (program, args) = (
+            PathBuf::from("cmd.exe"),
+            vec!["/C".to_string(), "exit 3".to_string()],
+        );
+        #[cfg(not(windows))]
+        let (program, args) = (
+            PathBuf::from("sh"),
+            vec!["-c".to_string(), "exit 3".to_string()],
+        );
+
+        manager
+            .start(RunRequest {
+                build_id: "crash-1",
+                user_id: "u1",
+                project_id: "p1",
+                program,
+                args: &args,
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
+            .await
+            .expect("start");
+
+        let reaped = manager.reap_idle().await;
+        assert!(
+            reaped.is_empty(),
+            "a crashed preview is not idle, it is dead: {reaped:?}"
+        );
+        let record = manager.get("crash-1").expect("record is kept for the IDE");
+        assert!(
+            matches!(record.status, RunStatus::Failed | RunStatus::Exited),
+            "unexpected status {:?}",
+            record.status
+        );
+
+        // The slot is free again.
+        let (program, args) = sleeper();
+        manager
+            .start(RunRequest {
+                build_id: "crash-2",
+                user_id: "u1",
+                project_id: "p2",
+                program,
+                args: &args,
+                working_dir: std::env::temp_dir(),
+                env: Vec::new(),
+            })
+            .await
+            .expect("a crashed preview must not keep the slot");
+        manager.stop_all().await;
     }
 
     /// A trivial long-lived process, used instead of a real generated binary.

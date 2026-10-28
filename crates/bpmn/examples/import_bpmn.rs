@@ -12,8 +12,20 @@ fn main() {
         if path.extension().and_then(|s| s.to_str()) == Some("bpmn") {
             let xml = fs::read_to_string(&path).unwrap();
             match xml::parse_bpmn(&xml, path.file_stem().unwrap().to_str().unwrap()) {
-                Ok(w) => { println!("OK  {} => workflow '{}' nodes={} edges={}", path.display(), w.name, w.nodes.len(), w.edges.len()); ok += 1; }
-                Err(e) => { println!("ERR {} => {}", path.display(), e); fail += 1; }
+                Ok(w) => {
+                    println!(
+                        "OK  {} => workflow '{}' nodes={} edges={}",
+                        path.display(),
+                        w.name,
+                        w.nodes.len(),
+                        w.edges.len()
+                    );
+                    ok += 1;
+                }
+                Err(e) => {
+                    println!("ERR {} => {}", path.display(), e);
+                    fail += 1;
+                }
             }
         }
     }

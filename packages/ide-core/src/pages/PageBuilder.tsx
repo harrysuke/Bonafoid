@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Copy,
   FileText,
@@ -149,6 +149,8 @@ export function PageBuilder() {
   const [selectedComponentId, setSelectedComponentId] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('desktop');
   const [showAddPage, setShowAddPage] = useState(false);
+  /** Focus target to return to when the inline "new page" form closes. */
+  const newPageButtonRef = useRef<HTMLButtonElement>(null);
   const [newPageName, setNewPageName] = useState('');
   const [configDraft, setConfigDraft] = useState<JsonDraft>(null);
   const [propsDraft, setPropsDraft] = useState<JsonDraft>(null);
@@ -178,6 +180,17 @@ export function PageBuilder() {
     setBindingProp('');
   }, [selectedComponentId, selectedPageId]);
 
+  /**
+   * Close the inline "new page" form and give focus back to the button that
+   * opened it. Without this, dismissing the form left focus on a removed
+   * element, so the next Tab started again from the top of the document.
+   */
+  const closeAddPage = () => {
+    setShowAddPage(false);
+    setNewPageName('');
+    newPageButtonRef.current?.focus();
+  };
+
   const handleCreatePage = () => {
     const name = newPageName.trim();
     if (!name) return;
@@ -186,8 +199,7 @@ export function PageBuilder() {
       setSelectedPageId(id);
       setSelectedComponentId('');
     }
-    setNewPageName('');
-    setShowAddPage(false);
+    closeAddPage();
   };
 
   const handleAddComponent = (type: ComponentType['type']) => {
@@ -244,8 +256,14 @@ export function PageBuilder() {
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Page Builder</h2>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={() => setShowAddPage(true)}>
-            <Plus className="w-4 h-4 mr-1" /> New Page
+          <Button
+            ref={newPageButtonRef}
+            variant="secondary"
+            size="sm"
+            aria-expanded={showAddPage}
+            onClick={() => setShowAddPage(true)}
+          >
+            <Plus className="w-4 h-4 mr-1" aria-hidden="true" /> New Page
           </Button>
         </div>
       </div>
@@ -255,18 +273,27 @@ export function PageBuilder() {
         <div className="w-64 border-r border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-4 overflow-y-auto">
           <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Pages</h3>
           {showAddPage ? (
-            <div className="space-y-2 mb-4">
+            <div
+              className="space-y-2 mb-4"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  closeAddPage();
+                }
+              }}
+            >
               <Input
                 value={newPageName}
                 onChange={(event) => setNewPageName(event.target.value)}
                 placeholder="Page name"
+                aria-label="New page name"
                 autoFocus
               />
               <div className="flex gap-2">
                 <Button variant="primary" size="sm" onClick={handleCreatePage}>
                   Create
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setShowAddPage(false)}>
+                <Button variant="ghost" size="sm" onClick={closeAddPage}>
                   Cancel
                 </Button>
               </div>
@@ -363,8 +390,18 @@ export function PageBuilder() {
                     return (
                       <div
                         key={component.id}
+                        role="button"
+                        tabIndex={0}
+                        aria-selected={active}
+                        aria-label={`${component.component.type} component${active ? ', selected' : ''}. Press Enter to select.`}
                         onClick={() => setSelectedComponentId(component.id)}
-                        className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            setSelectedComponentId(component.id);
+                          }
+                        }}
+                        className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
                           active
                             ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
                             : 'border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800/60'
@@ -381,17 +418,39 @@ export function PageBuilder() {
                           )}
                         </div>
                         <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
-                          <Button variant="ghost" size="sm" disabled={index === 0} onClick={() => movePageComponent(page!.id, index, index - 1)}>
-                            <ArrowUp className="w-4 h-4" />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Move ${component.component.type} up`}
+                            disabled={index === 0}
+                            onClick={() => movePageComponent(page!.id, index, index - 1)}
+                          >
+                            <ArrowUp className="w-4 h-4" aria-hidden="true" />
                           </Button>
-                          <Button variant="ghost" size="sm" disabled={index === components.length - 1} onClick={() => movePageComponent(page!.id, index, index + 1)}>
-                            <ArrowDown className="w-4 h-4" />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Move ${component.component.type} down`}
+                            disabled={index === components.length - 1}
+                            onClick={() => movePageComponent(page!.id, index, index + 1)}
+                          >
+                            <ArrowDown className="w-4 h-4" aria-hidden="true" />
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => setSelectedComponentId(duplicatePageComponent(page!.id, component.id))}>
-                            <Copy className="w-4 h-4" />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Duplicate ${component.component.type}`}
+                            onClick={() => setSelectedComponentId(duplicatePageComponent(page!.id, component.id))}
+                          >
+                            <Copy className="w-4 h-4" aria-hidden="true" />
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => removePageComponent(page!.id, component.id)}>
-                            <Trash2 className="w-4 h-4" />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Delete ${component.component.type}`}
+                            onClick={() => removePageComponent(page!.id, component.id)}
+                          >
+                            <Trash2 className="w-4 h-4" aria-hidden="true" />
                           </Button>
                         </div>
                       </div>

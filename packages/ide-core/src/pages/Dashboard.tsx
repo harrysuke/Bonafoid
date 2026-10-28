@@ -13,6 +13,7 @@ import { Button } from '../components/ui/Button';
 import { getPlatform } from '../platform/registry';
 import type { PlatformProject } from '../platform/types';
 import { useProjectStore } from '../stores/projectStore';
+import { describeError } from '../utils/errors';
 
 function count(value: Record<string, unknown> | undefined): number {
   return Object.keys(value ?? {}).length;
@@ -68,7 +69,7 @@ export function Dashboard() {
       setListingError(null);
     } catch (error) {
       setProjects(null);
-      setListingError(error instanceof Error ? error.message : 'Could not load projects.');
+      setListingError(describeError(error));
     }
   }, [canListProjects, platform]);
 

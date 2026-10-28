@@ -9,6 +9,7 @@ import {
 import { getPlatform } from '../platform/registry';
 import { useUIStore } from '../stores/uiStore';
 import { useProjectStore } from '../stores/projectStore';
+import { confirmLeave, useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import { Toaster } from './Toaster';
 import { SidebarUserDropdown } from './SidebarUserDropdown';
 import brandLogo from '../assets/brand/android-chrome-512x512.png';
@@ -40,6 +41,9 @@ export function Layout() {
   
   const location = useLocation();
   const navigate = useNavigate();
+  // Warn on tab close while the project is dirty. Sign-out is guarded at its
+  // own handlers below, because that is a deliberate navigation.
+  useUnsavedChangesGuard();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showSidebarUserMenu, setShowSidebarUserMenu] = useState(false);
 
@@ -185,7 +189,7 @@ export function Layout() {
                   <SidebarUserDropdown
                     user={user ? { email: user.email } : undefined}
                     onSettings={() => { setShowSidebarUserMenu(false); navigate('/settings'); }}
-                    onLogout={platform.logout ? () => { setShowSidebarUserMenu(false); void platform.logout?.().then(() => navigate('/login')); } : undefined}
+                    onLogout={platform.logout ? () => { setShowSidebarUserMenu(false); if (!confirmLeave()) return; void platform.logout?.().then(() => navigate('/login')); } : undefined}
                   />
                 </div>
               )}
@@ -294,6 +298,7 @@ export function Layout() {
                         className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"
                         onClick={() => {
                           setShowUserMenu(false);
+                          if (!confirmLeave()) return;
                           void platform.logout?.().then(() => navigate('/login'));
                         }}
                       >

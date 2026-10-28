@@ -1,0 +1,47 @@
+# Keep the build context small and the layers honest.
+#
+# `target/` alone is multiple gigabytes here and is never useful inside the
+# image: the server is compiled from source in its own stage, and copying a
+# host build in would also mean copying host binaries into a Linux image.
+
+# Rust build output
+target/
+**/target/
+*.rlib
+*.rmeta
+
+# Node
+node_modules/
+**/node_modules/
+apps/ide-web/dist/
+apps/ide-tauri/dist/
+*.tsbuildinfo
+
+# Local runtime state — must never be baked into an image
+nocode-ide.db
+nocode-ide.db-shm
+nocode-ide.db-wal
+*.db
+*.db-journal
+jwt_keys/
+preview-workspaces/
+data/
+
+# Version control and editor noise
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs and local reports
+*.log
+/tmp/
+
+# Docs and images are not needed to build the image; they would only bust the
+# layer cache every time a paragraph changes.
+docs/
+*.md
+!README.md

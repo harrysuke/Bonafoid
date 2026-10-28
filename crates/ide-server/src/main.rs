@@ -17,8 +17,14 @@ async fn main() -> Result<()> {
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(8081);
 
+    // Default stays loopback: a self-hosted IDE should not appear on the LAN
+    // just because it was started. A container has to opt in, because inside
+    // one, 127.0.0.1 is unreachable from outside the container.
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".into());
+
     let config = ServerConfig {
         port,
+        host,
         ..ServerConfig::default()
     };
 

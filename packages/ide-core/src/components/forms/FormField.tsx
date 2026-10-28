@@ -81,7 +81,7 @@ export function DraggableFormField({
       onDrop={handleDrop}
       onClick={onSelect}
       className={cn(
-        'relative p-4 border rounded-lg bg-white dark:bg-slate-800 transition-all',
+        'group relative p-4 border rounded-lg bg-white dark:bg-slate-800 transition-all',
         'hover:shadow-md',
         isSelected
           ? 'border-primary-500 ring-2 ring-primary-500/20'
@@ -89,10 +89,39 @@ export function DraggableFormField({
         dragging && 'opacity-50 rotate-1 scale-102'
       )}
     >
-      {/* Drag handle */}
-      <div className="absolute -left-10 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <GripVertical className="w-5 h-5 text-gray-400 cursor-grab active:cursor-grabbing" />
-      </div>
+      {/*
+        Reorder handle.
+
+        This used to be a decorative <div>: drag was the ONLY way to reorder a
+        field, which is a WCAG 2.1.1 (keyboard) failure. It is a real button
+        now, so it is focusable and Tab-reachable, and the arrow keys move the
+        field — the same operation the drag performs.
+      */}
+      <button
+        type="button"
+        aria-label={`Reorder ${field.label || 'field'} (${index + 1} of the form). Press the up or down arrow key to move it.`}
+        title="Drag, or press ↑ / ↓ to move this field"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp' && index > 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            onMove(index, index - 1);
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            e.stopPropagation();
+            onMove(index, index + 1);
+          }
+        }}
+        className={cn(
+          'absolute -left-10 top-1/2 -translate-y-1/2 p-1 rounded',
+          'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-grab active:cursor-grabbing',
+          'opacity-0 group-hover:opacity-100 focus:opacity-100',
+          'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500'
+        )}
+      >
+        <GripVertical className="w-5 h-5" aria-hidden="true" />
+      </button>
 
       {/* Field preview */}
       <div className="space-y-2">
@@ -156,24 +185,29 @@ export function DraggableFormField({
       <div className="absolute top-2 right-2">
         <div className="relative">
           <button
+            type="button"
+            aria-label={`Field options for ${field.label || 'field'}`}
+            aria-expanded={showOptions}
             onClick={(e) => { e.stopPropagation(); setShowOptions(!showOptions); }}
             className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700"
           >
-            <Settings className="w-4 h-4" />
+            <Settings className="w-4 h-4" aria-hidden="true" />
           </button>
           {showOptions && (
             <div className="absolute right-0 mt-1 w-32 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-10">
               <button
+                type="button"
                 onClick={(e) => { e.stopPropagation(); onDuplicate(); setShowOptions(false); }}
                 className="w-full px-3 py-1.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"
               >
-                <Copy className="w-4 h-4" /> Duplicate
+                <Copy className="w-4 h-4" aria-hidden="true" /> Duplicate
               </button>
               <button
+                type="button"
                 onClick={(e) => { e.stopPropagation(); onRemove(); setShowOptions(false); }}
                 className="w-full px-3 py-1.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"
               >
-                <Trash2 className="w-4 h-4" /> Delete
+                <Trash2 className="w-4 h-4" aria-hidden="true" /> Delete
               </button>
             </div>
           )}

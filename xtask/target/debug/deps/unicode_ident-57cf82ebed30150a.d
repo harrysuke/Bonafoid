@@ -1,0 +1,6 @@
+D:\nocode-ide\xtask\target\debug\deps\unicode_ident-57cf82ebed30150a.d: C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\unicode-ident-1.0.27\src\lib.rs C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\unicode-ident-1.0.27\src\tables.rs
+
+D:\nocode-ide\xtask\target\debug\deps\libunicode_ident-57cf82ebed30150a.rmeta: C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\unicode-ident-1.0.27\src\lib.rs C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\unicode-ident-1.0.27\src\tables.rs
+
+C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\unicode-ident-1.0.27\src\lib.rs:
+C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\unicode-ident-1.0.27\src\tables.rs:

@@ -146,17 +146,14 @@ pub async fn create(
     Json(body): Json<CreateProjectRequest>,
 ) -> Result<Response, ApiError> {
     require_csrf(&headers)?;
-    let name = body.name.trim();
-    if name.is_empty() {
-        return Err(ApiError::BadRequest("project name is required".into()));
-    }
+    let name = super::validate_project_name(&body.name)?;
 
-    let mut project = body.data.unwrap_or_else(|| Project::new(name));
-    project.name = name.to_string();
+    let mut project = body.data.unwrap_or_else(|| Project::new(&name));
+    project.name = name.clone();
     if project.description.is_none() {
         project.description = body.description;
     }
-    let slug_base = slugify(name);
+    let slug_base = slugify(&name);
     insert_with_unique_slug(&state, &user.id, project, &slug_base).await
 }
 
@@ -194,11 +191,7 @@ pub async fn update(
         .ok_or(ApiError::NotFound)?;
 
     let mut project = body.data;
-    let name = project.name.trim();
-    if name.is_empty() {
-        return Err(ApiError::BadRequest("project name is required".into()));
-    }
-    project.name = name.to_string();
+    project.name = super::validate_project_name(&project.name)?;
 
     let parsed_id = Uuid::parse_str(&id).map_err(|_| ApiError::NotFound)?;
     project.id = ProjectId(parsed_id);
@@ -275,7 +268,15 @@ pub async fn duplicate(
     })?;
 
     project.id = ProjectId::new();
-    project.name = format!("{} Copy", existing.summary.name);
+    // " Copy" is appended to a name that may already be at the limit, so the
+    // result is trimmed back to the same bound the create route enforces.
+    let base: String = existing
+        .summary
+        .name
+        .chars()
+        .take(super::MAX_PROJECT_NAME - " Copy".len())
+        .collect();
+    project.name = format!("{} Copy", base);
     project.published_at = None;
     let slug_base = slugify(&format!("{}-copy", existing.summary.slug));
     insert_with_unique_slug(&state, &user.id, project, &slug_base).await
@@ -289,10 +290,7 @@ pub async fn import(
     Json(mut project): Json<Project>,
 ) -> Result<Response, ApiError> {
     require_csrf(&headers)?;
-    let name = project.name.trim().to_string();
-    if name.is_empty() {
-        return Err(ApiError::BadRequest("imported project has no name".into()));
-    }
+    let name = super::validate_project_name(&project.name)?;
     project.name = name.clone();
     project.id = ProjectId::new();
     project.published_at = None;

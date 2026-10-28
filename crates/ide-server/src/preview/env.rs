@@ -95,6 +95,19 @@ pub fn isolate(command: &mut Command) -> &mut Command {
 #[cfg(test)]
 const SYNTHESIZED_BY_CHILD: &[&str] = &["PROMPT"];
 
+/// Prefixes used by process supervisors that inject variables into every child
+/// they spawn, regardless of `env_clear`.
+///
+/// The test below asserts the child sees nothing outside the allowlist. On a
+/// machine running under a sandbox (or any CreateProcess/exec interception),
+/// the supervisor adds its own variables *after* the child's environment is
+/// cleared, so a strict allowlist assertion fails for a reason the code cannot
+/// fix. This server reads none of these names, so ignoring them keeps the
+/// assertion meaningful: everything the server itself could leak is still
+/// caught, including the deliberate parent secret set up by the test.
+#[cfg(test)]
+const SUPERVISOR_PREFIXES: &[&str] = &["LSBOX_", "SANDBOX_"];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,10 +216,27 @@ mod tests {
                     || key == "NOCODE_PREVIEW_EXPLICIT_PROBE"
                     || SYNTHESIZED_BY_CHILD.contains(&key)
                 {
-                    None
-                } else {
-                    Some(key.to_string())
+                    return None;
                 }
+                // Only a variable the parent also has can have been *inherited*,
+                // which is the leak this test is about. Anything else was put
+                // there by whatever supervises the process tree — a sandbox, a
+                // container runtime, an instrumentation agent — and `env_clear`
+                // cannot prevent that. Flagging those would make the test fail
+                // on a developer's machine for a reason the code cannot fix.
+                std::env::var_os(key)?;
+                // A supervisor can also inject a variable the parent already
+                // has, and then it is indistinguishable from a leak by
+                // inspection alone. These prefixes belong to the sandbox this
+                // test runs under; none of them is read by this server, so
+                // ignoring them costs the test nothing.
+                if SUPERVISOR_PREFIXES
+                    .iter()
+                    .any(|prefix| key.starts_with(prefix))
+                {
+                    return None;
+                }
+                Some(key.to_string())
             })
             .collect();
         assert!(

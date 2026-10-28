@@ -21,6 +21,16 @@ pub enum ApiError {
     NotFound,
     #[error("conflict: {0}")]
     Conflict(String),
+    /// A request or response body exceeded the limit for its route.
+    ///
+    /// Distinct from `Internal` on purpose: the preview proxy used to report a
+    /// body that was too large as a 500, which reads as "the server is broken"
+    /// when the truth is "the body was too big".
+    #[error("payload too large: {0}")]
+    PayloadTooLarge(String),
+    /// The proxied preview backend did not answer in time.
+    #[error("gateway timeout: {0}")]
+    GatewayTimeout(String),
     #[error("internal error")]
     Internal,
 }
@@ -44,6 +54,16 @@ impl ApiError {
                 "resource not found".to_string(),
             ),
             ApiError::Conflict(message) => (StatusCode::CONFLICT, "conflict", message.clone()),
+            ApiError::PayloadTooLarge(message) => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
+                message.clone(),
+            ),
+            ApiError::GatewayTimeout(message) => (
+                StatusCode::GATEWAY_TIMEOUT,
+                "gateway_timeout",
+                message.clone(),
+            ),
             ApiError::Internal => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal_error",

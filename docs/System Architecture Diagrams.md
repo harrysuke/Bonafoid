@@ -2,9 +2,10 @@
 
 ## No-Code Visual Application Development Platform
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Date:** October 2026  
-**Status:** Draft  
+**Status:** Living document — amended after Phases 4 and 5 (preview hardening,
+honest security posture, corrected preview routes)  
 
 ---
 
@@ -653,32 +654,64 @@ sequenceDiagram
 
 ### 10.4 Hosted Preview/Run Flow
 
+Building and running are two separate steps: a build is cheap to keep, a
+running process is not, so the IDE starts a process only when someone asks for
+one.
+
 ```mermaid
 sequenceDiagram
     participant B as Browser (Web IDE)
     participant S as ide-server
     participant BW as Build Worker
-    participant PM as Process Manager
-    participant App as Generated App (process)
-    B->>S: POST /api/v1/preview/build/{projectId}
-    S->>BW: build (cargo + trunk, inject API_BASE)
-    BW-->>S: buildId + dist path + build log
-    S->>PM: start (alloc port, spawn backend+serve, health check)
-    PM->>App: launch process
-    App-->>PM: /health OK
-    PM-->>S: running (previewUrl /preview/{buildId}/, appUrl)
-    B->>S: GET /preview/{buildId}/ (static)
+    participant PM as Run Manager
+    participant App as Generated App (child process)
+    B->>S: POST /api/v1/projects/{id}/preview/build (+ CSRF)
+    S->>BW: enqueue (202 Accepted, status = queued)
+    Note over BW: per-user build slot<br/>workspace under IDE_PREVIEW_ROOT
+    BW->>BW: cargo build (backend), trunk build (frontend, API_BASE injected)
+    B->>S: GET /api/v1/builds/{id} (poll status + log)
+    B->>S: POST /api/v1/builds/{id}/run
+    S->>PM: start (alloc free port, spawn with cleared env + own process group)
+    PM->>App: launch
+    PM-->>S: status = starting, logs streamed from the child's stdout/stderr
+    B->>S: GET /preview/{buildId}/ (static dist)
     S-->>B: index.html + WASM + assets
     B->>S: /preview/{buildId}/api/* (proxied)
-    S->>App: forward to localhost:PORT
+    S->>App: forward to 127.0.0.1:{port} (timeouts on connect/handshake/send/body)
     App-->>B: response
-    B->>S: POST /api/v1/preview/stop/{buildId}
-    S->>PM: stop + idle teardown
+    B->>S: POST /api/v1/builds/{id}/stop
+    S->>PM: kill process group, wait up to 5s, drop the record
 ```
+
+### 10.5 Preview Hardening
+
+The preview subsystem runs code the platform did not write, on the same host as
+the IDE server, so the boundaries are explicit:
+
+| Boundary | Implementation |
+|---------|----------------|
+| Who may build/run/serve | Every preview route is owner-scoped; a build record carries `user_id` and is invisible to anyone else |
+| Resource quotas | `IDE_PREVIEW_PARALLEL` builds and `IDE_PREVIEW_MAX_RUNS` running processes, counted **per user**, so one account cannot starve the host |
+| Cargo target isolation | One target directory per user (`IDE_PREVIEW_ROOT/.cargo-target/<user>`), so two users' builds cannot overwrite each other's binary |
+| Path safety | Build ids must parse as UUIDs; `manager::is_within` checks lexical containment under the preview root before any `remove_dir_all` |
+| Process lifetime | Child in its own process group (`setpgid` / `CREATE_NEW_PROCESS_GROUP`); `stop` kills the group and waits, reporting failure if the process survives |
+| Child environment | `env_clear` plus an allowlist, so `DATABASE_URL`, `JWT_KEYS_DIR` and friends never reach generated code |
+| Proxy credentials | The request hop drops `Authorization`, `Cookie`, `X-CSRF-Token`, `Origin`, `Referer`; the response hop drops `Set-Cookie` |
+| Proxy limits | 8 MiB request body (`413 Payload Too Large`), and connect/handshake/send/body timeouts (`504 Gateway Timeout`) with the upstream connection aborted |
+| Output capture | The child's stdout/stderr are piped into its run record (last 500 lines, flushed every 250 ms) instead of the server's log |
+| Crash detection | The reaper refreshes active runs before reaping, so a preview that died frees its quota slot instead of holding it forever |
 
 ---
 
 ## 11. Security Architecture
+
+> This diagram is the **target** security model, not a description of the
+> current tree. Shipped today: JWT (RS256) with HttpOnly cookies, CSRF
+> double-submit, owner-scoped authorization on every route, request validation
+> on names and preview ids, the WASM plugin sandbox with manifest permissions,
+> and the preview boundaries in §10.5. Not shipped: MFA, RBAC roles, RLS,
+> rate limiting, AES-256 at rest, audit logging, secrets management. See the
+> SRS §1.5 for the requirement-by-requirement status.
 
 ```mermaid
 graph TD
@@ -748,7 +781,7 @@ graph TD
 
 ---
 
-## 11. Technology Stack Diagram
+## 12. Technology Stack Diagram
 
 ```mermaid
 mindmap
@@ -812,7 +845,7 @@ mindmap
 
 ---
 
-## 12. Request Flow (Complete User Journey)
+## 13. Request Flow (Complete User Journey)
 
 ```mermaid
 sequenceDiagram

@@ -18,6 +18,7 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { getPlatform } from '../platform/registry';
+import { describeError } from '../utils/errors';
 import { useProjectStore } from '../stores/projectStore';
 import {
   NODE_PALETTE,
@@ -33,6 +34,8 @@ import type { BpmnValidationReport, WorkflowRunSummary } from '../platform/types
 function ProcessNode({ data }: NodeProps<FlowNodeData>) {
   return (
     <div
+      role="group"
+      aria-label={`${data.nodeType} step: ${data.label}`}
       className="min-w-[9rem] rounded-lg border-2 bg-white px-3 py-2 text-center shadow-sm dark:bg-slate-800"
       style={{ borderColor: data.color }}
     >
@@ -175,7 +178,7 @@ export function WorkflowBuilder() {
       );
     } catch (error) {
       setReport(null);
-      setMessage(`Validation failed: ${describe(error)}`);
+      setMessage(`Validation failed: ${describeError(error)}`);
     } finally {
       setBusy(false);
     }
@@ -211,7 +214,7 @@ export function WorkflowBuilder() {
       );
     } catch (error) {
       setRunSummary(null);
-      setMessage(`Run failed: ${describe(error)}`);
+      setMessage(`Run failed: ${describeError(error)}`);
     } finally {
       setBusy(false);
     }
@@ -226,7 +229,7 @@ export function WorkflowBuilder() {
       setBpmnXml(xml);
       setBpmnMode('export');
     } catch (error) {
-      setMessage(`Export failed: ${describe(error)}`);
+      setMessage(`Export failed: ${describeError(error)}`);
     } finally {
       setBusy(false);
     }
@@ -248,7 +251,7 @@ export function WorkflowBuilder() {
       setBpmnXml('');
       setNewWorkflowName('');
     } catch (error) {
-      setMessage(`Import failed: ${describe(error)}`);
+      setMessage(`Import failed: ${describeError(error)}`);
     } finally {
       setBusy(false);
     }
@@ -680,7 +683,3 @@ export function WorkflowBuilder() {
   );
 }
 
-function describe(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}

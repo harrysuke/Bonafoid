@@ -11,6 +11,7 @@ import {
   COLOR_ROLES,
   COLOR_SHADES,
   buildColorScale,
+  contrastRatio,
   defaultDesignTokens,
   fontFamilyOf,
   fontSizeOf,
@@ -18,6 +19,8 @@ import {
   mixColor,
   newTheme,
   normalizeTheme,
+  readableTextColor,
+  relativeLuminance,
   setColorBase,
   setFontFamily,
   setFontSize,
@@ -61,16 +64,10 @@ describe('buildColorScale', () => {
 
   it('gets monotonically darker as the shade number rises', () => {
     const scale = buildColorScale('#0ea5e9');
-    const luminance = (hex: string) => {
-      const r = parseInt(hex.slice(1, 3), 16);
-      const g = parseInt(hex.slice(3, 5), 16);
-      const b = parseInt(hex.slice(5, 7), 16);
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
     // COLOR_SHADES ascends 50 -> 900, so luminance must descend.
     for (let i = 1; i < COLOR_SHADES.length; i += 1) {
-      const previous = luminance(scale[String(COLOR_SHADES[i - 1])]);
-      const current = luminance(scale[String(COLOR_SHADES[i])]);
+      const previous = relativeLuminance(scale[String(COLOR_SHADES[i - 1])])!;
+      const current = relativeLuminance(scale[String(COLOR_SHADES[i])])!;
       expect(current, `shade ${COLOR_SHADES[i]} vs ${COLOR_SHADES[i - 1]}`).toBeLessThan(previous);
     }
   });
@@ -221,5 +218,68 @@ describe('normalizeTheme', () => {
     // Older saves stored a partial theme; codegen needs every section.
     const legacy = { id: 'x', name: 'Legacy', tokens: {} } as never;
     expect(hasDesignTokens(normalizeTheme(legacy))).toBe(true);
+  });
+});
+/**
+ * WCAG contrast.
+ *
+ * The previous helper was a weighted RGB average, which is not relative
+ * luminance: it says a mid blue and a mid yellow have similar brightness. These
+ * tests pin the real formula, and they are the only thing that would catch a
+ * palette change that makes body text unreadable.
+ */
+describe('contrast', () => {
+  it('computes WCAG relative luminance, not an RGB average', () => {
+    expect(relativeLuminance('#000000')).toBe(0);
+    expect(relativeLuminance('#ffffff')).toBeCloseTo(1, 5);
+    // Pure green is far brighter than pure blue; an RGB average cannot say so.
+    expect(relativeLuminance('#00ff00')!).toBeGreaterThan(
+      relativeLuminance('#0000ff')! * 5
+    );
+    expect(relativeLuminance('not-a-color')).toBeNull();
+  });
+
+  it('reaches 21:1 between black and white', () => {
+    expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 5);
+    expect(contrastRatio('#ffffff', '#ffffff')).toBeCloseTo(1, 5);
+  });
+
+  it('picks the readable text color for a background', () => {
+    expect(readableTextColor('#0f172a')).toBe('#ffffff');
+    expect(readableTextColor('#ffffff')).toBe('#111827');
+    expect(readableTextColor('#facc15')).toBe('#111827');
+  });
+
+  it('gives every semantic color a contrast_text that meets AA', () => {
+    const tokens = defaultDesignTokens();
+    for (const role of COLOR_ROLES) {
+      const scale = tokens.colors[role];
+      expect(scale.contrast_text, `${role} has no contrast_text`).toBeTruthy();
+      const ratio = contrastRatio(scale.contrast_text!, scale.base)!;
+      expect(ratio, `${role}: ${scale.contrast_text} on ${scale.base}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('keeps body text above 4.5:1 in the default light and dark palettes', () => {
+    const tokens = defaultDesignTokens();
+    // Light: primary text on the primary background.
+    const light = contrastRatio(tokens.colors.text.primary, tokens.colors.background.primary)!;
+    expect(light, `light body text: ${light.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+
+    // Dark: inverse text on the inverse background (the dark-mode surface).
+    const dark = contrastRatio(tokens.colors.text.inverse, tokens.colors.background.inverse)!;
+    expect(dark, `dark body text: ${dark.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('keeps secondary text above 4.5:1 on its surface', () => {
+    const tokens = defaultDesignTokens();
+    for (const [text, surface] of [
+      [tokens.colors.text.secondary, tokens.colors.background.primary],
+      [tokens.colors.text.secondary, tokens.colors.background.secondary],
+      [tokens.colors.text.tertiary, tokens.colors.background.primary],
+    ] as const) {
+      const ratio = contrastRatio(text, surface)!;
+      expect(ratio, `${text} on ${surface}: ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

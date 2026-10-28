@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { getPlatform } from '../platform/registry';
 import { generateId, slugify } from '../utils/helpers';
+import { describeError, notifyError, notifyInfo } from '../utils/errors';
 import {
   editorTypeToEntityFieldType,
   editorTypeToRelationType,
@@ -81,6 +82,13 @@ import type {
 const AUTOSAVE_DELAY = 1500;
 
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * The project whose "not saved yet" notice has already been shown.
+ *
+ * Autosave runs on every edit, so without this the user would get the same
+ * toast every 1.5 seconds for a project that has no path.
+ */
+let unsavedNoticeFor: string | null = null;
 
 export interface FieldPatch {
   name?: string;
@@ -242,10 +250,7 @@ function isTerminalPreviewState(state: PreviewBuild['state']): boolean {
   return state === 'ready' || state === 'failed' || state === 'cancelled';
 }
 
-/** Uniform error text for host/API failures. */
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** Uniform error text for host/API failures — see `utils/errors`. */
 
 export const useProjectStore = create<ProjectState>((set, get) => {
   const commit = (project: Project) => {
@@ -402,9 +407,14 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     newProject: async (name) => {
       try {
         const json = await getPlatform().newProject(name);
-        set({ project: parse(json), projectPath: null, isDirty: true, error: null });
+        // Routed through commit() like every other project mutation: it marks
+        // the project dirty AND schedules the autosave. This used to set
+        // `isDirty: true` directly, which was the one place in the store that
+        // bypassed the autosave, so a new project never auto-saved at all.
+        commit(parse(json));
+        set({ projectPath: null, error: null });
       } catch (e) {
-        set({ error: (e as Error).message });
+        set({ error: notifyError(e, 'Could not create the project') });
       }
     },
 
@@ -1409,14 +1419,28 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     autosave: async () => {
       const { project, projectPath } = get();
-      if (!project || !projectPath) return;
+      if (!project || !projectPath) {
+        // A project with no path cannot be auto-saved. This used to be a
+        // silent no-op, so the header said "Unsaved changes" forever and
+        // nothing ever happened. Say it once per project instead of on every
+        // 1.5s autosave tick.
+        if (project && unsavedNoticeFor !== project.id) {
+          unsavedNoticeFor = project.id;
+          notifyInfo(
+            'This project has not been saved yet',
+            'Use Save (or Save As) to choose where it lives; until then your edits only exist in this tab.'
+          );
+        }
+        return;
+      }
       try {
         const platform = getPlatform();
         await platform.updateProject(JSON.stringify(project));
         await platform.saveProject(projectPath);
         set({ isDirty: false, error: null });
       } catch (e) {
-        set({ error: describeError(e) });
+        // Swallowing this left `isDirty` true with no explanation anywhere.
+        set({ error: notifyError(e, 'Autosave failed') });
         return;
       }
     },

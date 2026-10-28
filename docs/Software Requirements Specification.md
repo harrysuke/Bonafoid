@@ -2,9 +2,11 @@
 
 ## No-Code Visual Application Development Platform
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Date:** October 2026  
-**Status:** Draft  
+**Status:** Living document — amended after Phases 4 and 5 (preview hardening,
+accessibility, autosave guard, packaging). Requirements below are marked with
+their implementation state in §1.5.
 **Classification:** Internal / Open Source Product
 
 ---
@@ -44,6 +46,25 @@ The product consists of:
 | CRUD | Create, Read, Update, Delete |
 | RBAC | Role-Based Access Control |
 | RLS | Row-Level Security |
+
+### 1.5 Implementation Status
+
+The requirement tables describe the target product. This table says which parts
+of it exist in the current tree, so a reader is not left to guess. "Shipped"
+means covered by tests in `cargo test --workspace` and `npm test`.
+
+| Area | State | Notes |
+|------|-------|-------|
+| Visual builders (FR-1…FR-6) | Shipped | Entities, forms, pages, themes, workflows; all editors keyboard-reachable |
+| Code generation (FR-7…FR-9) | Shipped | Backend, frontend, database, Docker, K8s, PWA, Tauri targets |
+| Plugin system (FR-10, FR-11) | Shipped | wasmtime host, per-user isolation, manifests validated |
+| Accounts & sessions (FR-12) | Shipped | Argon2id, RS256 cookies, CSRF; per-user ownership enforced on every route |
+| Rate limiting / lockout (FR-12.6) | Not implemented | Listed as `Should`; no limiter is wired yet |
+| Project management (FR-13) | Shipped | CRUD, import/export, duplicate; debounced autosave with an unsaved-changes guard |
+| Optimistic concurrency (FR-13.5) | Not implemented | Last write wins today |
+| Hosted preview (FR-14) | Shipped | Build, run, serve, proxy, idle teardown, per-user quotas, bounded I/O |
+| Container isolation (FR-14.6) | Not implemented | Previews run on the host as an unprivileged child process |
+| Postgres backend | Not implemented | Migrations are SQLite-specific; SQLite is the only supported database |
 
 ---
 
@@ -263,6 +284,14 @@ The product consists of:
 | FR-14.4 | Process lifecycle management: status, logs, restart, stop, and idle teardown | Must |
 | FR-14.5 | Build/run status streamed to the IDE preview panel (logs + health) | Should |
 | FR-14.6 | Isolation is process/port based on a trusted host; container-based isolation is a later option | Could |
+| FR-14.7 | Builds, runs and build slots are quota'd **per user**, so one account cannot occupy the host | Must |
+| FR-14.8 | A build has a wall-clock deadline and is cancelled, not left running, when it expires | Must |
+| FR-14.9 | The child runs in its own process group, so stopping a preview also stops what it forked | Must |
+| FR-14.10 | The proxy strips session credentials (`Authorization`, `Cookie`, `X-CSRF-Token`, `Origin`, `Referer`) and response `Set-Cookie` | Must |
+| FR-14.11 | Every proxy hop has a timeout (connect, handshake, send, body) and oversized request bodies are rejected with 413 | Must |
+| FR-14.12 | A preview's stdout/stderr is captured into its own run record (capped), not the server log | Must |
+| FR-14.13 | A crashed preview is detected by the reaper and stops holding a quota slot | Must |
+| FR-14.14 | Preview workspace paths are validated as UUIDs and contained under the preview root before any deletion | Must |
 
 ---
 
@@ -284,8 +313,8 @@ The product consists of:
 | Dimension | Target |
 |-----------|--------|
 | Concurrent desktop IDE users | 1 per installation (single-user desktop app) |
-| Concurrent web IDE users | 100+ per server instance (horizontal scaling), shared SQLite→Postgres |
-| Concurrent hosted previews | 10+ per server (bounded by build processes; idle teardown) |
+| Concurrent web IDE users | 100+ per server instance (horizontal scaling); SQLite today, Postgres requires rewriting the migrations |
+| Concurrent hosted previews | Bounded per user, not per host: `IDE_PREVIEW_PARALLEL` builds and `IDE_PREVIEW_MAX_RUNS` runs each (defaults 2 and 4), with idle teardown |
 | Projects per user | 1,000+ |
 | Generated app concurrent users | 10,000+ (horizontal scaling via K8s) |
 | Workflow instances | 1M+ active |
@@ -315,7 +344,9 @@ The product consists of:
 |-------------|--------|
 | Learnability (Citizen Dev) | Build first form in < 10 min |
 | Learnability (Power User) | Build first workflow in < 30 min |
-| Accessibility | WCAG 2.1 AA (IDE + generated apps) |
+| Accessibility | WCAG 2.1 AA (IDE + generated apps). Every canvas node, drag handle and icon-only button is a focusable control with an accessible name; reordering is possible with the keyboard (↑/↓ on the handle); inline forms close on Escape and return focus to their trigger; theme text colours are checked against a 4.5:1 contrast ratio in `themeModel.test.ts` |
+| Unsaved work | Autosave is debounced and reports failures; leaving a dirty project (navigation, sign-out, tab close) prompts before discarding |
+| Error reporting | Failures surface as one shared toast/detail surface driven by `describeError`, not per-page ad-hoc strings |
 | Internationalization | 12 locales built-in, RTL support |
 | Documentation | In-app guided tours, contextual help, video tutorials, API reference |
 

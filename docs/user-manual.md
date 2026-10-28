@@ -474,6 +474,12 @@ Things worth knowing:
 
 - **The preview is reaped after 15 minutes of no traffic.** Raise
   `IDE_PREVIEW_IDLE_SECS` if you want it to stay up longer.
+- **There is a per-account limit on previews**: 2 builds at a time and 4
+  running apps (`IDE_PREVIEW_PARALLEL`, `IDE_PREVIEW_MAX_RUNS`). Hitting it
+  means stopping a preview, not waiting for one to finish — the error says
+  which limit was reached.
+- **A build that runs too long is cancelled**, not left running:
+  `IDE_PREVIEW_TIMEOUT_SECS` (15 minutes by default).
 - **A SQLite preview gets a throwaway database** inside the build
   workspace (`sqlite://preview.db?mode=rwc`). Your rows are not in your
   project database.

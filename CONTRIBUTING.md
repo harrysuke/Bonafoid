@@ -23,7 +23,7 @@ your environment, the conventions we follow, and how to submit changes.
 ### Prerequisites
 
 - Rust (stable 1.75+)
-- Node.js 18+ and npm
+- Node.js 20+ and npm (the workspace declares `engines.node >= 20`)
 - wasm32-unknown-unknown target
 - Trunk (for generated-app frontends)
 - Tauri CLI 2

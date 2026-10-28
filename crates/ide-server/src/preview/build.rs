@@ -54,17 +54,22 @@ pub async fn run_build(
     project: Project,
     target: BuildTarget,
 ) {
-    let permit = manager.slots().acquire_owned().await.ok();
+    // The record is loaded BEFORE a slot is taken, because the slot belongs to
+    // the build's owner. Acquiring first would have needed the user id from
+    // somewhere else, and the only other source is the caller — which is how
+    // the global semaphore ended up being used for everyone.
+    let record = match manager.get(&build_id) {
+        Some(record) => record,
+        None => return,
+    };
+    let slots = manager.slots_for(&record.user_id);
+    let permit = slots.acquire_owned().await.ok();
     if permit.is_none() {
         manager.finish_err(&build_id, "build queue is closed".into());
         return;
     }
     let _permit = permit.expect("permit was just acquired");
 
-    let record = match manager.get(&build_id) {
-        Some(record) => record,
-        None => return,
-    };
     let timeout = manager.config().timeout;
 
     let result =
@@ -84,6 +89,11 @@ pub async fn run_build(
             manager.finish_err(&build_id, "build timed out".into());
         }
     }
+
+    // Nothing is going to look at this build's cancellation flag again, and
+    // leaving it behind leaks one entry per cancelled build for the life of
+    // the process.
+    manager.forget_cancellation(&build_id);
 }
 
 async fn drive(
@@ -232,6 +242,11 @@ async fn run_command(
     command: &mut Command,
     working_dir: PathBuf,
 ) -> Result<(), String> {
+    // Its own process group, so a killed build takes any grandchildren with
+    // it. `kill_on_drop` only kills the direct child: an orphaned linker or
+    // build script would keep writing into the shared cargo target directory
+    // while the next build runs.
+    crate::preview::isolate_process_group(command);
     let mut child = command
         .current_dir(&working_dir)
         .stdin(Stdio::null())
@@ -335,6 +350,7 @@ mod tests {
     use super::*;
     use crate::preview::manager::PreviewConfig;
     use std::time::Duration;
+    use uuid::Uuid;
 
     fn manager() -> Arc<BuildManager> {
         let root = std::env::temp_dir().join("nocode-preview-worker-test");
@@ -358,11 +374,19 @@ mod tests {
     #[tokio::test]
     async fn command_failure_is_reported_with_the_program_name() {
         let manager = manager();
-        manager.enqueue("t1".into(), "p1".into(), "u1".into(), BuildTarget::Backend);
+        manager
+            .enqueue(
+                Uuid::new_v4().to_string(),
+                "p1".into(),
+                "u1".into(),
+                BuildTarget::Backend,
+            )
+            .expect("enqueue");
+        let id = manager.list_for_user("u1")[0].id.clone();
         let mut command = Command::new("definitely-not-a-real-tool");
         let error = run_command(
             Arc::clone(&manager),
-            "t1",
+            &id,
             &mut command,
             std::env::temp_dir(),
         )
@@ -374,7 +398,15 @@ mod tests {
     #[tokio::test]
     async fn command_output_is_streamed_into_the_record() {
         let manager = manager();
-        manager.enqueue("t2".into(), "p1".into(), "u1".into(), BuildTarget::Backend);
+        manager
+            .enqueue(
+                Uuid::new_v4().to_string(),
+                "p1".into(),
+                "u1".into(),
+                BuildTarget::Backend,
+            )
+            .expect("enqueue");
+        let id = manager.list_for_user("u1")[0].id.clone();
         #[cfg(windows)]
         let mut command = {
             let mut command = Command::new("cmd");
@@ -389,13 +421,13 @@ mod tests {
         };
         run_command(
             Arc::clone(&manager),
-            "t2",
+            &id,
             &mut command,
             std::env::temp_dir(),
         )
         .await
         .expect("command should succeed");
-        let record = manager.get("t2").expect("record");
+        let record = manager.get(&id).expect("record");
         assert!(
             record
                 .logs

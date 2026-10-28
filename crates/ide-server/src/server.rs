@@ -65,11 +65,24 @@ impl AppState {
 
     /// Construct the state with explicit preview/run configurations (tests).
     pub fn with_preview(db: DatabaseConnection, keys: Arc<JwtKeys>, config: PreviewConfig) -> Self {
+        Self::with_configs(db, keys, config, RunConfig::from_env())
+    }
+
+    /// Construct the state with BOTH preview and run configurations injected.
+    ///
+    /// The run limits used to come only from the environment, so a test could
+    /// not exercise per-user `max_runs` without mutating process-wide state.
+    pub fn with_configs(
+        db: DatabaseConnection,
+        keys: Arc<JwtKeys>,
+        config: PreviewConfig,
+        runs: RunConfig,
+    ) -> Self {
         Self {
             db,
             keys,
             preview: Arc::new(BuildManager::new(config)),
-            runs: Arc::new(RunManager::new(RunConfig::from_env())),
+            runs: Arc::new(RunManager::new(runs)),
             plugins: Arc::new(PluginRegistry::default()),
         }
     }

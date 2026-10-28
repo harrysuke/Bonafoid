@@ -57,6 +57,37 @@ pub use manager::{
 pub use runs::{RunConfig, RunManager, RunRecord, RunStatus};
 pub use serve::preview_server_router;
 
+/// Put a child process in its own process group.
+///
+/// `kill_on_drop` only kills the direct child. A build spawns cargo, which
+/// spawns rustc, which spawns linkers and build scripts; a preview backend can
+/// fork too. Without a process group, killing the child leaves those
+/// grandchildren running — a timed-out build keeps writing into the shared
+/// cargo target directory while the next build starts, and a stopped preview
+/// keeps holding its port.
+///
+/// `process_group(0)` on Unix makes the child a group leader, so a later
+/// group kill reaches everything it started. Windows has no process groups in
+/// the POSIX sense, but `CREATE_NEW_PROCESS_GROUP` gives the child its own
+/// console group and keeps a Ctrl-Break/console signal from reaching the
+/// server's own group.
+pub(crate) fn isolate_process_group(command: &mut tokio::process::Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.as_std_mut().process_group(0);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        /// `CREATE_NEW_PROCESS_GROUP` from `winbase.h`.
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        command
+            .as_std_mut()
+            .creation_flags(CREATE_NEW_PROCESS_GROUP);
+    }
+}
+
 #[cfg(test)]
 mod live_tests;
 
@@ -98,12 +129,21 @@ async fn start_build(
     // always invalidates the project's running preview.
     let stopped = state.runs.stop_for_project(&project.id.to_string()).await;
 
-    let record = state.preview.enqueue(
-        build_id.clone(),
-        project.id.to_string(),
-        user.id.clone(),
-        target,
-    );
+    let record = state
+        .preview
+        .enqueue(
+            build_id.clone(),
+            project.id.to_string(),
+            user.id.clone(),
+            target,
+        )
+        .map_err(|error| {
+            // The id is generated two lines up, so this cannot happen for a
+            // real request; it means `enqueue` was called with something that
+            // is not a UUID.
+            tracing::error!(%error, "cannot queue preview build");
+            ApiError::Internal
+        })?;
     if !stopped.is_empty() {
         state.preview.append_logs(
             &build_id,
@@ -174,9 +214,18 @@ async fn cancel_build(
     state.preview.mark_cancelled(&id);
     state.preview.remove(&id);
 
-    // Drop the workspace. Failures here are logged, not surfaced: the record
-    // is gone either way and a stale directory is harmless.
-    if let Err(error) = tokio::fs::remove_dir_all(&record.workspace).await {
+    // Drop the workspace. The path is derived from the preview root, so it is
+    // checked for containment before a recursive delete: ownership is proven
+    // above, but ownership does not prove the path is still inside the root.
+    let root = state.preview.config().root.clone();
+    if !manager::is_within(&root, &record.workspace) {
+        tracing::error!(
+            build_id = %id,
+            workspace = %record.workspace.display(),
+            root = %root.display(),
+            "refusing to delete a preview workspace outside the preview root"
+        );
+    } else if let Err(error) = tokio::fs::remove_dir_all(&record.workspace).await {
         if error.kind() != std::io::ErrorKind::NotFound {
             tracing::warn!(build_id = %id, %error, "failed to remove preview workspace");
         }
@@ -330,6 +379,7 @@ async fn stop_run(
         started_at: now,
         last_used_at: now,
         requests: 0,
+        logs: Vec::new(),
     }))
 }
 

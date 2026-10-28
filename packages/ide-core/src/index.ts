@@ -36,6 +36,15 @@ export { useProjectStore, type FieldPatch, type RelationPatch } from './stores/p
 export { useUIStore } from './stores/uiStore';
 export { usePluginStore, type PluginState } from './stores/pluginStore';
 
+export { confirmLeave, useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard';
+export {
+  ApiRequestError,
+  describeError,
+  notifyError,
+  notifyInfo,
+  notifySuccess,
+} from './utils/errors';
+
 export * from './pages';
 export * from './types/project';
 export * from './utils/helpers';

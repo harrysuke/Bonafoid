@@ -16,6 +16,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { useProjectStore } from '../stores/projectStore';
+import { describeError } from '../utils/errors';
 import { DB_DRIVERS } from '../types/project';
 import { usePlatform } from '../platform/PlatformContext';
 import type { GenerationReport } from '../types/project';
@@ -39,7 +40,7 @@ export function CodeGenerator() {
       const dir = await platform.pickDirectory();
       if (dir) setOutputDir(dir);
     } catch (error) {
-      addLog(`ERROR: ${(error as Error).message}`);
+      addLog(`ERROR: ${describeError(error)}`);
     }
   };
 
@@ -64,7 +65,7 @@ export function CodeGenerator() {
       addLog(`Output written to ${result.output_dir}`);
       setStatus('success');
     } catch (error) {
-      addLog(`ERROR: ${(error as Error).message}`);
+      addLog(`ERROR: ${describeError(error)}`);
       setStatus('error');
     }
   };

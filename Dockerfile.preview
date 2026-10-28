@@ -1,0 +1,97 @@
+# No-Code IDE server — image WITH the preview toolchain.
+#
+# Hosted previews compile a generated Rust backend with `cargo` and a Leptos
+# frontend with `trunk`, then run the resulting binary as a child process. That
+# needs the Rust toolchain, the wasm32 target and trunk inside the image, which
+# is why it is a separate image rather than the default one.
+#
+# Build:  docker build -f Dockerfile.preview -t nocode-ide-preview .
+#
+# SECURITY: this image executes user-generated Rust on the host (no container
+# per preview). Only run it where every account is trusted, and see SECURITY.md
+# for the trust model. Previews are isolated from the server's environment and
+# get a per-user cargo target directory, but they are not sandboxed.
+
+FROM rust:bookworm AS builder
+WORKDIR /src
+
+# Every workspace member's manifest must exist even when only the server is
+# built; `xtask` is a member, so its manifest is copied too.
+COPY Cargo.toml Cargo.lock ./
+COPY crates/model/Cargo.toml crates/model/
+COPY crates/codegen/Cargo.toml crates/codegen/
+COPY crates/bpmn/Cargo.toml crates/bpmn/
+COPY crates/plugins/Cargo.toml crates/plugins/
+COPY crates/ide/Cargo.toml crates/ide/
+COPY crates/ide-server/Cargo.toml crates/ide-server/
+COPY xtask/Cargo.toml xtask/
+RUN set -eux; \
+    for crate in model codegen bpmn plugins ide ide-server; do \
+      mkdir -p "crates/$crate/src"; \
+      echo "" > "crates/$crate/src/lib.rs"; \
+    done; \
+    mkdir -p xtask/src; \
+    echo "fn main() {}" > xtask/src/main.rs; \
+    echo "fn main() {}" > crates/ide-server/src/main.rs; \
+    cargo build --release -p nocode-ide-server; \
+    rm -rf crates/*/src xtask/src
+
+COPY crates ./crates
+COPY xtask ./xtask
+RUN cargo build --release -p nocode-ide-server
+
+# Trunk builds the generated frontend; it is a separate binary, not a crate
+# dependency of the server.
+RUN cargo install trunk --locked --version 0.21.14
+
+# The web IDE is built in a node stage so the runtime image does not need node.
+FROM node:20-bookworm-slim AS web
+WORKDIR /src
+COPY package.json package-lock.json ./
+COPY packages/ide-core/package.json packages/ide-core/
+COPY apps/ide-web/package.json apps/ide-web/
+COPY apps/ide-tauri/package.json apps/ide-tauri/
+RUN npm ci --ignore-scripts
+COPY packages ./packages
+COPY apps/ide-web ./apps/ide-web
+RUN npm run build:web
+
+FROM rust:bookworm
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl pkg-config libssl-dev; \
+    rm -rf /var/lib/apt/lists/*; \
+    rustup target add wasm32-unknown-unknown; \
+    useradd --system --create-home --home-dir /app --shell /usr/sbin/nologin nocode; \
+    mkdir -p /data/previews /data/cargo; \
+    chown -R nocode:nocode /app /data
+
+COPY --from=builder /src/target/release/nocode-ide-server /usr/local/bin/nocode-ide-server
+COPY --from=builder /usr/local/cargo/bin/trunk /usr/local/bin/trunk
+COPY --from=web /src/apps/ide-web/dist /app/web
+
+WORKDIR /app
+USER nocode
+
+# CARGO_HOME points at the volume so a restart does not throw away the
+# dependency cache — a cold preview build is ~2.5 minutes, a warm one ~30
+# seconds. CARGO_TARGET_DIR is deliberately NOT set here: each preview build
+# gets its own per-user target directory under IDE_PREVIEW_ROOT, and a global
+# value would be a second, conflicting source of truth.
+ENV PORT=8081 \
+    HOST=0.0.0.0 \
+    DATABASE_URL=sqlite:///data/ide.db \
+    JWT_KEYS_DIR=/data/jwt \
+    IDE_WEB_DIST=/app/web \
+    IDE_PREVIEW_ROOT=/data/previews \
+    CARGO_HOME=/data/cargo \
+    RUST_LOG=info
+
+VOLUME ["/data"]
+EXPOSE 8081
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${PORT}/health" || exit 1
+
+ENTRYPOINT ["nocode-ide-server"]

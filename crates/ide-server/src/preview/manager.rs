@@ -13,6 +13,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 /// Maximum number of log lines retained per build (oldest are dropped).
 const MAX_LOG_LINES: usize = 2000;
@@ -96,10 +97,17 @@ impl BuildRecord {
         project_id: String,
         user_id: String,
         target: BuildTarget,
-        root: &std::path::Path,
+        config: &PreviewConfig,
     ) -> Self {
         let now = Utc::now();
-        let workspace = root.join(&id);
+        let workspace = config.root.join(&id);
+        // The binary's exact path is only known once cargo has built it
+        // (`set_backend_binary` fills in `backend_binary`), but the directory
+        // it will land in is known up front: the user's own cargo target dir.
+        // Reporting an empty path until the build succeeded made the record
+        // point at nothing, and an earlier version pointed at
+        // `root.parent()/.cargo-target`, which is not where builds go.
+        let backend_bin_dir = config.cargo_target_dir_for(&user_id).join("debug");
         Self {
             id,
             project_id,
@@ -108,11 +116,7 @@ impl BuildRecord {
             state: BuildState::Queued,
             error: None,
             dist_dir: workspace.join("frontend").join("dist"),
-            // The backend binary's location is only known after the build
-            // succeeds; `set_backend_binary` fills it in. It is set here to
-            // the per-user cargo target dir so the record never reports a
-            // path from a different user's directory.
-            backend_bin_dir: std::path::PathBuf::new(),
+            backend_bin_dir,
             backend_binary: None,
             workspace,
             created_at: now,
@@ -260,23 +264,61 @@ pub fn per_user_dir(base: &std::path::Path, user_id: &str) -> PathBuf {
     base.join(name)
 }
 
+/// Is `candidate` equal to `root` or inside it?
+///
+/// Lexical only: components are resolved against each other without touching
+/// the filesystem, so it works for a path that does not exist yet and cannot
+/// be fooled by a `..` component. Symlinks are deliberately not followed —
+/// `IDE_PREVIEW_ROOT` is operator configuration, and canonicalising it on
+/// Windows yields `\\?\` paths that break the generated manifests.
+///
+/// Used before any recursive delete, because `remove_dir_all` on a path that
+/// escaped the root would delete arbitrary directories.
+pub fn is_within(root: &std::path::Path, candidate: &std::path::Path) -> bool {
+    fn normalise(path: &std::path::Path) -> Vec<std::ffi::OsString> {
+        let mut parts: Vec<std::ffi::OsString> = Vec::new();
+        for component in path.components() {
+            match component {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    parts.pop();
+                }
+                other => parts.push(other.as_os_str().to_os_string()),
+            }
+        }
+        parts
+    }
+
+    let root = normalise(root);
+    let candidate = normalise(candidate);
+    candidate.len() >= root.len() && candidate.iter().zip(root.iter()).all(|(a, b)| a == b)
+}
+
 /// Registry of preview builds plus the concurrency gate.
 #[derive(Debug)]
 pub struct BuildManager {
     inner: Mutex<HashMap<String, BuildRecord>>,
+    /// Ids whose worker should stop at the next checkpoint.
+    ///
+    /// Entries are removed by the worker itself when it finishes
+    /// ([`BuildManager::forget_cancellation`]). Cancelling a build that was
+    /// never started would otherwise leave its id here forever.
     cancelled: Mutex<std::collections::HashSet<String>>,
-    slots: Arc<Semaphore>,
+    /// One semaphore per user, created on first use.
+    ///
+    /// A single process-wide semaphore let one user occupy every build slot,
+    /// which is a denial of service against everyone else on the host.
+    slots: Mutex<HashMap<String, Arc<Semaphore>>>,
     config: PreviewConfig,
 }
 
 impl BuildManager {
     pub fn new(config: PreviewConfig) -> Self {
         let config = config.absolutize();
-        let slots = Arc::new(Semaphore::new(config.max_parallel));
         Self {
             inner: Mutex::new(HashMap::new()),
             cancelled: Mutex::new(std::collections::HashSet::new()),
-            slots,
+            slots: Mutex::new(HashMap::new()),
             config,
         }
     }
@@ -292,26 +334,54 @@ impl BuildManager {
         self.cancelled.lock().unwrap().contains(id)
     }
 
+    /// Drop a build's cancellation flag. Called by the worker when it stops
+    /// observing it, which is the only moment the flag is guaranteed dead.
+    pub fn forget_cancellation(&self, id: &str) {
+        self.cancelled.lock().unwrap().remove(id);
+    }
+
+    /// Number of cancellation flags currently held (tests + diagnostics).
+    pub fn pending_cancellations(&self) -> usize {
+        self.cancelled.lock().unwrap().len()
+    }
+
     pub fn config(&self) -> &PreviewConfig {
         &self.config
     }
 
-    pub fn slots(&self) -> Arc<Semaphore> {
-        self.slots.clone()
+    /// The build semaphore belonging to one user.
+    ///
+    /// Per user rather than global: `max_parallel` is a per-user quota, so one
+    /// user queueing builds cannot starve another user's.
+    pub fn slots_for(&self, user_id: &str) -> Arc<Semaphore> {
+        let mut slots = self.slots.lock().unwrap();
+        slots
+            .entry(user_id.to_string())
+            .or_insert_with(|| Arc::new(Semaphore::new(self.config.max_parallel)))
+            .clone()
     }
 
     /// Register a new build in the `Queued` state and return a snapshot.
+    ///
+    /// `id` becomes a path component (`root/<id>`), so it is validated as a
+    /// UUID first. `enqueue` is public and the id used to be joined into a
+    /// path unvalidated: on Windows `root.join("C:\\evil")` REPLACES the root
+    /// entirely, and `..` traverses out of it. Every production caller already
+    /// generates a UUID; this makes the public API unable to do otherwise.
     pub fn enqueue(
         &self,
         id: String,
         project_id: String,
         user_id: String,
         target: BuildTarget,
-    ) -> BuildRecord {
-        let record = BuildRecord::new(id, project_id, user_id, target, &self.config.root);
+    ) -> Result<BuildRecord, String> {
+        if Uuid::parse_str(&id).is_err() {
+            return Err(format!("invalid build id {id:?}: expected a UUID"));
+        }
+        let record = BuildRecord::new(id, project_id, user_id, target, &self.config);
         let snapshot = record.clone();
         self.inner.lock().unwrap().insert(record.id.clone(), record);
-        snapshot
+        Ok(snapshot)
     }
 
     pub fn get(&self, id: &str) -> Option<BuildRecord> {
@@ -422,51 +492,135 @@ mod tests {
     #[test]
     fn enqueue_starts_queued_and_scoped_to_owner() {
         let manager = manager();
-        let record = manager.enqueue("b1".into(), "p1".into(), "u1".into(), BuildTarget::All);
+        let id = Uuid::new_v4().to_string();
+        let record = manager
+            .enqueue(id.clone(), "p1".into(), "u1".into(), BuildTarget::All)
+            .expect("a UUID build id is accepted");
         assert_eq!(record.state, BuildState::Queued);
-        assert_eq!(record.workspace.file_name().unwrap(), "b1");
+        assert_eq!(record.workspace.file_name().unwrap(), id.as_str());
         assert_eq!(record.dist_dir.file_name().unwrap(), "dist");
 
-        assert!(manager.get_owned("b1", "u1").is_some());
-        assert!(manager.get_owned("b1", "other").is_none());
+        assert!(manager.get_owned(&id, "u1").is_some());
+        assert!(manager.get_owned(&id, "other").is_none());
         assert_eq!(manager.list_for_user("u1").len(), 1);
         assert!(manager.list_for_user("nobody").is_empty());
+    }
+
+    /// A build id becomes a path component, so anything that is not a UUID
+    /// must be refused before it can reach `Path::join`.
+    ///
+    /// On Windows `root.join("C:\\evil")` replaces the root entirely, and
+    /// `..` walks out of it. `enqueue` is public, so this has to hold for
+    /// callers other than the one HTTP handler that generates a UUID.
+    #[test]
+    fn a_build_id_that_is_not_a_uuid_is_refused() {
+        let manager = manager();
+        for bad in [
+            "b1",
+            "..",
+            "../escape",
+            r"C:\Windows\Temp\evil",
+            "00000000-0000-0000-0000-00000000000",
+            "",
+        ] {
+            let error = manager
+                .enqueue(bad.into(), "p1".into(), "u1".into(), BuildTarget::All)
+                .expect_err("a non-UUID build id must be refused");
+            assert!(error.contains("invalid build id"), "{bad:?}: {error}");
+            assert!(
+                manager.list_for_user("u1").is_empty(),
+                "{bad:?} must not create a record"
+            );
+        }
     }
 
     #[test]
     fn state_transitions_record_failure_reason() {
         let manager = manager();
-        manager.enqueue("b2".into(), "p1".into(), "u1".into(), BuildTarget::Backend);
-        manager.advance("b2", BuildState::BuildingBackend);
-        assert_eq!(
-            manager.get("b2").unwrap().state,
-            BuildState::BuildingBackend
-        );
+        let id = Uuid::new_v4().to_string();
+        manager
+            .enqueue(id.clone(), "p1".into(), "u1".into(), BuildTarget::Backend)
+            .expect("enqueue");
+        manager.advance(&id, BuildState::BuildingBackend);
+        assert_eq!(manager.get(&id).unwrap().state, BuildState::BuildingBackend);
 
-        manager.finish_err("b2", "cargo failed".into());
-        let record = manager.get("b2").unwrap();
+        manager.finish_err(&id, "cargo failed".into());
+        let record = manager.get(&id).unwrap();
         assert_eq!(record.state, BuildState::Failed);
         assert!(record.state.is_terminal());
         assert_eq!(record.error.as_deref(), Some("cargo failed"));
 
-        manager.finish_ok("b2");
-        assert!(manager.get("b2").unwrap().state.is_terminal());
+        manager.finish_ok(&id);
+        assert!(manager.get(&id).unwrap().state.is_terminal());
     }
 
     #[test]
     fn logs_are_capped_and_ordered() {
         let manager = manager();
-        manager.enqueue("b3".into(), "p1".into(), "u1".into(), BuildTarget::All);
+        let id = Uuid::new_v4().to_string();
+        manager
+            .enqueue(id.clone(), "p1".into(), "u1".into(), BuildTarget::All)
+            .expect("enqueue");
         let total = MAX_LOG_LINES + 25;
         manager.append_logs(
-            "b3",
+            &id,
             (0..total).map(|index| format!("line {index}")).collect(),
         );
-        let record = manager.get("b3").unwrap();
+        let record = manager.get(&id).unwrap();
         assert_eq!(record.logs.len(), MAX_LOG_LINES);
         // The oldest lines were dropped, the newest survive in order.
         assert_eq!(record.logs.last().unwrap(), &format!("line {}", total - 1));
         assert_eq!(record.logs.first().unwrap(), "line 25");
+    }
+
+    /// The cancellation flag is dropped by the worker when it stops looking.
+    ///
+    /// Without this the set grows for the lifetime of the process: every
+    /// cancelled build left its id behind, and nothing ever removed it.
+    #[test]
+    fn cancellation_flags_are_released_when_the_worker_stops() {
+        let manager = manager();
+        manager.mark_cancelled("gone");
+        assert_eq!(manager.pending_cancellations(), 1);
+        manager.forget_cancellation("gone");
+        assert_eq!(manager.pending_cancellations(), 0);
+        assert!(!manager.is_cancelled("gone"));
+    }
+
+    /// Build slots are a per-user quota, not a process-wide one.
+    #[test]
+    fn build_slots_are_per_user() {
+        let manager = manager();
+        let alice = manager.slots_for("alice");
+        let bob = manager.slots_for("bob");
+        assert_eq!(alice.available_permits(), 2);
+        assert_eq!(bob.available_permits(), 2);
+
+        let _held = alice.try_acquire().expect("alice has a free slot");
+        assert_eq!(alice.available_permits(), 1);
+        // Alice taking a slot must not consume Bob's.
+        assert_eq!(bob.available_permits(), 2);
+        // The same user gets the same semaphore back.
+        assert!(Arc::ptr_eq(&alice, &manager.slots_for("alice")));
+    }
+
+    /// Containment is lexical, so it works on paths that do not exist and
+    /// cannot be defeated by `..`.
+    #[test]
+    fn containment_rejects_escapes() {
+        let root = PathBuf::from("preview-workspaces");
+        assert!(is_within(&root, &root.join("abc")));
+        assert!(is_within(&root, &root));
+        assert!(is_within(&root, &root.join("abc").join("frontend")));
+        assert!(!is_within(&root, &root.join("..").join("elsewhere")));
+        assert!(!is_within(
+            &root,
+            &root.join("abc").join("..").join("..").join("x")
+        ));
+        assert!(!is_within(&root, &PathBuf::from("other-root")));
+        // An absolute escape attempt resolves to a different root.
+        #[cfg(windows)]
+        assert!(!is_within(&root, &PathBuf::from(r"C:\Windows\Temp")));
     }
 
     #[test]

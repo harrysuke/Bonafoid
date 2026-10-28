@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { getPlatform } from '../platform/registry';
 import type { PlatformPlugin } from '../platform/types';
+import { describeError } from '../utils/errors';
 
 /** State of the plugin panel. */
 export interface PluginState {
@@ -20,11 +21,6 @@ export interface PluginState {
   uninstallPlugin: (id: string) => Promise<void>;
   /** Forget the last error. */
   clearError: () => void;
-}
-
-/** Uniform error text for host/API failures. */
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FileText, FolderOpen, LogOut, Plus, Trash2, Copy, Download, Upload } from 'lucide-react';
 import type { PlatformProject } from '@nocode/ide-core';
-import { getPlatform } from '@nocode/ide-core';
+import { confirmLeave, getPlatform } from '@nocode/ide-core';
 import { ApiRequestError, projectsApi } from '../api/client';
 import { logout } from '../auth/session';
 
@@ -32,6 +32,9 @@ export function Projects() {
   }, [refresh]);
 
   const openProject = async (id: string) => {
+    // Opening another project replaces the working copy in place, so unsaved
+    // edits to the current one would be gone with no warning.
+    if (!confirmLeave()) return;
     setBusyId(id);
     setError(null);
     try {
@@ -107,7 +110,10 @@ export function Projects() {
           <h1 className="text-lg font-bold text-gray-900 dark:text-white">Projects</h1>
           <button
             type="button"
-            onClick={() => void logout().then(() => navigate('/login', { replace: true }))}
+            onClick={() => {
+              if (!confirmLeave()) return;
+              void logout().then(() => navigate('/login', { replace: true }));
+            }}
             className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
           >
             <LogOut className="w-4 h-4" /> Sign out

@@ -154,8 +154,69 @@ export function buildColorScale(base: string): Record<string, string> {
   return scale;
 }
 
+/**
+ * WCAG 2.1 relative luminance of a hex color, in 0..1.
+ *
+ * NOT a weighted RGB average: the sRGB channels are linearised first (the
+ * gamma curve is why a plain average says a mid blue and a mid yellow have
+ * similar luminance when they do not). Returns `null` for a non-hex value.
+ */
+export function relativeLuminance(hex: string): number | null {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return null;
+  const [r, g, b] = rgb.map((channel) => {
+    const srgb = channel / 255;
+    return srgb <= 0.03928 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * WCAG 2.1 contrast ratio between two colors, in 1..21.
+ *
+ * 4.5:1 is the AA threshold for normal text; 3:1 is AA for large text and for
+ * non-text UI boundaries.
+ */
+export function contrastRatio(foreground: string, background: string): number | null {
+  const a = relativeLuminance(foreground);
+  const b = relativeLuminance(background);
+  if (a === null || b === null) return null;
+  const lighter = Math.max(a, b);
+  const darker = Math.min(a, b);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/** The text colors a theme chooses between, darkest first. */
+const TEXT_CANDIDATES = ['#ffffff', '#111827'];
+
+/**
+ * The text color that reads best on `background`.
+ *
+ * Returns the candidate with the higher contrast ratio, so a pale primary gets
+ * dark text and a deep one gets white — instead of the fixed `#ffffff` that
+ * made light-brand buttons unreadable.
+ */
+export function readableTextColor(background: string): string {
+  let best = TEXT_CANDIDATES[0];
+  let bestRatio = 0;
+  for (const candidate of TEXT_CANDIDATES) {
+    const ratio = contrastRatio(candidate, background) ?? 0;
+    if (ratio > bestRatio) {
+      best = candidate;
+      bestRatio = ratio;
+    }
+  }
+  return best;
+}
+
 function colorScale(base: string): ColorScale {
-  return { base, scale: buildColorScale(base), contrast_text: null };
+  return {
+    base,
+    scale: buildColorScale(base),
+    // Was always null, even though the model has the field and the generated
+    // theme needs a readable text color for this background.
+    contrast_text: readableTextColor(base),
+  };
 }
 
 /** Action color set derived from a scale base. */

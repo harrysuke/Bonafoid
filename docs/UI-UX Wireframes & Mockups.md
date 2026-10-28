@@ -2,9 +2,10 @@
 
 ## No-Code Visual Application Development Platform
 
-**Version:** 1.0  
+**Version:** 1.2  
 **Date:** October 2026  
-**Status:** Draft  
+**Status:** Living document — amended after Phase 5 (accessibility implementation,
+corrected component inventory)  
 
 ---
 
@@ -710,17 +711,37 @@
 
 ## 15. Implementation Notes
 
-- **Framework**: React 18 + TypeScript + Tailwind CSS
-- **Drag & Drop**: @dnd-kit/core for form/page builders
-- **Flow Editor**: React Flow for BPMN workflow builder
-- **Canvas Rendering**: SVG + HTML for ERD in data modeler
+- **Framework**: React 18 + TypeScript + Tailwind CSS, shared through `packages/ide-core`
+- **Drag & Drop**: @dnd-kit/core + @dnd-kit/sortable (form and page builders)
+- **Flow Editor**: React Flow (`reactflow`) for the BPMN workflow builder
+- **Canvas Rendering**: SVG + HTML for the ERD in the data modeler
 - **Icons**: Lucide React (consistent icon set)
-- **Animations**: Tailwind transitions (150-300ms)
-- **Accessibility**: ARIA labels, keyboard navigation, focus traps
-- **Auto-save**: Debounced at 30 seconds after last change
-- **Toast Notifications**: Sonner for success/error/info messages
-- **Modals**: Radix UI Dialog for accessibility
-- **Tooltips**: Radix UI Tooltip for contextual help
+- **Animations**: Tailwind transitions (150–300 ms)
+- **State**: zustand stores (`projectStore`, `pluginStore`, `uiStore`)
+- **Routing**: react-router-dom v6 `BrowserRouter` — not a data router, so
+  navigation blocking uses a `beforeunload` guard plus an explicit
+  `confirmLeave()` call, not `useBlocker`
+- **Auto-save**: debounced at 30 seconds after the last change; a failure raises
+  a toast, and leaving a dirty project prompts first
+- **Toast Notifications**: the shared `uiStore` notification surface driven by
+  `describeError`/`notifyError` — no third-party toast library
+- **Modals**: hand-rolled dialogs in `components/` (no Radix dependency)
+- **Tooltips**: `title` attributes plus inline hints
+- **Code Editor**: Monaco (`@monaco-editor/react`) for SQL/JSON preview
+
+### 15.1 Accessibility (as implemented)
+
+The design target is WCAG 2.1 AA. What the code actually does today:
+
+| Concern | Implementation |
+|---------|----------------|
+| Canvas nodes | `role="button"`, `tabIndex={0}`, `aria-selected`, Enter/Space activation |
+| Reordering | The drag handle is a real `<button>` with an accessible name and ↑/↓ keys, not a decorative `div` |
+| Icon-only buttons | `aria-label` on every one; icons carry `aria-hidden` so the name is not read twice |
+| Disclosures | `aria-expanded` on the options toggle and the New Page trigger |
+| Focus management | Inline forms close on Escape and return focus to the button that opened them |
+| Theme contrast | `readableTextColor()` picks white or near-black per background; `themeModel.test.ts` asserts ≥ 4.5:1 for every colour role and for body/secondary/tertiary text |
+| Page structure | Process nodes are `role="group"` with a label, so a screen reader announces the node's identity before its controls |
 
 ---
 
@@ -730,3 +751,4 @@
 |---------|------|--------|---------|
 | 1.0 | 2026-10-15 | UX Designer | Initial Draft - Complete UI/UX wireframes & mockups for No-Code IDE platform |
 | 1.1 | 2026-10-16 | Engineering | Add Web IDE auth + project dashboard, new List Builder wireframe; note web flows |
+| 1.2 | 2026-10-28 | Engineering | §15 rewritten to match the shipped dependency set (no Sonner/Radix); §15.1 added with the accessibility work actually implemented |

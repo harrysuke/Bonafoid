@@ -2,9 +2,11 @@
 
 ## No-Code Visual Application Development Platform
 
-**Version:** 1.0  
+**Version:** 1.2  
 **Date:** October 2026  
-**Status:** Draft  
+**Status:** Living document — the Rust definitions in `crates/model/src/` remain
+the source of truth; the TypeScript mirror is generated from the `schemars`
+schema and checked in CI  
 
 ---
 
@@ -1281,3 +1283,4 @@ pub struct Session {
 |---------|------|--------|---------|
 | 1.0 | 2026-10-15 | Data Architect | Initial Draft - Complete data models for Bonafoid platform |
 | 1.1 | 2026-10-16 | Engineering | Add Web IDE server models (User, IdeProject, RefreshToken, Session) |
+| 1.2 | 2026-10-28 | Engineering | Note that `packages/ide-core/src/types/model.generated.ts` is derived from the schemars schema and verified in CI (`xtask types` + `gen-model-types.mjs --check`) |

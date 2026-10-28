@@ -1,10 +1,94 @@
-version: '3.8'
+# Docker Compose for the No-Code IDE.
+#
+#   docker compose up -d                  # IDE server, no hosted previews
+#   docker compose --profile preview up -d  # ... plus the preview builder
+#
+# No `version:` key: Compose v2 ignores it and warns about it.
+#
+# Why there is no Postgres service here
+# -------------------------------------
+# `crates/ide-server/src/migration.rs` writes its schema with SQLite-specific
+# SQL (`?` placeholders, `datetime('now')`, `DbBackend::Sqlite`), so pointing
+# DATABASE_URL at Postgres would fail on the first migration. Rather than ship
+# a compose profile that looks supported and is not, this file only offers the
+# database that actually works. Adding Postgres is a migration-rewrite task,
+# not a compose change.
+
 services:
   ide-server:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nocode-ide:latest
+    restart: unless-stopped
     ports:
       - "8081:8081"
     environment:
-      - DATABASE_URL=sqlite:db/ide.db
+      # Inside a container 127.0.0.1 is not reachable from the host, so the
+      # server has to bind every interface. The image sets this too; repeating
+      # it here documents the one setting that must not be copied to a bare
+      # metal deployment.
+      HOST: 0.0.0.0
+      PORT: "8081"
+      DATABASE_URL: sqlite:///data/ide.db?mode=rwc
+      JWT_KEYS_DIR: /data/jwt
+      IDE_PREVIEW_ROOT: /data/previews
+      RUST_LOG: info
     volumes:
-      - ./db:/app/db
+      # One volume holds the database, the signing keys and the preview
+      # workspaces, so a backup is a single directory.
+      - nocode-data:/data
+    healthcheck:
+      # /health is liveness only; /ready also touches the database.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+
+  # Hosted previews compile and run user projects, which needs cargo, trunk and
+  # the wasm32 target: roughly 2 GB of image. It is a separate service behind a
+  # profile so a deployment that does not want previews does not pay for it.
+  #
+  # `GET /api/v1/preview/capabilities` reports the toolchain it finds, and the
+  # IDE shows "previews unavailable" instead of failing a build, so running
+  # only `ide-server` degrades cleanly.
+  ide-preview:
+    profiles: ["preview"]
+    build:
+      context: .
+      dockerfile: Dockerfile.preview
+    image: nocode-ide:preview
+    restart: unless-stopped
+    ports:
+      - "8082:8081"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8081"
+      DATABASE_URL: sqlite:///data/ide.db?mode=rwc
+      JWT_KEYS_DIR: /data/jwt
+      IDE_PREVIEW_ROOT: /data/previews
+      # A cold `cargo build` of a generated app takes minutes on a small host,
+      # and a preview is idle-stopped sooner than the IDE default.
+      IDE_PREVIEW_MAX_RUNS: "2"
+      IDE_PREVIEW_IDLE_SECS: "600"
+      RUST_LOG: info,nocode_ide_server=debug
+    volumes:
+      # Deliberately NOT shared with ide-server: two servers writing one SQLite
+      # file is a corruption bug, and a preview's target directory is the
+      # largest thing either service owns.
+      - nocode-preview:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  nocode-data:
+  nocode-preview:
