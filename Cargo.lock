@@ -1958,6 +1958,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jsonwebtoken",
+ "libc",
  "nocode-bpmn",
  "nocode-codegen",
  "nocode-ide",

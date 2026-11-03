@@ -256,6 +256,12 @@ async fn run_command(
         .spawn()
         .map_err(|error| format!("cannot start {:?}: {error}", command.as_std().get_program()))?;
 
+    // `kill_on_drop` is only half of it: it kills the direct child, so a
+    // cancelled or timed-out build would leave rustc and the linker running.
+    // The guard sweeps the tree on every exit path, including a dropped
+    // future, and is disarmed once the child has been reaped.
+    let mut tree = crate::preview::TreeGuard::new(child.id());
+
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
@@ -275,6 +281,8 @@ async fn run_command(
         .wait()
         .await
         .map_err(|error| format!("command failed: {error}"))?;
+    // The child is reaped, so its pid may be reused; do not signal it again.
+    tree.disarm();
     for task in tasks {
         let _ = task.await;
     }

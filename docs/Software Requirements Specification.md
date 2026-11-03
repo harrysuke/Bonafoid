@@ -2,11 +2,11 @@
 
 ## No-Code Visual Application Development Platform
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Date:** October 2026  
-**Status:** Living document — amended after Phases 4 and 5 (preview hardening,
-accessibility, autosave guard, packaging). Requirements below are marked with
-their implementation state in §1.5.
+**Status:** Living document — amended after Phase 6. Requirements below are
+marked with their implementation state in §1.5, and the scope, tech stack and
+milestone tables have been reconciled with the tree.
 **Classification:** Internal / Open Source Product
 
 ---
@@ -27,9 +27,9 @@ The product consists of:
 - **IDE Applications** (desktop Tauri + web browser) — visual builders for forms, lists, workflows, data models, pages, themes, plugins
 - **IDE Server** (Rust/Axum) — multi-user project storage, authentication, code generation API, hosted preview/run
 - **Code Generation Engine** (Rust) — transforms visual models into deployable artifacts
-- **Runtime Library** (Rust) — Axum server, workflow engine, auth, storage abstractions
+- **Generated Application Runtime** (Rust) — no runtime crate exists to link against: the code generator emits a complete Axum + SQLx + SeaORM backend per project (`crates/codegen/src/backend.rs`), so a generated app owns its own auth, storage and workflow code
 - **Plugin System** — WASM-based extensibility (wasmtime)
-- **BPMN Integration** — NAPI-RS bridge to bpmn-server for full BPMN 2.0 support
+- **BPMN Engine** — `crates/bpmn`, a token-based process engine in Rust, with BPMN 2.0 XML import/export for `bpmn-js` and a NAPI-RS bridge that exposes the engine itself to the TypeScript editor
 
 ### 1.3 Target Audience
 - **Citizen Developers** — business users building internal tools
@@ -56,11 +56,14 @@ means covered by tests in `cargo test --workspace` and `npm test`.
 | Area | State | Notes |
 |------|-------|-------|
 | Visual builders (FR-1…FR-6) | Shipped | Entities, forms, pages, themes, workflows; all editors keyboard-reachable |
+| BPMN execution (FR-2.2) | Partial | Engine, XML import/export and a run endpoint exist in the IDE server; the generated app does not execute workflows, and there are no timers, boundary events, multi-instance or compensation |
 | Code generation (FR-7…FR-9) | Shipped | Backend, frontend, database, Docker, K8s, PWA, Tauri targets |
 | Plugin system (FR-10, FR-11) | Shipped | wasmtime host, per-user isolation, manifests validated |
 | Accounts & sessions (FR-12) | Shipped | Argon2id, RS256 cookies, CSRF; per-user ownership enforced on every route |
 | Rate limiting / lockout (FR-12.6) | Not implemented | Listed as `Should`; no limiter is wired yet |
 | Project management (FR-13) | Shipped | CRUD, import/export, duplicate; debounced autosave with an unsaved-changes guard |
+| Git integration (FR-9.2) | Not implemented | No git UI and no server-side git; export/import JSON is the only history story |
+| Environments (FR-9.3) | Not implemented | `ProjectSettings.environments` exists in the model but no UI edits it |
 | Optimistic concurrency (FR-13.5) | Not implemented | Last write wins today |
 | Hosted preview (FR-14) | Shipped | Build, run, serve, proxy, idle teardown, per-user quotas, bounded I/O |
 | Container isolation (FR-14.6) | Not implemented | Previews run on the host as an unprivileged child process |
@@ -123,7 +126,7 @@ means covered by tests in `cargo test --workspace` and `npm test`.
 - **Server-Backed (Web)**: the web IDE persists projects server-side, requires authentication, and supports multiple concurrent users
 - **Shared Core**: desktop and web clients share `packages/ide-core` (React) and `crates/ide` (Rust service); IDE logic must not depend directly on Tauri APIs
 - **Extensibility**: Plugin API via WASM Components (wasmtime + wit-bindgen)
-- **BPMN Compliance**: Full BPMN 2.0 via bpmn-server (Node.js) bridged via NAPI-RS
+- **BPMN Compliance**: BPMN 2.0 XML interchange, executed by the in-tree Rust engine (`crates/bpmn`) — not by an external Node.js engine
 - **Licensing**: AGPL-3.0 for community edition; commercial license for enterprise
 
 ---
@@ -148,7 +151,7 @@ means covered by tests in `cargo test --workspace` and `npm test`.
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR-2.1 | Visual BPMN editor (React Flow) with palette: Start/End Events, User Task, Service Task, Script Task, Business Rule Task, Send/Receive/Manual Task, Exclusive/Inclusive/Parallel/Event-Based Gateways, Sub-Process, Call Activity | Must |
-| FR-2.2 | Full BPMN 2.0 execution via bpmn-server (timers, boundary events, multi-instance, compensation, signals, messages, escalations, errors) | Must |
+| FR-2.2 | BPMN 2.0 validation, XML import/export and single-shot execution in the **IDE server** (`/api/v1/bpmn/{validate,import,export,run}`) by the in-tree Rust engine (`crates/bpmn`): token-based, with exclusive / inclusive / parallel / event-based gateways, user / service / script / business-rule / send / receive / manual tasks, sub-processes and call activities. The **generated application does not execute workflows** — the generated backend has no workflow routes, so a workflow is a design artifact today. Timers, boundary events, multi-instance, compensation, signals, messages and escalations are not executed | Must |
 | FR-2.3 | Visual debugger (step-through, breakpoints, variable inspection, execution history) | Must |
 | FR-2.4 | Service Task implementations: HTTP (REST/GraphQL), Function (embedded), Plugin (WASM), External Connector | Must |
 | FR-2.5 | User Task assignment (static, expression, candidate groups, due dates, form linking) | Must |
@@ -234,17 +237,20 @@ means covered by tests in `cargo test --workspace` and `npm test`.
 | FR-9.2 | Version control integration (Git: status, diff, commit, push, pull, branches) | Should |
 | FR-9.3 | Environment management (dev/staging/prod with separate configs) | Must |
 
-#### FR-10: Project Settings (8 Tabs)
+#### FR-10: Project Settings (3 Tabs)
 | Tab | Requirements | Priority |
 |-----|--------------|----------|
-| **General** | Name, slug, description, version, default locale, timezone, date/time/number formats, currency | Must |
-| **Database** | Driver (PG/MySQL/SQLite), connection URL, pool sizing, SSL, auto-migrate | Must |
-| **Authentication** | Enable/disable, JWT, password policy, MFA (TOTP/SMS/Email/WebAuthn/Backup), Social, SSO (SAML/OIDC/LDAP/AD) | Must |
-| **Email** | Driver (SMTP/SendGrid/Mailgun/SES/Console), from name/address, SMTP config, templates | Must |
-| **API** | Base path, versioning, CORS, rate limiting, OpenAPI docs, webhooks | Must |
-| **Storage** | Driver (Local/S3/GCS/Azure), config, CDN URL, max file size, MIME allowlist | Must |
-| **Features** | 16 feature flags (auth, api, workflows, realtime, files, email, webhooks, scheduler, audit, soft-delete, multi-tenant, localization, theming, plugins, marketplace, AI) | Must |
-| **Notifications** | Channels (email, push, in-app, webhook), templates, preferences | Should |
+| **General** | Project name (renaming rewrites the slug the crate name derives from), read-only slug, description | Must |
+| **Database** | Driver (SQLite / PostgreSQL / MySQL / SQL Server / Oracle — SQLite and PostgreSQL are the only two validated end to end), connection URL, throwaway-database mode | Must |
+| **Frontend** | Framework (Leptos only), bundler (Trunk; the other options are listed but the select is disabled) | Must |
+
+Locale, timezone, date/number formats, currency, authentication, API, storage,
+email, notification and feature-flag settings still exist in the
+`ProjectSettings` model, but no tab edits them and no codegen path reads them,
+so the previous eight-tab requirement described controls that would have looked
+like configuration while changing nothing. They stay in the model so importing
+an older project does not lose data; a tab returns only when the generator
+consumes the setting.
 
 #### FR-11: Plugin Manager
 | ID | Requirement | Priority |
@@ -375,7 +381,7 @@ means covered by tests in `cargo test --workspace` and `npm test`.
 |-----|----------|------|
 | **Generated REST** | HTTP/1.1 + HTTP/2 | OpenAPI 3.1 (Utoipa), JSON, cursor pagination, filtering, sorting |
 | **Generated GraphQL** | HTTP/WS | Async-graphql (optional), subscriptions via WebSocket |
-| **Workflow Engine** | HTTP | bpmn-server REST + custom integration |
+| **Workflow Engine** | HTTP | In-process engine in the generated backend (`crates/codegen`); no external workflow service |
 | **Plugin Host** | WASM Component Model | wit-bindgen interfaces (wit files) |
 | **Real-time** | WebSocket | TanStack Query + native WS for workflow updates, notifications |
 
@@ -420,9 +426,9 @@ Project
 | **IDE Styling** | Tailwind CSS | 3.4 |
 | **IDE State** | Zustand | 4.4 |
 | **IDE Data Fetch** | TanStack Query | 5.0 |
-| **IDE Drag-Drop** | @dnd-kit/core | 6.1 |
+| **IDE Drag-Drop** | native HTML5 drag events | — |
 | **IDE Flow** | React Flow | 11.10 |
-| **IDE Editor** | Monaco Editor | 0.45 |
+| **IDE Editor** | plain `<pre>` / `<textarea>` (no code-editor dependency) | — |
 | **IDE Server** | Axum | 0.7 |
 | **IDE Server DB** | SeaORM + SQLite (default) / PostgreSQL | 0.12 |
 | **IDE Auth** | jsonwebtoken (RS256) + argon2 | latest |
@@ -436,7 +442,7 @@ Project
 | **Frontend Framework** | Leptos | 0.7 |
 | **Plugin Runtime** | wasmtime | 20.0 |
 | **WASM Interface** | wit-bindgen | 0.35 |
-| **BPMN Engine** | bpmn-server (Node) + NAPI-RS | Latest |
+| **BPMN Engine** | `crates/bpmn` (Rust, in-tree) + NAPI-RS bridge | workspace |
 
 ---
 
@@ -457,17 +463,17 @@ Project
 ## 9. Release Plan
 
 ### 9.1 Milestones
-| Milestone | Timeline | Deliverables |
-|-----------|----------|--------------|
-| **M1: Foundation** | Weeks 1-3 | Workspace, CI, Tauri shell, model schema, Form Builder |
-| **M2: Data & Workflow** | Weeks 4-8 | Data Modeler, Workflow Builder, Page Builder |
-| **M3: Theme & Codegen** | Weeks 9-12 | Theme Builder, Codegen pipeline (Backend/Frontend/DB/Docker/K8s) |
-| **M4: Plugin & Polish** | Weeks 13-16 | Plugin system, Multi-target build, Settings, Docs |
-| **M5: Beta** | Weeks 17-20 | Installer, auto-update, marketplace, licensing, hardening |
-| **M6: 1.0 Release** | Week 24 | Signed binaries, marketplace launch, commercial licensing |
-| **M7: Web IDE (Alpha)** | Weeks 25-32 | Shared `packages/ide-core` + `crates/ide` service, Axum IDE server, accounts/auth, server-side projects, all 4 builders (incl. List), Data Modeler, codegen API |
-| **M8: Hosted Preview (Beta)** | Weeks 33-38 | Build worker, process manager, per-build preview URLs + API proxy, autonomy/hardening, Docker packaging |
-| **M9: Web IDE GA** | Week 40 | Multi-user GA, hosted preview, SOC2-ready auth, docs |
+| Milestone | Timeline | Deliverables | State |
+|-----------|----------|--------------|-------|
+| **M1: Foundation** | Weeks 1-3 | Workspace, CI, Tauri shell, model schema, Form Builder | Done |
+| **M2: Data & Workflow** | Weeks 4-8 | Data Modeler, Workflow Builder, Page Builder | Done |
+| **M3: Theme & Codegen** | Weeks 9-12 | Theme Builder, Codegen pipeline (Backend/Frontend/DB/Docker/K8s) | Done |
+| **M4: Plugin & Polish** | Weeks 13-16 | Plugin system, Multi-target build, Settings, Docs | Done (settings is 3 tabs, see FR-10) |
+| **M5: Beta** | Weeks 17-20 | Installer, auto-update, marketplace, licensing, hardening | Partial — no marketplace (local-manifest install only); installer and updater are unverified |
+| **M6: 1.0 Release** | Week 24 | Signed binaries, marketplace launch, commercial licensing | Not started — no signed build and no tag exist |
+| **M7: Web IDE (Alpha)** | Weeks 25-32 | Shared `packages/ide-core` + `crates/ide` service, Axum IDE server, accounts/auth, server-side projects, all 4 builders (incl. List), Data Modeler, codegen API | Done |
+| **M8: Hosted Preview (Beta)** | Weeks 33-38 | Build worker, process manager, per-build preview URLs + API proxy, autonomy/hardening, Docker packaging | Done |
+| **M9: Web IDE GA** | Week 40 | Multi-user GA, hosted preview, SOC2-ready auth, docs | Partial — preview and auth shipped, docs amended; no SOC 2 audit and no GA tag |
 
 ---
 
@@ -509,45 +515,42 @@ Project
 
 ###  Appendix C: Generated Project Structure
 ```text
-generated-app/
+<project>/
 ├── backend/           # Rust Axum API
-│   ├── src/
-│   │   ├── main.rs
-│   │   ├── config.rs
-│   │   ├── db.rs
-│   │   ├── models/
-│   │   ├── routes.rs
-│   │   ├── handlers/
-│   │   ├── middleware/
-│   │   └── services/
+│   ├── src/           # main, config, db, error, routes, models, handlers, forms
 │   ├── Cargo.toml
 │   └── migrations/
-├── frontend/          # Leptos WASM
-│   ├── src/
-│   │   ├── app.rs
-│   │   ├── pages/
-│   │   ├── components/
-│   │   ├── services/
-│   │   ├── stores/
-│   │   └── styles/
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── tailwind.config.js
+├── frontend/          # Leptos WASM, built by Trunk (not Vite/npm)
+│   ├── src/           # app, layout, pages, api client, types
+│   ├── style/         # input.css + tailwind.config.js
+│   ├── public/        # manifest.webmanifest, sw.js, offline.html
+│   ├── index.html
+│   ├── Trunk.toml
+│   └── Cargo.toml
+├── desktop/           # Tauri v2 shell
+│   ├── tauri.conf.json
+│   └── src-tauri/
 ├── database/
 │   ├── schema.sql
-│   └── migrations/
+│   └── migrations/    # <version>_up.sql / <version>_down.sql
 ├── docker/
 │   ├── Dockerfile
-│   ├── docker-compose.yml
-│   └── .dockerignore
+│   ├── Dockerfile.frontend
+│   └── docker-compose.yml
 ├── kubernetes/
 │   ├── deployment.yaml
 │   ├── service.yaml
 │   ├── ingress.yaml
 │   ├── configmap.yaml
 │   └── secret.yaml
+├── .dockerignore
+├── .gitignore
+├── Makefile
 └── README.md
 ```
+
+There is no `package.json`, `vite.config.ts` or npm step in a generated
+project: the frontend is Leptos compiled by Trunk.
 
 ###  Appendix D: API Example (Generated)
 ```text
@@ -583,3 +586,5 @@ paths:
 |---------|------|--------|---------|
 | 1.0 | 2026-10-14 | System Architect | Initial draft |
 | 1.1 | 2026-10-16 | Engineering | Add Web IDE (server-backed, multi-user), accounts/auth, hosted preview/run, List builder, shared ide-core, updated tech stack & milestones |
+| 1.2 | 2026-10-28 | Engineering | §1.5 implementation-status table; FR-14.7-14.14 for the preview hardening; packaging notes |
+| 1.3 | 2026-10-29 | Engineering | §1.2 scope and §2.4 constraints corrected (no runtime crate, no bpmn-server — the engine is in-tree and the generated app does not execute workflows); FR-2.2 and FR-10 rewritten to what ships; §7 and §9.1 tables reconciled; Appendix C matches the emitted tree |

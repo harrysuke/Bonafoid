@@ -2,10 +2,11 @@
 
 ## No-Code Visual Application Development Platform
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Date:** October 2026  
-**Status:** Living document — amended after Phase 5 (accessibility implementation,
-corrected component inventory)  
+**Status:** Living document — wireframes re-drawn against the shipped screens
+(Phase 6 amendments: sidebar navigation, 3-tab settings, file-based plugin
+install, no marketplace, no activity timeline)  
 
 ---
 
@@ -61,67 +62,83 @@ corrected component inventory)
 
 ### 2.1 Main Application Shell
 
+The shipped shell is a collapsible **left sidebar** with eleven entries, not a
+horizontal nine-tab topbar. The topbar carries the project name, the save
+status and the theme toggle; the sidebar carries navigation and the user menu.
+
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  [Logo] No-Code IDE                                    [Save] [Preview] │
-├─────────────────────────────────────────────────────────────────────────┤
-│  [1. Dashboard] [2. Forms] [3. Workflow] [4. Data] [5. Pages] [6. Theme] │
-│  [7. Plugins] [8. Generator] [9. Settings]                             │
-├─────────────────────────┬─────────────────────────────────────────────────┤
-│  Sidebar (Contextual)   │  Main Canvas / Editor Area                    │
-│  [Palette/Tree/Props]  │  [Toolbar] [Content] [Bottom Panel]            │
-│                         │                                                 │
-└─────────────────────────┴─────────────────────────────────────────────────┘
+│  [Logo] No-Code IDE                        [Save] [Preview] [☾] [User ▾]│
+├──────────────────┬──────────────────────────────────────────────────────┤
+│ ▸ Dashboard      │  Main Canvas / Editor Area                           │
+│ ▸ Forms          │  [Toolbar] [Content] [Bottom Panel]                  │
+│ ▸ Workflows      │                                                      │
+│ ▸ Data Model     │                                                      │
+│ ▸ Lists          │                                                      │
+│ ▸ Pages          │                                                      │
+│ ▸ Theme          │                                                      │
+│ ▸ Plugins        │                                                      │
+│ ▸ Preview        │                                                      │
+│ ▸ Generate       │                                                      │
+│ ▸ Settings       │                                                      │
+└──────────────────┴──────────────────────────────────────────────────────┘
 ```
 
 **Key Elements:**
-- Topbar: Project name, Save status indicator, Global actions (Save, Preview, Export, Run)
-- Main Navigation Tabs: Horizontal tabs for 9 major modules
-- Contextual Sidebar: Dynamic based on selected module
+- Topbar: Project name, Save status indicator, theme toggle, user menu (logout)
+- Sidebar: 11 navigation entries (`packages/ide-core/src/components/Layout.tsx`),
+  collapsible to icons
 - Main Canvas: Primary editing area
-- Status Bar (Bottom): Project path, build status, cursor position
+- Toasts: bottom-right, driven by `uiStore.addNotification`
+- Status Bar (Bottom): Project path, build status
 
 ---
 
 ## 3. Dashboard
 
+The dashboard is **project-scoped**: it reports counts for the open project and
+lists the projects the account owns. There is no activity timeline — the server
+stores no audit log, so an "Updated Form at 10:30" row would have to be
+invented.
+
 ### 3.1 Dashboard Wireframe
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
-│  Dashboard                                                                     │
+│  Customer Portal                                     Unsaved changes        │
+│  Customer-facing portal for support tickets                                 │
 ├────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Welcome back! Let's start building your application.                      │
-│                                                                              │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  ┌──────────┐ │
-│  │ Projects        │  │ Forms           │  │ Workflows       │  │ Entities  │ │
-│  │ 12 Active       │  │ 8 Created       │  │ 5 Active        │  │ 10 Models │ │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘  └──────────┘ │
-│                                                                              │
-│  ┌───────────────────────────────────┐  ┌─────────────────────────────────┐│
-│  │ Quick Actions                    │  │ Recent Projects                 ││
-│  │                                 │  │                                 ││
-│  │ [New Form] [New Workflow]       │  │ • Customer Portal • 2h ago     ││
-│  │ [New Data Model] [New Page]     │  │ • HR Management  • 5h ago     ││
-│  │ [Generate Code] [Deploy]        │  │ • E-commerce App • Yesterday  ││
-│  │                                 │  │ • Task Manager   • 3 days ago││
-│  └───────────────────────────────────┘  └─────────────────────────────────┘│
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐│
-│  │ Recent Activity                                                         ││
-│  │ • Updated Form: Contact Form - 10:30 AM                               ││
-│  │ • Modified Workflow: Approval Flow - 9:15 AM                           ││
-│  │ • Generated Code for Customer Portal - 8:00 AM                         ││
-│  └────────────────────────────────────────────────────────────────────────┘│
+│                                                                            │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ ┌───────────┐│
+│  │ Forms           │ │ Workflows       │ │ Data Models     │ │ Pages     ││
+│  │ 8               │ │ 5               │ │ 10              │ │ 12        ││
+│  └─────────────────┘ └─────────────────┘ └─────────────────┘ └───────────┘│
+│                                                                            │
+│  ┌───────────────────────┐ ┌───────────────────────┐                      │
+│  │ Create Form           │ │ Design Workflow       │                      │
+│  │ Build data collection │ │ Visual process        │                      │
+│  │ forms                 │ │ automation            │                      │
+│  └───────────────────────┘ └───────────────────────┘                      │
+│  ┌───────────────────────┐ ┌───────────────────────┐                      │
+│  │ Model Data            │ │ Build Pages           │                      │
+│  └───────────────────────┘ └───────────────────────┘                      │
+│                                                                            │
+│  ┌─ Your projects ───────────────────────────────────────────────────────┐│
+│  │ Customer Portal   customer-portal   updated 2 hours ago   [Open]      ││
+│  │ HR Management     hr-management     updated 5 hours ago   [Open]      ││
+│  └───────────────────────────────────────────────────────────────────────┘│
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Components:**
-- Stats Cards: Key metrics (Projects, Forms, Workflows, Entities)
-- Quick Actions: One-click shortcuts to common tasks
-- Recent Projects: List with name, last modified
-- Recent Activity: Timeline of user actions
+- Header: project name and description; an "Unsaved changes" badge while the
+  autosave debounce is pending
+- Stats Cards: live counts from the open project (Forms, Workflows, Data
+  Models, Pages), each a button that navigates to its builder
+- Quick Actions: the four builder entry points
+- Your projects: server-side project list with relative "last updated" and an
+  Open action; the desktop host has no project list, so it shows an honest
+  empty state instead of rows
 
 ---
 
@@ -441,114 +458,93 @@ corrected component inventory)
 
 ## 9. Plugin Manager
 
+There is **no marketplace** and no plugin registry: a plugin is a
+`plugin.json` manifest plus a `.wasm` module the user already has, and the IDE
+server owns the sandbox it runs in. The screen therefore has one tab-shaped
+job — install from files, then enable, disable or remove.
+
 ### 9.1 Plugin Manager Layout
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────┐
 │  Plugin Manager                                                                  │
 ├────────────────────────────────────────────────────────────────────────────────┤
-│  [Installed (12)] [Marketplace (45)] [Develop (My Plugins)]                      │
+│  There is no marketplace: the IDE installs what you give it.                     │
 ├────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  ┌─ Filters ─────────────────────────────────────────────────────────────────┐ │
-│  │ Search: [Search plugins...]  Category: [All ▼]  Sort: [Popular ▼]      │ │
+│  ┌─ Install ─────────────────────────────────────────────────────────────────┐ │
+│  │  [Choose plugin.json…]  [Choose plugin.wasm…]            [Install]        │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                  │
-│  ┌─ Plugin Card ──────────────┐  ┌─ Plugin Card ──────────────┐             │
-│  │                             │  │                             │             │
-│  │ [📦] Form Validator         │  │ [📦] Chart Components       │             │
-│  │ by nocode-team • v1.2.3     │  │ by data-viz • v2.0.1        │             │
-│  │ Rating: ★★★★☆ (234)        │  │ Rating: ★★★★★ (892)         │             │
-│  │                             │  │                             │             │
-│  │ Add validation rules to     │  │ Beautiful charts for pages  │             │
-│  │ your forms with ease.       │  │ (Line, Bar, Pie, Scatter).  │             │
-│  │                             │  │                             │             │
-│  │ [Install] [Details]         │  │ [Install] [Details]         │             │
-│  └─────────────────────────────┘  └─────────────────────────────┘             │
+│  Search: [Search installed plugins...]                                           │
 │                                                                                  │
-│  ┌─ Plugin Card ──────────────┐  ┌─ Plugin Card ──────────────┐             │
-│  │                             │  │                             │             │
-│  │ [📦] AWS S3 Storage         │  │ [📦] Email Templates        │             │
-│  │ by cloud-team • v1.0.5      │  │ by mail-team • v1.1.0       │             │
-│  │ Rating: ★★★★☆ (89)         │  │ Rating: ★★★★☆ (156)         │             │
-│  │                             │  │                             │             │
-│  │ S3 storage driver for       │  │ Custom email templates      │             │
-│  │ uploads and assets.         │  │ with MJML support.          │             │
-│  │                             │  │                             │             │
-│  │ [Install] [Details]         │  │ [Install] [Details]         │             │
-│  └─────────────────────────────┘  └─────────────────────────────┘             │
+│  ┌─ Plugin Row ─────────────────────────────────────────────────────────────┐ │
+│  │ [📦] com.acme.charts   v1.2.3   by acme        [Enabled ▢]  [🗑 Remove]  │ │
+│  │      Charts for pages (line, bar, pie).                                  │ │
+│  │      Permissions: read_pages, write_pages                                │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+│  ┌─ Plugin Row ─────────────────────────────────────────────────────────────┐ │
+│  │ [📦] com.acme.validator v0.9.0  by acme        [Disabled ▢] [🗑 Remove]  │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Plugin Manager States:**
-- **Installed Tab**: Enable/Disable toggle, Configure, Update, Uninstall
-- **Marketplace Tab**: Search, filter by category (Component, Action, Workflow, Storage, Auth), install
-- **Develop Tab**: "Create New Plugin" button, scaffold project, test locally, publish
+- **Empty**: "No plugins installed yet", with the install row still visible
+- **Unsupported host**: the desktop shell has no plugin sandbox, so the screen
+  says plugins are unavailable instead of offering a form that cannot work
+- **Install**: manifest is parsed and validated server-side (id, semver,
+  `api_version`, duplicate permissions and entry points) before the module is
+  accepted
+- **Per user**: installed plugins are scoped to the account, so two users can
+  install the same plugin id independently
 
 ---
 
 ## 10. Code Generator
 
+Codegen always emits the backend, frontend, database, docker and kubernetes
+trees, so there are **no target checkboxes** — a checkbox that no code path
+reads is a lie about what the button does. The screen configures the two things
+that actually change the output (output directory and database driver) and
+reports what was written.
+
 ### 10.1 Code Generator Layout
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────┐
-│  Code Generator - [Customer Portal]      [Generate] [Build] [Preview]         │
-├────────────────────────────────────────────────────────────────────────────────┤
-│  Targets & Configuration                                                        │
-│                                                                                  │
-│  ┌─ Target Selection ──────────────────────────────────────────────────────┐ │
-│  │ [✓] Web (Leptos + WASM + PWA)                                            │ │
-│  │ [✓] Desktop (Tauri v2)                                                   │ │
-│  │ [✓] Docker (Multi-stage)                                                 │ │
-│  │ [✓] Kubernetes (Manifests)                                               │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                  │
-│  ┌─ Environment Configuration ──────────────────────────────────────────────┐ │
-│  │ Database:  [SQLite ▼]                                                    │ │
-│  │ URL:       [sqlite://app.db?mode=rwc]                                    │ │
-│  │ Features:  [✓] Auth [✓] API [✓] Workflows [✓] Files [✓] Audit Log      │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                  │
-│  ┌─ Generation Preview ────────────────────────────────────────────────────┐ │
-│  │ Output Directory: [D:\nocode-ide\generated\customer-portal]              │ │
-│  │ [Browse...]                                                               │ │
-│  │                                                                            │ │
-│  │ Generated Structure:                                                       │ │
-│  │ ├── backend/           (Rust/Axum)                                        │ │
-│  │ │   ├── src/                                                              │ │
-│  │ │   ├── Cargo.toml                                                        │ │
-│  │ │   └── migrations/                                                       │ │
-│  │ ├── frontend/          (Leptos/WASM)                                      │ │
-│  │ │   ├── src/                                                              │ │
-│  │ │   ├── Cargo.toml                                                        │ │
-│  │ │   ├── package.json                                                      │ │
-│  │ │   └── tailwind.config.js                                               │ │
-│  │ ├── database/         (SQL)                                               │ │
-│  │ ├── docker/            (Dockerfiles)                                      │ │
-│  │ ├── kubernetes/        (K8s YAML)                                         │ │
-│  │ └── README.md                                                             │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                  │
-│  ┌─ Generation Log ─────────────────────────────────────────────────────────┐ │
-│  │ [10:45:23] Starting code generation...                                   │ │
-│  │ [10:45:24] Generating backend models...                                   │ │
-│  │ [10:45:25] Generating API routes...                                      │ │
-│  │ [10:45:26] Generating frontend components...                             │ │
-│  │ [10:45:27] Generating database migrations...                             │ │
-│  │ [10:45:28] Generation completed successfully!                            │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
-└────────────────────────────────────────────────────────────────────────────────┘
+│  Code Generator - [Customer Portal]                        [▶ Generate Code]   │
+├──────────────────────────────┬─────────────────────────────────────────────────┤
+│  Generation Config           │  Output                            [Ready]      │
+│                              │                                                 │
+│  Output Directory            │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐   │
+│  [./generated      ] [📂]    │  │  24    │ │  18    │ │   3    │ │   2    │   │
+│  The generated backend is    │  │backend │ │frontend│ │  db    │ │docker  │   │
+│  compiled against this       │  │ files  │ │ files  │ │ files  │ │ files  │   │
+│  driver, so preview uses it  │  └────────┘ └────────┘ └────────┘ └────────┘   │
+│                              │                                                 │
+│  Database                    │  ┌─ Log ─────────────────────────────────────┐ │
+│  [SQLite ▼]                  │  │ [10:45:23] Starting code generation…      │ │
+│                              │  │ [10:45:24] Generating backend models…     │ │
+│  ┌─ What will be generated ─┐│  │ [10:45:25] Generating API routes…         │ │
+│  │ Entities            10   ││  │ [10:45:26] Generating frontend…           │ │
+│  │ Forms                8   ││  │ [10:45:27] Generating migrations…         │ │
+│  │ Pages               12   ││  │ [10:45:28] Generation completed           │ │
+│  └──────────────────────────┘│  └───────────────────────────────────────────┘ │
+│  Codegen emits the backend,  │                                                 │
+│  frontend, database, docker  │                                                 │
+│  and kubernetes trees for    │                                                 │
+│  every run.                  │                                                 │
+└──────────────────────────────┴─────────────────────────────────────────────────┘
 ```
 
 **Code Generator Features:**
-- Multi-target selection with checkboxes
-- Feature flags for optional modules
-- Real-time project structure preview
-- Generation progress with timestamps
-- Build button to compile generated code
-- Preview button to run locally
-- Open in Explorer/Finder
+- Output directory with a folder picker (native dialog on the desktop host)
+- Database driver, which the generated backend is compiled against
+- "What will be generated": live counts from the project model, with an
+  honest empty state when the project has no entities, forms or pages
+- Run report: per-tree file counts read from the generator's own report
+- Generation log with timestamps, cancellable while running
+- Status pill: Idle / Generating / Ready / Failed
 
 ---
 
@@ -556,131 +552,178 @@ corrected component inventory)
 
 ### 11.1 Project Settings Tabs
 
+Three tabs, because three groups of settings change something. Auth, email,
+API, storage, notification and feature-flag inputs were removed: nothing in
+codegen reads them, so editing them looked like configuration while changing
+nothing.
+
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────┐
 │  Project Settings - [Customer Portal]                                           │
 ├────────────────────────────────────────────────────────────────────────────────┤
-│  [General] [Database] [Auth] [Email] [API] [Storage] [Features] [Notifications] │
+│  [General] [Database] [Frontend]                                     [Save]     │
 ├────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
-│  ┌─ General Settings ──────────────────────────────────────────────────────┐ │
-│  │ Project Name:     [Customer Portal]                                      │ │
-│  │ Project Slug:     [customer-portal]                                      │ │
-│  │ Description:      [Customer self-service portal]                        │ │
-│  │ Version:          [1.0.0]                                                │ │
-│  │ Default Locale:   [English (en) ▼]                                       │ │
-│  │ Timezone:         [UTC ▼]                                                 │ │
-│  │ Currency:         [USD ▼]                                                 │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
+│  ┌─ General ───────────────────────────────────────────────────────────────┐  │
+│  │ Project Name:  [Customer Portal]                                         │  │
+│  │                Renaming also rewrites the slug, which the generated       │  │
+│  │                crate name is derived from.                               │  │
+│  │ Slug:          [customer-portal]        (read-only)                      │  │
+│  │ Description:   [Customer self-service portal                    ]        │  │
+│  └──────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                  │
-│  ┌─ Advanced ────────────────────────────────────────────────────────────────┐ │
-│  │ Auto-save:        [✓] Every 30 seconds                                   │ │
-│  │ Backup on save:   [✓] Enabled                                            │ │
-│  │ Git integration:   [ ] Enable Git                                         │ │
-│  │ Export format:    [JSON ▼]                                                │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
+│  ┌─ Database ──────────────────────────────────────────────────────────────┐  │
+│  │ Driver:  [SQLite ▼]                                                      │  │
+│  │ URL:     [sqlite://app.db?mode=rwc                            ]          │  │
+│  │ ⚠ Leave the URL empty to use a throwaway database instead.              │  │
+│  └──────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                  │
+│  ┌─ Frontend ──────────────────────────────────────────────────────────────┐  │
+│  │ Framework: [Leptos (Rust / WASM) ▼]                                      │  │
+│  │            Generated frontends are Leptos, compiled to WebAssembly.      │  │
+│  │ Bundler:   [Trunk ▼]                        (disabled)                   │  │
+│  └──────────────────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Settings Tabs Coverage:**
-- **General**: Metadata, locale, timezone, formatting
-- **Database**: Driver, connection, pool, SSL
-- **Authentication**: JWT, MFA, Social OAuth, SSO
-- **Email**: SMTP/config, templates, from address
-- **API**: Base path, versioning, CORS, rate limit
-- **Storage**: Local/S3/GCS/Azure, limits
-- **Features**: 16 feature toggles
-- **Notifications**: Channels & templates
+- **General**: name, derived slug (read-only), description
+- **Database**: driver, connection URL, throwaway-database mode
+- **Frontend**: framework (Leptos only) and bundler (Trunk, shown disabled)
+
+Auto-save is not a setting: it is always on, debounced 1500 ms after the last
+change. Export is a Dashboard/Projects action, not a settings field.
 
 ---
 
 ## 12. Modal Examples
 
-### 12.1 Save Project Modal
+### 12.1 Save Project
 
-```text
-┌─────────────────────────────────────────────┐
-│  Save Project                                 │
-├─────────────────────────────────────────────┤
-│                                               │
-│  Project Name: [Customer Portal]             │
-│  Location:     [D:\projects\]                 │
-│                [Browse...]                   │
-│                                               │
-│  [Save] [Cancel]                             │
-└─────────────────────────────────────────────┘
-```
+Saving is not a modal. The topbar `Save` button writes the project immediately,
+bypassing the 1500 ms autosave debounce; when the project has never been saved
+it falls through to `saveProjectAs`, which uses the host's native save dialog
+(`pickSavePath`) rather than an in-app modal. On the web host the same path is a
+server write, so no file picker appears.
 
-### 12.2 SQL Preview Modal
+### 12.2 BPMN 2.0 Import Modal
 
 ```text
 ┌───────────────────────────────────────────────────────────────────────┐
-│  SQL Preview - users table                                            │
+│  Import BPMN 2.0                                                  ✕   │
 ├───────────────────────────────────────────────────────────────────────┤
-│  -- Create table: users                                                │
-│  CREATE TABLE users (                                                  │
-│    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),                      │
-│    email VARCHAR(255) NOT NULL UNIQUE,                                 │
-│    name VARCHAR(255),                                                  │
-│    created_at TIMESTAMP NOT NULL DEFAULT NOW(),                       │
-│    updated_at TIMESTAMP DEFAULT NOW()                                  │
-│  );                                                                     │
-│                                                                         │
-│  CREATE UNIQUE INDEX idx_users_email ON users(email);                 │
-│                                                                         │
-│  [Copy to Clipboard] [Download .sql] [Close]                           │
+│  [Process name                                                  ]     │
+│  ┌─────────────────────────────────────────────────────────────────┐  │
+│  │ <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"│  │
+│  │              targetNamespace="http://bpmn.io/schema/bpmn">      │  │
+│  │   <process id="Process_1" isExecutable="false">                 │  │
+│  │     ...                                                         │  │
+│  └─────────────────────────────────────────────────────────────────┘  │
+│  ⚠ Line 12: unknown element <boundaryEvent> — skipped                │
+│                                                                       │
+│                                        [Cancel]  [Import]             │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-### 12.4 Web IDE - Login Modal
+Parsed server-side by `crates/bpmn/src/xml.rs`; a parse error is reported in
+place and the dialog stays open. Import never overwrites an existing workflow —
+it always creates a new one with the name in the first field.
+
+### 12.3 Unsaved Changes Guard
+
+The guard is a native `window.confirm`, not a custom modal: it has to work from
+a `beforeunload` handler and from the sign-out path, and both need a
+synchronous answer. It fires only while `isDirty` is true.
 
 ```text
 ┌─────────────────────────────────────────────┐
-│  Sign in to Web IDE                         │
+│  This page says                          ✕  │
 ├─────────────────────────────────────────────┤
-│  Email:    [user@example.com]               │
-│  Password: [••••••••]                        │
-│  [✓] Remember me                            │
-│  [Forgot password?]                         │
+│  You have unsaved changes. Leave this       │
+│  page and lose them?                        │
 │                                               │
-│  [Sign in]  [Create account]                │
+│  [Cancel]  [OK]                             │
 └─────────────────────────────────────────────┘
 ```
 
-### 12.5 Web IDE - Register Modal
+Triggers: in-app navigation to the projects screen, sign-out (both the sidebar
+user menu and the projects screen), and browser tab close. Every other dialog
+uses the shared `Modal` component, which closes on Escape, moves focus into the
+dialog on open, returns it to the trigger on close, wraps Tab inside the dialog
+and carries `role="dialog" aria-modal="true"`.
+
+### 12.4 Web IDE - Sign In
+
+A full page, not a modal: the web IDE has no shell to sit on until you are
+authenticated. There is no "remember me" (the refresh cookie is HttpOnly and
+already long-lived) and no "forgot password" (there is no mail transport in the
+server, so a reset link could not be sent — offering the link would be a dead
+end).
+
+```text
+┌─────────────────────────────────────────────┐
+│  Bonafoid                                   │
+│  Sign in to your workspace                  │
+├─────────────────────────────────────────────┤
+│  Email     [user@example.com]               │
+│  Password  [••••••••]                        │
+│  ⚠ Invalid email or password                │
+│                                               │
+│  [            Sign in                      ] │
+├─────────────────────────────────────────────┤
+│  No account? Create one                     │
+└─────────────────────────────────────────────┘
+```
+
+### 12.5 Web IDE - Create Account
 
 ```text
 ┌─────────────────────────────────────────────┐
 │  Create your account                        │
+│  Projects are stored server-side and        │
+│  scoped to you                              │
 ├─────────────────────────────────────────────┤
-│  Email:           [user@example.com]         │
-│  Password:        [••••••••]                 │
-│  Confirm Password:[••••••••]                 │
-│  By creating an account you agree to T&Cs   │
+│  Email             [user@example.com]        │
+│  Password          [••••••••]                │
+│                    At least 8 characters.    │
+│  Confirm password  [••••••••]                │
 │                                               │
-│  [Create account]  [Sign in instead]        │
+│  [         Create account                  ] │
+├─────────────────────────────────────────────┤
+│  Already registered? Sign in                │
 └─────────────────────────────────────────────┘
 ```
 
-### 12.6 Web IDE - Project Dashboard
+Both screens share `AuthForm`, so validation and error presentation are
+identical: mismatched passwords and short passwords are caught client-side, and
+the server's error message is shown in a `role="alert"` paragraph.
+
+### 12.6 Web IDE - Projects Screen
+
+A single-column list, not a card grid: each row is a project you can open,
+duplicate, export or delete. New project is an inline row at the top rather than
+a button that opens a dialog.
 
 ```text
 ┌────────────────────────────────────────────────────────────────┐
-│  Web IDE  [User ▼]  [New Project]  [Import]  [Logout]        │
+│  Projects                                        [⏻ Sign out]  │
 ├────────────────────────────────────────────────────────────────┤
-│  My Projects (12)                                              │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │ Customer Portal │  │ HR Management  │  │ E-commerce App │ │
-│  │ Last modified   │  │ 5h ago         │  │ Yesterday      │ │
-│  │ 2h ago [Open]   │  │ [Open]         │  │ [Open]         │ │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
-│  ┌─────────────────┐  ┌─────────────────┐                       │
-│  │ Task Manager    │  │ + New Project  │                       │
-│  │ 3 days ago      │  │                │                       │
-│  │ [Open]          │  │                │                       │
-│  └─────────────────┘  └─────────────────┘                       │
+│  [New project name                        ]  [+ Create]        │
+│                                                                │
+│  ⬆ Import project                                              │
+│                                                                │
+│  📄 Customer Portal      customer-portal    2 hours ago        │
+│                                       [Open] [⧉] [⬇] [🗑]      │
+│  📄 HR Management        hr-management      5 hours ago        │
+│                                       [Open] [⧉] [⬇] [🗑]      │
+│  📄 E-commerce App       e-commerce-app     3 days ago         │
+│                                       [Open] [⧉] [⬇] [🗑]      │
 └────────────────────────────────────────────────────────────────┘
 ```
+
+Row actions are icon buttons with `title` and `aria-label`: Open, Duplicate,
+Export (downloads the project JSON), Delete. Delete and Sign out both run
+through the unsaved-changes guard.
 
 ---
 
@@ -711,8 +754,10 @@ corrected component inventory)
 
 ## 15. Implementation Notes
 
-- **Framework**: React 18 + TypeScript + Tailwind CSS, shared through `packages/ide-core`
-- **Drag & Drop**: @dnd-kit/core + @dnd-kit/sortable (form and page builders)
+- **Framework**: React 18 + TypeScript + Tailwind CSS 3, shared through `packages/ide-core`
+- **Drag & Drop**: native HTML5 drag events (`draggable` + `onDragStart`/`onDrop`)
+  in the form field list — no @dnd-kit dependency; reordering is also reachable
+  from the keyboard
 - **Flow Editor**: React Flow (`reactflow`) for the BPMN workflow builder
 - **Canvas Rendering**: SVG + HTML for the ERD in the data modeler
 - **Icons**: Lucide React (consistent icon set)
@@ -721,13 +766,15 @@ corrected component inventory)
 - **Routing**: react-router-dom v6 `BrowserRouter` — not a data router, so
   navigation blocking uses a `beforeunload` guard plus an explicit
   `confirmLeave()` call, not `useBlocker`
-- **Auto-save**: debounced at 30 seconds after the last change; a failure raises
-  a toast, and leaving a dirty project prompts first
+- **Auto-save**: debounced 1500 ms after the last change; a failure raises a
+  toast, and leaving a dirty project prompts first
 - **Toast Notifications**: the shared `uiStore` notification surface driven by
   `describeError`/`notifyError` — no third-party toast library
-- **Modals**: hand-rolled dialogs in `components/` (no Radix dependency)
+- **Modals**: the hand-rolled `components/ui/Modal.tsx` (no Radix dependency);
+  Escape to close, focus moved in and restored, Tab wrapped
 - **Tooltips**: `title` attributes plus inline hints
-- **Code Editor**: Monaco (`@monaco-editor/react`) for SQL/JSON preview
+- **Code display**: plain `<pre>` blocks — there is no Monaco dependency and no
+  SQL preview modal
 
 ### 15.1 Accessibility (as implemented)
 
@@ -739,7 +786,7 @@ The design target is WCAG 2.1 AA. What the code actually does today:
 | Reordering | The drag handle is a real `<button>` with an accessible name and ↑/↓ keys, not a decorative `div` |
 | Icon-only buttons | `aria-label` on every one; icons carry `aria-hidden` so the name is not read twice |
 | Disclosures | `aria-expanded` on the options toggle and the New Page trigger |
-| Focus management | Inline forms close on Escape and return focus to the button that opened them |
+| Focus management | The shared `Modal` moves focus in on open, returns it to the trigger on close and wraps Tab; inline forms close on Escape and return focus to the button that opened them |
 | Theme contrast | `readableTextColor()` picks white or near-black per background; `themeModel.test.ts` asserts ≥ 4.5:1 for every colour role and for body/secondary/tertiary text |
 | Page structure | Process nodes are `role="group"` with a label, so a screen reader announces the node's identity before its controls |
 
@@ -752,3 +799,4 @@ The design target is WCAG 2.1 AA. What the code actually does today:
 | 1.0 | 2026-10-15 | UX Designer | Initial Draft - Complete UI/UX wireframes & mockups for No-Code IDE platform |
 | 1.1 | 2026-10-16 | Engineering | Add Web IDE auth + project dashboard, new List Builder wireframe; note web flows |
 | 1.2 | 2026-10-28 | Engineering | §15 rewritten to match the shipped dependency set (no Sonner/Radix); §15.1 added with the accessibility work actually implemented |
+| 1.3 | 2026-10-29 | Engineering | Re-drew §2, §3, §9, §10, §11, §12 against the shipped screens: sidebar not topbar tabs, no marketplace, no target checkboxes, 3-tab settings, no activity timeline; §12.3 added (the gap); §15 corrected again (no @dnd-kit, no Monaco, autosave is 1500 ms); Modal gained focus management |

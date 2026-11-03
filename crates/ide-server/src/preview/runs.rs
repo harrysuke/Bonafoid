@@ -455,6 +455,11 @@ impl RunManager {
             return self.records.lock().unwrap().remove(build_id).is_some();
         };
 
+        // Kill the tree first, while the parent is still alive: on Windows
+        // `taskkill /T` walks parent→child links, and a reaped parent takes
+        // that map with it. `start_kill` afterwards is the backstop for the
+        // direct child.
+        crate::preview::terminate_tree(process.child.id().unwrap_or(0));
         let _ = process.child.start_kill();
         let gone = match tokio::time::timeout(STOP_GRACE, process.child.wait()).await {
             // Reaped: the process is definitely gone.
@@ -862,6 +867,41 @@ mod tests {
                 PathBuf::from("sh"),
                 vec!["-c".to_string(), "sleep 60".to_string()],
             )
+        }
+    }
+
+    /// Stopping a preview must close the pipes its descendants hold.
+    ///
+    /// This is the observable form of "the whole tree died": `cmd.exe /C ping`
+    /// leaves `ping` holding the inherited stderr handle, so if only the direct
+    /// child is killed the read below never reaches EOF. Before the group kill
+    /// existed, that same held-open pipe parked the log pump and made dropping
+    /// the runtime wait out the sleeper's full 60 seconds.
+    #[tokio::test]
+    async fn stopping_a_preview_closes_pipes_its_children_hold() {
+        use tokio::io::AsyncReadExt;
+
+        let (program, args) = sleeper();
+        let mut command = Command::new(&program);
+        command
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        crate::preview::isolate_process_group(&mut command);
+        let mut child = command.spawn().expect("spawn the sleeper");
+
+        let mut stderr = child.stderr.take().expect("stderr is piped");
+        crate::preview::terminate_tree(child.id().unwrap_or(0));
+
+        let mut buffer = [0u8; 64];
+        let read = tokio::time::timeout(Duration::from_secs(10), stderr.read(&mut buffer)).await;
+        match read {
+            Ok(Ok(0)) => {}
+            Ok(Ok(n)) => panic!("expected EOF, got {n} bytes: a writer survived the kill"),
+            Ok(Err(error)) => panic!("read failed: {error}"),
+            Err(_) => panic!("the pipe stayed open: a grandchild survived the kill"),
         }
     }
 }

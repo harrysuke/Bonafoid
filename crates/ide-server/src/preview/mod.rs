@@ -88,6 +88,72 @@ pub(crate) fn isolate_process_group(command: &mut tokio::process::Command) {
     }
 }
 
+/// Kill a child and everything it started.
+///
+/// Putting the child in its own group is only half the job: something has to
+/// kill the *group*. `Child::kill` sends a signal to one pid, so a forked
+/// grandchild survives — and because it inherited the stdout/stderr pipes, it
+/// keeps them open. That is not a theoretical leak: a stopped preview whose
+/// backend had forked a worker left the log pump blocked on a pipe that would
+/// not close, and dropping the runtime then waited for it.
+///
+/// On Unix the child is a group leader (`process_group(0)`), so a negative pid
+/// signals the whole group. On Windows `CREATE_NEW_PROCESS_GROUP` only marks a
+/// console group and yields no killable handle, so the tree is walked with
+/// `taskkill /T`, which is the documented way to terminate a process and its
+/// descendants.
+pub(crate) fn terminate_tree(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        // SAFETY: `kill` is async-signal-safe and takes no pointers. A negative
+        // pid addresses the process group led by `pid`. Failure (already gone,
+        // not permitted) is not interesting here.
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
+    #[cfg(windows)]
+    {
+        // Output is discarded: taskkill exits non-zero for a pid that has
+        // already been reaped, which is the common case for a clean stop.
+        let _ = std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+}
+
+/// Kills a process tree when dropped unless it has been disarmed.
+///
+/// `kill_on_drop` covers the direct child only. Wrapping the pid means an
+/// early return, a `?`, or a cancelled future all still sweep the descendants.
+pub(crate) struct TreeGuard(Option<u32>);
+
+impl TreeGuard {
+    pub(crate) fn new(pid: Option<u32>) -> Self {
+        Self(pid)
+    }
+
+    /// Call once the child has been reaped: the pid may be reused after that,
+    /// and killing a stranger's process is worse than leaking one.
+    pub(crate) fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for TreeGuard {
+    fn drop(&mut self) {
+        if let Some(pid) = self.0 {
+            terminate_tree(pid);
+        }
+    }
+}
+
 #[cfg(test)]
 mod live_tests;
 

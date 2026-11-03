@@ -27,19 +27,13 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
+        // Chunk rules only for packages the host actually imports; the
+        // monaco / dnd-kit / zod / react-hook-form branches went with the
+        // dependencies.
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('monaco')) return 'monaco';
           if (id.includes('reactflow')) return 'flow';
           if (id.includes('@tauri-apps')) return 'tauri';
-          if (
-            id.includes('@dnd-kit') ||
-            id.includes('react-hook-form') ||
-            id.includes('@hookform') ||
-            id.includes('/zod/')
-          ) {
-            return 'forms';
-          }
           return 'vendor';
         },
       },

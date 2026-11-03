@@ -2,7 +2,7 @@
 
 ## No-Code Visual Application Development Platform
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Date:** October 2026  
 **Status:** Living document — the Rust definitions in `crates/model/src/` remain
 the source of truth; the TypeScript mirror is generated from the `schemars`
@@ -784,101 +784,115 @@ WASM plugin system configuration and metadata.
 
 ### 8.1 Plugin Config
 
+A plugin installed into a project. Note that `id` is a `String` — the
+reverse-DNS manifest id (`com.acme.charts`), not a UUID — and that the manifest
+itself is **not** embedded: the fields the IDE needs are flattened onto the
+record, so a project JSON stays readable and diffable.
+
 ```rust
+// crates/model/src/project.rs
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct PluginConfig {
-    pub id: PluginId,
+    pub id: String,
     pub name: String,
     pub version: String,
+    pub description: Option<String>,
+    pub author: Option<String>,
+    pub homepage: Option<String>,
+    pub repository: Option<String>,
+    pub license: Option<String>,
     pub enabled: bool,
-    pub manifest: PluginManifest,
-    pub settings: IndexMap<String, serde_json::Value>,
+    pub config: IndexMap<String, serde_json::Value>,
     pub permissions: Vec<PluginPermission>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub entry_points: Vec<PluginEntryPoint>,
+    pub dependencies: Vec<PluginDependency>,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
-pub struct PluginId(pub Uuid);
 ```
 
 ### 8.2 Plugin Manifest
 
+The manifest is the file a plugin author ships; `crates/plugins` parses and
+validates it (`PluginManifest::validate`: id format, semver, `api_version`,
+duplicate permissions, duplicate entry-point names) before anything is
+installed. `permissions` reuses `nocode_model::PluginPermission`, so there is
+exactly one permission vocabulary in the codebase.
+
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+// crates/plugins/src/manifest.rs
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PluginManifest {
+    pub id: String,
     pub name: String,
     pub version: String,
+    pub api_version: String,          // default: API_VERSION
     pub description: Option<String>,
-    pub author: String,
-    pub license: String,
+    pub author: Option<String>,
     pub homepage: Option<String>,
     pub repository: Option<String>,
-    pub keywords: Vec<String>,
-    pub entry: String,
-    pub engine: PluginEngine,
-    pub permissions: Vec<PluginPermission>,
-    pub extension_points: Vec<ExtensionPoint>,
-    pub dependencies: IndexMap<String, String>,
+    pub license: Option<String>,
+    pub entry_point: String,          // default: "plugin.wasm"
+    pub permissions: Vec<Permission>, // = nocode_model::PluginPermission
+    pub entry_points: Vec<PluginEntryPoint>,
+    pub dependencies: Vec<PluginDependency>,
+    pub exports: Vec<String>,
+    pub resources: PluginResources,   // fuel / memory overrides for the sandbox
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct PluginEngine {
-    pub wasm: WasmEngine,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct WasmEngine {
-    pub version: String,
-    pub features: Vec<String>,
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+pub struct PluginResources {
+    pub fuel: Option<u64>,
+    pub memory_mb: Option<u32>,
 }
 ```
 
 ### 8.3 Plugin Permissions & Extension Points
 
+The real `PluginPermission` is resource-and-verb oriented rather than the
+coarse `Database` / `Network` / `Api` list this section used to claim:
+
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginPermission {
-    Database,
-    FileSystem,
-    Network,
-    Storage,
-    Email,
-    Auth,
-    Api,
-    Workflow,
-    Scheduler,
-    Clipboard,
-    Notification,
+    ReadForms,      WriteForms,
+    ReadEntities,   WriteEntities,
+    ReadWorkflows,  WriteWorkflows,
+    ReadPages,      WritePages,
+    ReadThemes,     WriteThemes,
+    ExecuteCode,
+    AccessDatabase, AccessFileSystem, AccessNetwork, AccessAuth,
+    AccessEmail,    AccessScheduler,
+    ManagePlugins,  ManageUsers, ViewAuditLog,
+    Custom(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum ExtensionPointType {
-    Component,
-    Action,
-    DataSource,
-    FieldType,
-    WorkflowNode,
-    AuthProvider,
-    StorageDriver,
-    EmailDriver,
-    Hook,
-    Middleware,
-    Command,
-    Page,
-    Layout,
-    Util,
+pub enum PluginEntryPointType {
+    Component, Action, DataSource, FieldType, WorkflowNode,
+    AuthProvider, StorageDriver, EmailDriver, Hook, Middleware,
+    Command, Page, Layout, Util,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct ExtensionPoint {
-    pub r#type: ExtensionPointType,
+pub struct PluginEntryPoint {
     pub name: String,
-    pub config: IndexMap<String, serde_json::Value>,
+    pub r#type: PluginEntryPointType,
+    pub path: String,
+    pub exports: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct PluginDependency {
+    pub id: String,
+    pub version: String,
+    pub optional: bool,
 }
 ```
+
+There is no `ExtensionPoint { type, name, config }` struct and no separate
+`ExtensionPointType` enum: the entry point *is* the extension point, and its
+`type` is `PluginEntryPointType`.
 
 ---
 
@@ -888,17 +902,31 @@ Comprehensive configuration for generated applications.
 
 ### 9.1 Project Settings
 
+The real struct is flat — there is no nested `general` object, and the
+`default_locale` / `timezone` / format fields sit at the top level. Only
+`database` and `frontend` are edited by a Settings tab and read by codegen
+today; the rest are carried so an imported project does not lose data.
+
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+// crates/model/src/project.rs
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ProjectSettings {
-    pub general: GeneralSettings,
-    pub database: DatabaseSettings,
-    pub authentication: AuthenticationSettings,
-    pub email: EmailSettings,
-    pub api: ApiSettings,
-    pub storage: StorageSettings,
+    pub default_locale: String,
+    pub supported_locales: Vec<String>,
+    pub timezone: String,
+    pub date_format: String,
+    pub time_format: String,
+    pub number_format: NumberFormat,
+    pub currency: CurrencyConfig,
+    pub authentication: AuthConfig,
+    pub api: ApiConfig,
+    pub database: DatabaseConfig,
+    #[serde(default)]
+    pub frontend: FrontendConfig,   // framework: Leptos, bundler: Trunk
+    pub storage: StorageConfig,
+    pub email: EmailConfig,
     pub features: FeatureFlags,
-    pub notifications: NotificationSettings,
+    pub custom: IndexMap<String, serde_json::Value>,
 }
 ```
 
@@ -944,19 +972,26 @@ pub enum SslMode {
 }
 ```
 
+SQLite and PostgreSQL are the only drivers with end-to-end coverage; the other
+three are selectable in the model but no fixture builds against them.
+
 ### 9.3 Authentication Settings
 
+`AuthConfig`, not `AuthenticationSettings`, and it carries route allowlists in
+addition to the policies:
+
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
-pub struct AuthenticationSettings {
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct AuthConfig {
     pub enabled: bool,
-    pub jwt_secret: Option<String>,
-    pub jwt_expiration: u32,
-    pub refresh_expiration: u32,
+    pub providers: Vec<AuthProvider>,
+    pub session: SessionConfig,
     pub password_policy: PasswordPolicy,
-    pub mfa: MfaSettings,
-    pub social: SocialAuthSettings,
+    pub mfa: MfaConfig,
+    pub social: SocialAuthConfig,
     pub sso: SsoConfig,
+    pub public_routes: Vec<String>,
+    pub protected_routes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -974,6 +1009,9 @@ pub struct PasswordPolicy {
 
 ### 9.4 Feature Flags
 
+Sixteen flags, but two of them are named differently from the earlier draft:
+`audit_log` (not `audit`) and `ai_assist` (not `ai`).
+
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
 pub struct FeatureFlags {
@@ -985,14 +1023,14 @@ pub struct FeatureFlags {
     pub email: bool,
     pub webhooks: bool,
     pub scheduler: bool,
-    pub audit: bool,
+    pub audit_log: bool,
     pub soft_delete: bool,
     pub multi_tenant: bool,
     pub localization: bool,
     pub theming: bool,
     pub plugins: bool,
     pub marketplace: bool,
-    pub ai: bool,
+    pub ai_assist: bool,
 }
 ```
 
@@ -1000,7 +1038,9 @@ pub struct FeatureFlags {
 
 ## 10. Workflow Runtime Models
 
-Runtime state models for workflow execution (for bpmn-server integration).
+Runtime state produced by `crates/bpmn` when a process is executed. These are
+in-memory values returned by the engine, not database tables — the IDE server
+runs a workflow and returns the instance plus its history; nothing persists it.
 
 ### 10.1 Workflow Instance
 
@@ -1192,88 +1232,122 @@ pub struct PaginatedResponse<T> {
 
 ## 14. Web IDE Server Models (Multi-User)
 
-These models live in the IDE server database (`ide-server`, SeaORM). They model users, project persistence, and refresh tokens for the web IDE.
+These models live in the IDE server database. The schema is defined as raw DDL
+in `crates/ide-server/src/migration.rs` and applied through a versioned
+`schema_migrations` table — there are no SeaORM entity structs, and the store
+modules hand-write their SQL (`projects/store.rs`, `auth/store.rs`).
 
-### 14.1 User
+**Every id is `TEXT`, not `Uuid`.** Timestamps are `TEXT` holding SQLite's
+`datetime('now')` output. This is deliberate for SQLite and is the reason the
+server does not support Postgres yet (see the SRS §1.5 table).
 
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct User {
-    pub id: Uuid,
-    pub email: String,
-    pub password_hash: String, // Argon2id
-    pub is_active: bool,
-    pub is_verified: bool,
-    pub last_login_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
+### 14.1 `users`
+
+```sql
+CREATE TABLE users (
+    id            TEXT PRIMARY KEY NOT NULL,
+    email         TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,              -- Argon2id
+    is_active     INTEGER NOT NULL DEFAULT 1,
+    is_verified   INTEGER NOT NULL DEFAULT 0,
+    last_login_at TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 ```
 
-### 14.2 IDE Project
+The read projection is `UserRow { id, email, password_hash, is_active,
+is_verified, created_at }` — all `String`/`bool`, because a `TEXT` column is
+read as a string and parsed only where a timestamp is actually needed.
 
-Projects stored server-side for web IDE; mirrors on-disk project metadata (content is the serialized `Project` JSON).
+### 14.2 `projects`
 
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct IdeProject {
-    pub id: Uuid,
-    pub user_id: Uuid,
-    pub name: String,
-    pub slug: String,
-    pub description: Option<String>,
-    pub version: String,
-    pub data: serde_json::Value, // Serialized Project (JSON)
-    pub revision: i64, // Optimistic concurrency
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
+Server-side project persistence. The document itself is the serialized
+`nocode_model::Project` JSON, so the row is metadata plus one blob.
+
+```sql
+CREATE TABLE projects (
+    id          TEXT PRIMARY KEY NOT NULL,
+    user_id     TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    slug        TEXT NOT NULL,
+    description TEXT,
+    version     TEXT NOT NULL,
+    data        TEXT NOT NULL,               -- serialized Project (JSON)
+    revision    INTEGER NOT NULL DEFAULT 1,  -- reserved; not enforced yet
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_projects_user_id ON projects(user_id);
+CREATE UNIQUE INDEX idx_projects_user_slug ON projects(user_id, slug);
 ```
 
-### 14.3 Refresh Token
+Slug uniqueness is **per user**, not global — two users may each own a project
+called "Blog". Anything that derives a filesystem path from a slug has to
+include the user id, which is exactly why the preview subsystem builds into a
+per-user cargo target directory.
 
-Refresh tokens for JWT rotation (stored as hashes in production; jti used for revocation).
+`revision` exists in the schema but no handler compares it: writes are last
+-write-wins today (SRS FR-13.5 is marked not implemented).
 
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct RefreshToken {
-    pub id: Uuid,
-    pub user_id: Uuid,
-    pub jti: Uuid,
-    pub token_hash: String,
-    pub user_agent: Option<String>,
-    pub ip_address: Option<String>,
-    pub expires_at: DateTime<Utc>,
-    pub revoked_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-}
+### 14.3 `refresh_tokens`
+
+Refresh tokens for JWT rotation. Only the hash is stored, and `jti` is unique
+so a token can be revoked individually.
+
+```sql
+CREATE TABLE refresh_tokens (
+    id         TEXT PRIMARY KEY NOT NULL,
+    user_id    TEXT NOT NULL,
+    jti        TEXT NOT NULL UNIQUE,
+    token_hash TEXT NOT NULL,
+    user_agent TEXT,
+    ip_address TEXT,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
 ```
 
-### 14.4 API Sessions (Optional)
+### 14.4 `plugins`
 
-Optional server-side session view; tokens issued as HttpOnly cookies.
+Installed plugins, scoped per user. The manifest is JSON; the `.wasm` module
+lives on disk, because it is large and never queried.
 
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct Session {
-    pub id: Uuid,
-    pub user_id: Uuid,
-    pub refresh_token_id: Uuid,
-    pub user_agent: Option<String>,
-    pub ip_address: Option<String>,
-    pub last_seen_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
-}
+```sql
+CREATE TABLE plugins (
+    id         TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
+    manifest   TEXT NOT NULL,
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
 ```
 
-### 14.5 Web IDE Relationships
+The composite primary key is the isolation mechanism: two users can install a
+plugin with the same manifest id and neither sees the other's row.
+
+### 14.5 There is no sessions table
+
+An earlier draft of this document described a `Session` model with
+`refresh_token_id`, `last_seen_at` and an expiry. No such table exists and no
+code reads one: a session *is* a refresh token plus an HttpOnly cookie, so
+`refresh_tokens` is the only session store. A separate table would duplicate
+state that already has to be kept in sync.
+
+### 14.6 Web IDE Relationships
 
 | Model | Relations | Description |
 |-------|-----------|-------------|
-| **User** | Has many IdeProject, Has many RefreshToken | Account owner |
-| **IdeProject** | Belongs to User | Per-user project isolation |
-| **RefreshToken** | Belongs to User | JWT refresh rotation + revocation |
+| **users** | has many `projects`, has many `refresh_tokens`, has many `plugins` | Account owner |
+| **projects** | belongs to `users`; unique on `(user_id, slug)` | Per-user project isolation |
+| **refresh_tokens** | belongs to `users`; unique `jti` | JWT refresh rotation + revocation |
+| **plugins** | belongs to `users`; primary key `(user_id, id)` | Per-user plugin install |
 
 ---
 
@@ -1284,3 +1358,4 @@ pub struct Session {
 | 1.0 | 2026-10-15 | Data Architect | Initial Draft - Complete data models for Bonafoid platform |
 | 1.1 | 2026-10-16 | Engineering | Add Web IDE server models (User, IdeProject, RefreshToken, Session) |
 | 1.2 | 2026-10-28 | Engineering | Note that `packages/ide-core/src/types/model.generated.ts` is derived from the schemars schema and verified in CI (`xtask types` + `gen-model-types.mjs --check`) |
+| 1.3 | 2026-10-29 | Engineering | Correct §8 and §9 against the real structs (PluginConfig has no embedded manifest; the permission and entry-point enums were both invented); replace §14 with the actual SQLite DDL — TEXT ids, no sessions table, `plugins` table added, `revision` documented as unenforced |

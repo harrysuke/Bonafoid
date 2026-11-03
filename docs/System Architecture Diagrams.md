@@ -2,10 +2,10 @@
 
 ## No-Code Visual Application Development Platform
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Date:** October 2026  
-**Status:** Living document — amended after Phases 4 and 5 (preview hardening,
-honest security posture, corrected preview routes)  
+**Status:** Living document — amended after Phase 6 (crate graph, codegen
+template paths and BPMN execution model reconciled with the tree)  
 
 ---
 
@@ -40,8 +40,8 @@ graph TB
         Codegen["nocode-codegen<br/>(Code Generation Engine)"]
         Plugins["nocode-plugins<br/>(WASM Plugin Host)"]
         BPMN["nocode-bpmn<br/>(BPMN Engine + NAPI Bridge)"]
-        Runtime["nocode-runtime<br/>(Runtime Library)"]
         Ide["nocode-ide<br/>(IDE Core Logic)"]
+        IdeServer["nocode-ide-server<br/>(Axum API + Preview Subsystem)"]
     end
 
     subgraph "Generation Pipeline"
@@ -74,8 +74,7 @@ graph TB
     end
 
     subgraph "External Systems"
-        BpmnServer["bpmn-server (Node.js)"]
-        PluginRegistry["WASM Plugin Registry"]
+        PluginFiles["Plugin manifests + .wasm files<br/>(local install only — no registry)"]
         Storage["S3/GCS/Azure Blob"]
         Email["SMTP/SendGrid/Mailgun/SES"]
         DockerHub["Container Registry"]
@@ -107,9 +106,10 @@ graph TB
     Codegen --> Templates
     Plugins --> Model
     BPMN --> Model
-    BPMN --> BpmnServer
-    Runtime --> AxumServer
-    Runtime --> Model
+    IdeServer --> Model
+    IdeServer --> Codegen
+    IdeServer --> Plugins
+    IdeServer --> AxumServer
 
     %% Code Generation
     Codegen -->|Generates| AxumServer
@@ -129,13 +129,13 @@ graph TB
     LeptosApp --> PWA
     API --> AxumServer
     WorkflowEngine --> BPMN
-    BPMN --> BpmnServer
     Auth --> Email
     AxumServer --> Storage
 
-    %% Plugins
-    Plugins --> PluginRegistry
-    PluginRegistry --> WasmHost["WASM Host (wasmtime 20.0)"]
+    %% Plugins — installed from a manifest the user supplies; there is no
+    %% registry to fetch from.
+    Plugins --> PluginFiles
+    Plugins --> WasmHost["WASM Host (wasmtime 20.0)"]
 
     %% XtTask
     XtTask --> Codegen
@@ -155,8 +155,7 @@ graph LR
     NocodeIDE -->|"Generates Code"| GenApp
     NocodeIDE -->|"Publishes to"| Deployment["Deployment Targets<br/>(Docker/K8s/Web/Tauri)"]
     
-    GenApp -->|"Stores Data"| Database["Database<br/>(Postgres/MySQL/SQLite)"]
-    GenApp -->|"Workflow Execution"| BPMN_Eng["BPMN Engine<br/>(bpmn-server)"]
+    GenApp -->|"Stores Data"| Database["Database<br/>(SQLite/Postgres/MySQL)"]
     GenApp -->|"Plugin Execution"| WasmRuntime["WASM Runtime<br/>(wasmtime)"]
     
     Admin["🛡️ System Admin"] -->|"Monitors"| Deployment
@@ -180,15 +179,17 @@ graph TD
     subgraph "React 18 + Vite Frontend"
         Index["index.html + main.tsx"]
         App["App.tsx (Router)"]
-        subgraph "Pages"
+        subgraph "Pages (packages/ide-core/src/pages)"
             Dashboard["Dashboard"]
             FormBuilder["Form Builder"]
+            ListBuilder["List Builder"]
             WorkflowBuilder["Workflow Builder"]
             DataModeler["Data Modeler"]
             PageBuilder["Page Builder"]
             ThemeBuilder["Theme Builder"]
             PluginManager["Plugin Manager"]
             CodeGenerator["Code Generator"]
+            PreviewPanel["Preview Panel<br/>(build, run, log, proxy)"]
             ProjectSettings["Project Settings"]
         end
         
@@ -200,22 +201,22 @@ graph TD
         end
         
         subgraph "State & Utils"
-            Zustand["Zustand Store (uiStore)"]
-            Utils["Helpers, Types, Constants"]
-            TauriAPI["Tauri API Client"]
+            Zustand["Zustand stores<br/>(projectStore, pluginStore, uiStore)"]
+            Utils["Helpers, Types, Constants<br/>(utils/errors, utils/themeModel)"]
+            Platform["PlatformApi<br/>(web + tauri implementations)"]
             ReactQuery["TanStack Query"]
         end
     end
     
     TauriMain --> Commands
     TauriMain --> Window
-    Commands --> TauriAPI
-    TauriAPI --> Pages
+    Commands --> Platform
+    Platform --> Pages
     Pages --> Components
     Components --> Zustand
     Zustand --> Utils
     Pages --> ReactQuery
-    ReactQuery --> TauriAPI
+    ReactQuery --> Platform
     
     Index --> App
     App --> Pages
@@ -246,16 +247,12 @@ graph TD
     
     BPMN["nocode-bpmn"] --> Model
     BPMN --> NAPI["External: napi 2.0, napi-derive 2.0"]
-    BPMN --> BpmnServerExt["bpmn-server (Node.js via NAPI)"]
-    
-    Runtime["nocode-runtime"] --> Model
-    Runtime --> Axum["External: axum 0.7, sqlx 0.7, sea-orm 0.12, utoipa 4.0, tower-http 0.5"]
     
     Codegen["nocode-codegen"] --> Model
     Codegen --> Templates["External: handlebars 5.0, quote 1.0, syn 2.0, proc-macro2 1.0, prettyplease 0.2"]
     
-    GeneratedApp["apps/generated-app"] --> Axum
-    GeneratedApp --> Leptos["External: leptos 0.7, leptos_router 0.7"]
+    Codegen --> Axum["External: axum 0.7, sqlx 0.7, sea-orm 0.12, utoipa 4.0, tower-http 0.5"]
+    Codegen --> Leptos["External: leptos 0.7, leptos_router 0.7"]
     
     XT["xtask"] --> Codegen
     XT --> Model
@@ -287,12 +284,9 @@ flowchart LR
         K8sGen["Kubernetes Generator"]
     end
     
-    subgraph "Handlebars Templates"
-        TBackend["templates/backend/*.rs.hbs"]
-        TFrontend["templates/frontend/*.rs.hbs<br/>*.ts.hbs, *.js.hbs, *.css.hbs"]
-        TDB["templates/database/*.sql.hbs"]
-        TDocker["templates/docker/*"]
-        TK8s["templates/kubernetes/*.yaml.hbs"]
+    subgraph "Handlebars Templates (crates/codegen/src/templates)"
+        TBackend["backend/*.rs.hbs<br/>11 files: main, config, db, routes,<br/>model, handler, form + module roots"]
+        TFrontend["frontend/*.hbs<br/>13 files: *.rs.hbs, Cargo.toml, index.html,<br/>input.css, tailwind.config.js"]
     end
     
     subgraph "Generated Output"
@@ -320,15 +314,15 @@ flowchart LR
     
     BackendGen --> TBackend
     FrontendGen --> TFrontend
-    DatabaseGen --> TDB
-    DockerGen --> TDocker
-    K8sGen --> TK8s
+    %% Database, Docker and Kubernetes artifacts are written by Rust code
+    %% (database.rs, targets.rs), not by templates — there is no
+    %% templates/database, templates/docker or templates/kubernetes directory.
+    DatabaseGen -.->|writes directly| OutDB
+    DockerGen -.->|writes directly| OutDocker
+    K8sGen -.->|writes directly| OutK8s
     
     TBackend -->|Render| OutBackend
     TFrontend -->|Render| OutFrontend
-    TDB -->|Render| OutDB
-    TDocker -->|Render| OutDocker
-    TK8s -->|Render| OutK8s
     ProjectGen -->|Generates| OutDocs
     
     OutBackend -->|Build with Cargo| CompiledAPI["Compiled API Binary"]
@@ -355,20 +349,16 @@ graph TD
         BPMNTypes["BPMN Model Types"]
     end
     
-    subgraph "BPMN Execution Engine"
-        BpmnServer["bpmn-server (Node.js)"]
-        ExecutionEngine["Process Execution Engine"]
+    subgraph "BPMN Execution Engine (crates/bpmn — in-process, Rust)"
+        ExecutionEngine["Token-based Process Engine"]
         InstanceManager["Instance Management"]
-        TimerManager["Timer/Event Manager"]
         TaskManager["User/Service Task Manager"]
         VariableStore["Process Variables Store"]
         HistoryStore["Execution History"]
     end
     
-    subgraph "Generated App Runtime"
-        WorkflowAPI["Workflow API Endpoints"]
-        TaskAPI["User Task API"]
-        ServiceTasks["Service Task Executors<br/>(HTTP, Plugin, Function)"]
+    subgraph "IDE Server Surface"
+        BpmnAPI["/api/v1/bpmn/{validate,import,export,run}"]
     end
     
     BPMNEditor --> NodePalette
@@ -378,18 +368,19 @@ graph TD
     BPMNCanvas -->|Export BPMN XML/JSON| BPMNCrate
     BPMNCrate --> BPMNTypes
     BPMNCrate --> NAPIBridge
-    NAPIBridge -->|IPC/JSON Bridge| BpmnServer
-    BpmnServer --> ExecutionEngine
+    NAPIBridge -->|JSON in / JSON out| ExecutionEngine
     ExecutionEngine --> InstanceManager
-    ExecutionEngine --> TimerManager
     ExecutionEngine --> TaskManager
     ExecutionEngine --> VariableStore
     ExecutionEngine --> HistoryStore
     
-    InstanceManager -->|REST API| WorkflowAPI
-    TaskManager -->|REST API| TaskAPI
-    TaskManager --> ServiceTasks
-    ServiceTasks --> Plugins["WASM Plugin Host"]
+    %% The engine is reached over HTTP by the IDE server, and over NAPI by the
+    %% desktop shell. The generated app has no workflow routes, so there is no
+    %% "generated app runtime" edge here.
+    BpmnAPI --> ExecutionEngine
+    InstanceManager -->|JSON summary| BpmnAPI
+    TaskManager -->|task list| BpmnAPI
+    TaskManager --> ServiceTasks["Service Task Executors<br/>(HTTP, function)"]
     ServiceTasks --> HTTP["External HTTP APIs"]
 ```
 
@@ -795,8 +786,7 @@ mindmap
       Zustand 4.4
       TanStack Query 5.x
       React Flow 11.x
-      Monaco Editor 0.45
-      DnD Kit 6.1
+      Lucide React
     Core Crates
       Rust 1.75+
       serde/serde_json
@@ -831,7 +821,7 @@ mindmap
       wit-bindgen 0.35
       Component Model
     BPMN
-      bpmn-server (Node.js)
+      nocode-bpmn (in-tree Rust engine)
       napi 2.0
       napi-derive 2.0
     DevOps & Build
@@ -912,3 +902,4 @@ sequenceDiagram
 |---------|------|--------|---------|
 | 1.0 | 2026-10-15 | System Architect | Initial Draft - Complete system architecture diagrams for Bonafoid platform |
 | 1.1 | 2026-10-16 | Engineering | Add Web IDE platform split, server/auth/preview/run diagrams, hosted preview architecture |
+| 1.2 | 2026-10-29 | Engineering | §10.4 preview sequence redrawn and §10.5 trust boundaries added (Phases 4-5); then the crate graph, codegen template paths, builder list and BPMN execution model reconciled with the tree — `nocode-runtime` and `apps/generated-app` removed, `nocode-ide-server` added, no external bpmn-server |

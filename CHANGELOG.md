@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet.
 
-## [0.1.0] — 2026-10-28
+## [0.1.0] — 2026-10-29
 
 First version with a web IDE, a hosted preview that can be trusted with more than
 one account, and packaging.
@@ -84,9 +84,42 @@ one account, and packaging.
   per role, and the choice is asserted at ≥ 4.5:1 in tests.
 - **README is web-first** and documents every environment variable; the desktop
   IDE is described as a secondary shell.
+- **Dependencies now match what is imported.** `@dnd-kit/*`,
+  `@hookform/resolvers`, `@monaco-editor/react`, `monaco-editor`, `date-fns`,
+  `axios`, `zod` and `react-hook-form` were declared but never imported, along
+  with a second copy of `clsx`/`lucide-react`/`reactflow`/`tailwind-merge`/
+  `zustand` in the desktop app; they are gone, and the manual chunk rules that
+  could never fire went with them. `apps/ide-tauri` now declares the
+  `@nocode/ide-core` dependency it was importing without declaring.
+- **The documentation describes the tree that exists.** The four `docs/*.md`
+  files predated the web IDE by a full milestone. They no longer describe a
+  runtime crate or an `apps/generated-app` crate (both deleted), an external
+  `bpmn-server` engine (the engine is in-tree, and generated apps do not
+  execute workflows), eight settings tabs (there are three), a plugin
+  marketplace (install is local-manifest only), target checkboxes in the code
+  generator (codegen always emits every tree), or a `Uuid`-keyed server schema
+  with a sessions table (ids are `TEXT` and a session *is* a refresh token).
+  Each file gained a Document Control row explaining the change.
 
 ### Fixed
 
+- **A stopped preview or cancelled build left its grandchildren running.** The
+  child was placed in its own process group, but nothing ever killed the
+  *group*: `Child::kill` signals one pid. A preview backend that had forked a
+  worker kept the inherited stdout/stderr pipes open, which parked the log pump
+  and made the runtime wait for the grandchild to exit on its own. Both paths
+  now sweep the tree — a group `SIGKILL` on Unix, `taskkill /T` on Windows —
+  and a `TreeGuard` covers the early-return and cancelled-future paths.
+- **Dialogs did not manage focus.** `Modal` set `aria-modal="true"` but never
+  moved focus into the dialog, never returned it to the trigger, and let Tab
+  walk into the page behind the overlay — the exact failure the attribute is
+  supposed to prevent. It now does all three.
+- **Tailwind was pinned to 4 while the stylesheets were written for 3.** A
+  dependency bump moved `tailwindcss` to 4, but the CSS still used the v3
+  `@tailwind base/components/utilities` directives and both apps hand
+  `tailwindcss` straight to PostCSS, which v4 refuses. The breakage was
+  invisible locally because `node_modules` still held a v3 install; a clean
+  `npm ci` exposed it. Pinned back to `^3.4.17`.
 - The `cargo build` of a preview wrote its binary into a directory the run
   manager did not know about, so a successful build could not be started.
 - `enqueue` accepted arbitrary strings as build ids, which then became directory

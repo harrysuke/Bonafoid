@@ -52,3 +52,8 @@ zeroize = "1"
 
 [dev-dependencies]
 # `tower` (util) and `bytes` are already regular dependencies above.
+
+# Killing a preview's whole process group needs `kill(2)`. Declared only for
+# Unix: Windows uses `taskkill /T` instead, so nothing is pulled in there.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

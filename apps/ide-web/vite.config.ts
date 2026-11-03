@@ -27,18 +27,13 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
+        // Only packages that are actually imported get a chunk. The monaco /
+        // dnd-kit / zod / react-hook-form branches were removed with the
+        // dependencies themselves; a chunk rule for a package nothing imports
+        // is a rule that can never fire.
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('monaco')) return 'monaco';
           if (id.includes('reactflow')) return 'flow';
-          if (
-            id.includes('@dnd-kit') ||
-            id.includes('react-hook-form') ||
-            id.includes('@hookform') ||
-            id.includes('/zod/')
-          ) {
-            return 'forms';
-          }
           return 'vendor';
         },
       },
