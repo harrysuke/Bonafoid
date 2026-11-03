@@ -10,6 +10,9 @@ use zip::{CompressionMethod, ZipWriter};
 pub struct GeneratedProject {
     pub project_id: ProjectId,
     pub output_dir: PathBuf,
+    /// The slug derived from the project name, used for image names and
+    /// Kubernetes resources.
+    pub slug: String,
     /// The database driver the artifacts were generated for.
     ///
     /// The deployment files and the README are written in terms of it — a
@@ -61,6 +64,7 @@ pub async fn generate_project_in_memory(project: &Project) -> Result<GeneratedPr
     let empty = Path::new("");
     let mut generated = GeneratedProject {
         project_id: project.id.clone(),
+        slug: project.slug.clone(),
         driver: project.settings.database.driver.clone(),
         ..Default::default()
     };
@@ -184,6 +188,12 @@ impl GeneratedProject {
             files.push((Path::new("desktop").join(path), content));
         }
 
+        // CI/CD
+        files.push((
+            PathBuf::from(".github/workflows/deploy.yml"),
+            generate_deploy_workflow(self),
+        ));
+
         // Root files
         files.push((PathBuf::from("README.md"), generate_readme(self)));
         files.push((PathBuf::from(".gitignore"), generate_gitignore()));
@@ -274,6 +284,53 @@ async fn write_targets(base: &Path, targets: &crate::targets::TargetsOutput) -> 
     }
 
     Ok(())
+}
+
+fn generate_deploy_workflow(generated: &GeneratedProject) -> String {
+    let slug = &generated.slug;
+    format!(
+        r#"name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: docker.io
+  BACKEND_IMAGE: {slug}-backend
+  FRONTEND_IMAGE: {slug}-frontend
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push backend
+        run: |
+          docker compose -f docker/docker-compose.yml build backend
+          docker push ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest
+
+      - name: Build and push frontend
+        run: |
+          docker compose -f docker/docker-compose.yml build frontend
+          docker push ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.FRONTEND_IMAGE }}:latest
+"#
+    )
 }
 
 fn generate_readme(generated: &GeneratedProject) -> String {
@@ -398,6 +455,19 @@ DATABASE_URL={database_url_example}
 
 SQLite needs `?mode=rwc` so the file is created if it is missing.
 
+## CI/CD Deployment
+
+A GitHub Actions workflow is included at `.github/workflows/deploy.yml`. It builds
+and pushes both images to Docker Hub on every push to `main`.
+
+Add these two secrets to your repository:
+
+- `DOCKERHUB_USERNAME` — your Docker Hub username
+- `DOCKERHUB_TOKEN` — a Docker Hub access token (not your password)
+
+The workflow uses `docker compose build` so the image names in
+`docker/docker-compose.yml` are the source of truth.
+
 ## Deployment
 
 ### Docker
@@ -460,7 +530,6 @@ fn generate_gitignore() -> String {
     r#"# Rust
 /target
 **/*.rs.bk
-Cargo.lock
 
 # Node
 /node_modules
@@ -502,7 +571,7 @@ logs/
 }
 
 fn generate_makefile() -> String {
-    r#".PHONY: help dev build test docker-up docker-down k8s-deploy
+    r#".PHONY: help dev build test docker-up docker-down docker-push ci-push k8s-deploy
 
 help:
 	@echo "Available commands:"
@@ -511,6 +580,8 @@ help:
 	@echo "  make test         - Run all tests"
 	@echo "  make docker-up    - Start Docker Compose"
 	@echo "  make docker-down  - Stop Docker Compose"
+	@echo "  make docker-push  - Build and push images to Docker Hub"
+	@echo "  make ci-push      - Build and push via the generated CI workflow"
 	@echo "  make k8s-deploy   - Deploy to Kubernetes"
 
 dev:
@@ -526,10 +597,19 @@ test:
 	cd frontend && cargo test
 
 docker-up:
-	cd docker && docker-compose up -d
+	cd docker && docker compose up -d
 
 docker-down:
-	cd docker && docker-compose down
+	cd docker && docker compose down
+
+docker-push:
+	docker compose -f docker/docker-compose.yml build
+	docker push $(shell docker compose -f docker/docker-compose.yml config | grep -A1 'backend:' | grep 'image:' | awk '{print $$2}')
+	docker push $(shell docker compose -f docker/docker-compose.yml config | grep -A1 'frontend:' | grep 'image:' | awk '{print $$2}')
+
+ci-push:
+	@echo "Push is handled by the generated CI workflow (.github/workflows/deploy.yml)."
+	@echo "Add DOCKERHUB_USERNAME and DOCKERHUB_TOKEN as GitHub secrets."
 
 k8s-deploy:
 	kubectl apply -f kubernetes/
@@ -874,7 +954,7 @@ spec:
     spec:
       containers:
         - name: {project_name}
-          image: {project_name}:latest
+          image: {project_name}-backend:latest
           ports:
             - containerPort: 3000
           env:
@@ -1179,6 +1259,7 @@ pub(crate) mod tests {
             "database/schema.sql",
             "docker/Dockerfile",
             "kubernetes/deployment.yaml",
+            ".github/workflows/deploy.yml",
             "README.md",
             ".gitignore",
             "Makefile",
