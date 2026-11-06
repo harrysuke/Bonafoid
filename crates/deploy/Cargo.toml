@@ -1,0 +1,34 @@
+[package]
+name = "nocode-deploy"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+nocode-model = { path = "../model" }
+nocode-codegen = { path = "../codegen" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+# Encryption
+chacha20poly1305 = "0.10"
+rand = "0.8"
+
+# HTTP client (GitHub REST)
+hyper = { version = "1.0", features = ["client", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["client", "http1", "tokio"] }
+http-body-util = "0.1"
+http = "1.0"
+
+# Async runtime helpers
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"

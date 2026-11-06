@@ -7,6 +7,7 @@ members = [
     "crates/plugins",
     "crates/bpmn",
     "crates/ide-server",
+    "crates/deploy",
     "xtask",
 ]
 # apps/ide-tauri has its own Cargo.lock and its own dependency tree; it is
