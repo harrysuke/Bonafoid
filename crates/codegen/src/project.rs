@@ -13,6 +13,14 @@ pub struct GeneratedProject {
     /// The slug derived from the project name, used for image names and
     /// Kubernetes resources.
     pub slug: String,
+    /// Stable timestamp of the source project revision.
+    ///
+    /// The README used to embed `Utc::now()`, which made every generation of
+    /// an unchanged project produce a different git tree — so the deploy
+    /// service could never recognise an unchanged re-deploy. This comes from
+    /// `Project::updated_at` instead, so the same project always produces
+    /// byte-identical files.
+    pub generated_at: String,
     /// The database driver the artifacts were generated for.
     ///
     /// The deployment files and the README are written in terms of it — a
@@ -65,6 +73,7 @@ pub async fn generate_project_in_memory(project: &Project) -> Result<GeneratedPr
     let mut generated = GeneratedProject {
         project_id: project.id.clone(),
         slug: project.slug.clone(),
+        generated_at: project.updated_at.to_rfc3339(),
         driver: project.settings.database.driver.clone(),
         ..Default::default()
     };
@@ -288,8 +297,10 @@ async fn write_targets(base: &Path, targets: &crate::targets::TargetsOutput) -> 
 
 fn generate_deploy_workflow(generated: &GeneratedProject) -> String {
     let slug = &generated.slug;
-    format!(
-        r#"name: Deploy
+    // NOT `format!`: a GitHub expression is `${{ ... }}`, and `format!`
+    // would collapse every `{{`/`}}` pair into a single brace, emitting
+    // invalid workflow syntax. A plain substitution keeps them intact.
+    r#"name: Deploy
 
 on:
   push:
@@ -320,17 +331,22 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push backend
+      - name: Build images
         run: |
           docker compose -f docker/docker-compose.yml build backend
-          docker push ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest
-
-      - name: Build and push frontend
-        run: |
           docker compose -f docker/docker-compose.yml build frontend
+
+      # compose builds locally-named images ({slug}-backend / -frontend).
+      # A push to Docker Hub needs the fully-qualified name, so tag first —
+      # without this the push targets an image that does not exist locally.
+      - name: Tag and push images
+        run: |
+          docker tag ${{ env.BACKEND_IMAGE }} ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest
+          docker tag ${{ env.FRONTEND_IMAGE }} ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.FRONTEND_IMAGE }}:latest
+          docker push ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.BACKEND_IMAGE }}:latest
           docker push ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.FRONTEND_IMAGE }}:latest
 "#
-    )
+    .replace("{slug}", slug)
 }
 
 fn generate_readme(generated: &GeneratedProject) -> String {
@@ -512,17 +528,20 @@ Two more things to change before a real deployment:
 - The Ingress host and the `API_BASE` the frontend image was built with
   must match.
 
-## Generated at
+## Source project revision
+
+This tree was generated from the project as last saved at:
 
 {}
+
+Regenerating an unchanged project produces an identical tree, so the IDE
+can tell that a repeat deploy has nothing new to push.
 
 ## Project ID
 
 {}
 "#,
-        generated.project_id,
-        chrono::Utc::now().to_rfc3339(),
-        generated.project_id
+        generated.project_id, generated.generated_at, generated.project_id
     )
 }
 

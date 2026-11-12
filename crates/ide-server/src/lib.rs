@@ -8,6 +8,7 @@ pub mod bpmn;
 pub mod db;
 pub mod error;
 pub mod generation;
+pub mod integrations;
 pub mod migration;
 pub mod plugins;
 pub mod preview;

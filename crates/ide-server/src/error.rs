@@ -21,6 +21,11 @@ pub enum ApiError {
     NotFound,
     #[error("conflict: {0}")]
     Conflict(String),
+    /// A feature is present but cannot be used because the operator has not
+    /// configured it. Distinct from `Internal`: a 500 says "the server broke",
+    /// while a missing `IDE_SECRET_KEY` is a setup step the operator owns.
+    #[error("service unavailable: {0}")]
+    ServiceUnavailable(String),
     /// A request or response body exceeded the limit for its route.
     ///
     /// Distinct from `Internal` on purpose: the preview proxy used to report a
@@ -54,6 +59,11 @@ impl ApiError {
                 "resource not found".to_string(),
             ),
             ApiError::Conflict(message) => (StatusCode::CONFLICT, "conflict", message.clone()),
+            ApiError::ServiceUnavailable(message) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "service_unavailable",
+                message.clone(),
+            ),
             ApiError::PayloadTooLarge(message) => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "payload_too_large",
@@ -105,6 +115,32 @@ impl From<serde_json::Error> for ApiError {
     fn from(error: serde_json::Error) -> Self {
         tracing::error!(error = %error, "json serialization error");
         ApiError::Internal
+    }
+}
+
+/// Deployment errors must never carry a PAT into an HTTP response. Every
+/// message that leaves this conversion goes through `nocode_deploy::safe_error`,
+/// which masks `ghp_`/`github_pat_`/`Bearer` and inline URL credentials.
+impl From<nocode_deploy::DeployError> for ApiError {
+    fn from(error: nocode_deploy::DeployError) -> Self {
+        let safe = nocode_deploy::safe_error(&error);
+        match error {
+            nocode_deploy::DeployError::Idempotent => ApiError::Conflict(
+                "this generated commit is already deployed".to_string(),
+            ),
+            nocode_deploy::DeployError::BranchExists(branch) => ApiError::Conflict(format!(
+                "branch `{branch}` already exists and was not created by a deployment of this project"
+            )),
+            nocode_deploy::DeployError::Config(_)
+            | nocode_deploy::DeployError::Compose(_)
+            | nocode_deploy::DeployError::GitHub(_) => ApiError::BadRequest(safe),
+            _ => {
+                // Vault failures in particular can indicate a rotated master
+                // key: log the scrubbed reason, but do not expose internals.
+                tracing::error!(error = %safe, "deployment failed");
+                ApiError::Internal
+            }
+        }
     }
 }
 

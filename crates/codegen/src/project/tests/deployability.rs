@@ -342,6 +342,90 @@ async fn the_generated_readme_does_not_reference_a_file_that_is_not_generated() 
     }
 }
 
+/// The deploy workflow pushes images to Docker Hub, but `docker compose
+/// build` only creates locally-named images (`<slug>-backend`). Without an
+/// explicit `docker tag` before every `docker push`, the push targets an
+/// image that does not exist on the runner and CI fails after a full build.
+#[tokio::test]
+async fn the_deploy_workflow_tags_images_before_pushing_them() {
+    let (project, _) = project_with_a_list_page();
+    let generated = generate_project_in_memory(&project)
+        .await
+        .expect("generate the project in memory");
+
+    let compose = generated
+        .file("docker/docker-compose.yml")
+        .expect("the compose file");
+    let workflow = generated
+        .file(".github/workflows/deploy.yml")
+        .expect("the deploy workflow");
+
+    for service in ["backend", "frontend"] {
+        let local_image = format!("{}-{service}", generated.slug);
+        assert!(
+            compose.contains(&format!("image: {local_image}")),
+            "compose never builds {local_image}"
+        );
+        assert!(
+            workflow.contains(&format!("{}_IMAGE: {local_image}", service.to_uppercase())),
+            "workflow env does not name {local_image}"
+        );
+        let tag = format!("docker tag ${{{{ env.{}_IMAGE }}}}", service.to_uppercase());
+        let push = "docker push ${{ env.REGISTRY }}";
+        assert!(workflow.contains(&tag), "missing tag step for {service}");
+        assert!(workflow.contains(push), "missing push step for {service}");
+        assert!(
+            workflow.find(&tag).unwrap() < workflow.find(push).unwrap(),
+            "{service} is pushed before it is tagged"
+        );
+    }
+
+    // Compose builds both services with the same command shape the workflow
+    // uses, otherwise the tag step has nothing to tag.
+    assert!(workflow.contains("docker compose -f docker/docker-compose.yml build backend"));
+    assert!(workflow.contains("docker compose -f docker/docker-compose.yml build frontend"));
+}
+
+/// The workflow runs on a GitHub runner with access to repo secrets, so keep
+/// the grant minimal and never echo a secret into a log.
+#[tokio::test]
+async fn the_deploy_workflow_keeps_permissions_minimal_and_secrets_quiet() {
+    let (project, _) = project_with_a_list_page();
+    let generated = generate_project_in_memory(&project)
+        .await
+        .expect("generate the project in memory");
+    let workflow = generated
+        .file(".github/workflows/deploy.yml")
+        .expect("the deploy workflow");
+
+    assert!(workflow.contains("contents: read"));
+    assert!(!workflow.contains("contents: write"));
+    assert!(!workflow.contains("pull_request_target"));
+    // This workflow is built from a Rust string. `format!` would collapse
+    // `${{ expr }}` into the invalid `${ expr }`, silently disabling every
+    // secret and env reference on the runner.
+    assert!(
+        !workflow.contains("${ "),
+        "GitHub expressions lost their double braces"
+    );
+    assert!(workflow.contains("${{ secrets.DOCKERHUB_USERNAME }}"));
+    assert!(workflow.contains("${{ secrets.DOCKERHUB_TOKEN }}"));
+    // Secrets may be referenced by actions, but never interpolated into a
+    // shell command that could print them.
+    for line in workflow.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("echo ") || trimmed.starts_with("run: echo") {
+            assert!(
+                !trimmed.contains("secrets."),
+                "workflow echoes a secret: {trimmed}"
+            );
+        }
+    }
+    // The trigger stays on `main` here: the deploy service patches it to the
+    // validated configured branch in the staged tree before committing.
+    assert!(workflow.contains("branches: [main]"));
+}
+
 /// The compose file must match the project's driver.
 ///
 /// A SQLite project needs no database server, so starting a Postgres for it

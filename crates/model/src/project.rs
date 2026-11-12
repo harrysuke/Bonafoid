@@ -881,8 +881,12 @@ mod tests {
     fn the_typescript_default_urls_match_the_rust_ones() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../packages/ide-core/src/utils/databaseModel.ts");
-        let source = std::fs::read_to_string(&path)
-            .expect("the TypeScript default-URL table must be readable");
+        let source = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!(
+                "the TypeScript default-URL table must be readable at {}: {error}",
+                path.display()
+            )
+        });
 
         for driver in [
             DatabaseDriver::SQLite,

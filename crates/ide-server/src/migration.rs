@@ -12,6 +12,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, Value};
 const MIGRATIONS: &[(&str, &str)] = &[
     ("0001_initial", INITIAL_SCHEMA),
     ("0002_plugins", PLUGINS_SCHEMA),
+    ("0003_integrations", INTEGRATIONS_SCHEMA),
 ];
 
 const INITIAL_SCHEMA: &str = r#"
@@ -77,6 +78,53 @@ CREATE TABLE IF NOT EXISTS plugins (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_plugins_user_id ON plugins(user_id);
+"#;
+
+/// Integration credentials and deployment history (Phase 14).
+///
+/// Secret discipline is enforced by the schema: `config_json` is the ONLY
+/// freely-readable config column and callers must write redacted JSON into
+/// it. PATs and registry tokens live exclusively in the sealed columns,
+/// encrypted with the server master key. Nothing in this schema can be
+/// selected into an API response without an explicit, deliberate read.
+///
+/// The partial unique index gives idempotency at the storage layer: two
+/// successful/in-flight deployments of the same commit for the same project
+/// and user cannot coexist, while a failed attempt may be retried.
+const INTEGRATIONS_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS integrations (
+    user_id           TEXT NOT NULL,
+    kind              TEXT NOT NULL CHECK (kind IN ('github', 'dockerhub')),
+    config_json       TEXT NOT NULL,
+    sealed_nonce      TEXT,
+    sealed_ciphertext TEXT,
+    verified          INTEGER NOT NULL DEFAULT 0,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, kind),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_integrations_user_id ON integrations(user_id);
+
+CREATE TABLE IF NOT EXISTS deployments (
+    id              TEXT PRIMARY KEY NOT NULL,
+    user_id         TEXT NOT NULL,
+    project_id      TEXT NOT NULL,
+    commit_sha      TEXT NOT NULL,
+    branch          TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    github_run_id   INTEGER,
+    github_run_url  TEXT,
+    error_message   TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_deployments_user_project ON deployments(user_id, project_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deployments_active_commit
+    ON deployments(user_id, project_id, commit_sha)
+    WHERE status NOT IN ('failed', 'ci_failed');
 "#;
 
 /// Apply every migration that has not yet been recorded.
@@ -169,6 +217,125 @@ mod tests {
             names.contains(&"schema_migrations".to_string()),
             "missing schema_migrations: {names:?}"
         );
+        assert!(
+            names.contains(&"plugins".to_string()),
+            "missing plugins: {names:?}"
+        );
+        assert!(
+            names.contains(&"integrations".to_string()),
+            "missing integrations: {names:?}"
+        );
+        assert!(
+            names.contains(&"deployments".to_string()),
+            "missing deployments: {names:?}"
+        );
+    }
+
+    /// The sealed columns must exist and be separate from the readable
+    /// config column, and the idempotency index must be a *partial* one.
+    #[tokio::test]
+    async fn integration_schema_keeps_secrets_in_sealed_columns() {
+        let db = connect_sqlite_memory().await.unwrap();
+
+        let columns: Vec<String> = db
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA table_info(integrations)",
+            ))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.try_get::<String>("", "name").unwrap())
+            .collect();
+        for expected in [
+            "user_id",
+            "kind",
+            "config_json",
+            "sealed_nonce",
+            "sealed_ciphertext",
+            "verified",
+        ] {
+            assert!(
+                columns.contains(&expected.to_string()),
+                "integrations is missing column {expected}: {columns:?}"
+            );
+        }
+
+        let index_sql: String = db
+            .query_one(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT sql FROM sqlite_master WHERE name = 'idx_deployments_active_commit'",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<String>("", "sql")
+            .unwrap();
+        assert!(index_sql.contains("UNIQUE INDEX"), "index: {index_sql}");
+        assert!(
+            index_sql.contains("WHERE"),
+            "index must be partial: {index_sql}"
+        );
+    }
+
+    async fn seed_user_and_project(db: &DatabaseConnection) {
+        db.execute(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)",
+            [
+                Value::from("u1"),
+                Value::from("u1@example.com"),
+                Value::from("hash"),
+            ],
+        ))
+        .await
+        .unwrap();
+        db.execute(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "INSERT INTO projects (id, user_id, name, slug, version, data) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                Value::from("p1"),
+                Value::from("u1"),
+                Value::from("Project"),
+                Value::from("project"),
+                Value::from("1"),
+                Value::from("{}"),
+            ],
+        ))
+        .await
+        .unwrap();
+    }
+
+    async fn insert_deployment(db: &DatabaseConnection, id: &str, status: &str) -> bool {
+        db.execute(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "INSERT INTO deployments (id, user_id, project_id, commit_sha, branch, status) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                Value::from(id),
+                Value::from("u1"),
+                Value::from("p1"),
+                Value::from("same-commit-sha"),
+                Value::from("main"),
+                Value::from(status),
+            ],
+        ))
+        .await
+        .is_ok()
+    }
+
+    /// A second push of the same generated commit must be refused at the
+    /// storage layer, but a failed attempt has to be retryable.
+    #[tokio::test]
+    async fn duplicate_active_commit_is_rejected_but_failures_are_retryable() {
+        let db = connect_sqlite_memory().await.unwrap();
+        seed_user_and_project(&db).await;
+
+        assert!(insert_deployment(&db, "d1", "pushed").await);
+        assert!(!insert_deployment(&db, "d2", "pushed").await);
+        assert!(!insert_deployment(&db, "d3", "ci_succeeded").await);
+        assert!(insert_deployment(&db, "d4", "failed").await);
+        assert!(insert_deployment(&db, "d5", "failed").await);
+        assert!(insert_deployment(&db, "d6", "ci_failed").await);
     }
 
     #[tokio::test]

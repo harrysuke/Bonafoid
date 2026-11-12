@@ -5,6 +5,7 @@ use crate::preview::runs::RunConfig;
 use crate::preview::{BuildManager, PreviewConfig, RunManager};
 use anyhow::{Context, Result};
 use axum::{extract::State, routing::get, Json, Router};
+use nocode_deploy::{CredentialVault, DeployService};
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::Serialize;
 use std::net::SocketAddr;
@@ -50,6 +51,34 @@ pub struct AppState {
     pub runs: Arc<RunManager>,
     /// The per-user WebAssembly plugin hosts.
     pub plugins: Arc<PluginRegistry>,
+    /// Deployment service. `None` means `IDE_SECRET_KEY` is not configured,
+    /// in which case every integration/deploy route returns 503. There is
+    /// deliberately no auto-generated key: a key that changes between
+    /// restarts makes every stored credential undecryptable.
+    pub deploy: Option<Arc<DeployService>>,
+}
+
+/// Build the deploy service from the environment, or report why it is off.
+///
+/// This is a *feature* switch, not an error: the rest of the IDE stays fully
+/// usable when deployments are not configured.
+fn deploy_from_env() -> Option<Arc<DeployService>> {
+    let vault = match CredentialVault::from_env() {
+        Ok(vault) => vault,
+        Err(error) => {
+            // The error text never contains the key itself, but keep it
+            // generic anyway: this is operator guidance, not diagnostics.
+            tracing::warn!(
+                reason = %error,
+                "deploy service disabled; set IDE_SECRET_KEY to a 64-character hex (32-byte) key"
+            );
+            return None;
+        }
+    };
+    let staging_root = std::env::var("IDE_DEPLOY_STAGING")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir().join("nocode-ide-deploys"));
+    Some(Arc::new(DeployService::new(vault, staging_root)))
 }
 
 impl AppState {
@@ -60,7 +89,14 @@ impl AppState {
             preview: Arc::new(BuildManager::new(PreviewConfig::from_env())),
             runs: Arc::new(RunManager::new(RunConfig::from_env())),
             plugins: Arc::new(PluginRegistry::default()),
+            deploy: deploy_from_env(),
         }
+    }
+
+    /// Inject a deploy service (tests) or explicitly disable deployments.
+    pub fn with_deploy(mut self, deploy: Option<Arc<DeployService>>) -> Self {
+        self.deploy = deploy;
+        self
     }
 
     /// Construct the state with explicit preview/run configurations (tests).
@@ -84,6 +120,7 @@ impl AppState {
             preview: Arc::new(BuildManager::new(config)),
             runs: Arc::new(RunManager::new(runs)),
             plugins: Arc::new(PluginRegistry::default()),
+            deploy: deploy_from_env(),
         }
     }
 }
@@ -120,6 +157,7 @@ pub fn build_router(state: AppState, web_dist: &str) -> Router {
         .merge(crate::generation::generation_router())
         .merge(crate::bpmn::bpmn_router())
         .merge(crate::plugins::plugins_router())
+        .merge(crate::integrations::integrations_router())
         .merge(crate::preview::preview_router())
         .merge(preview_server_router())
         .fallback_service(spa)

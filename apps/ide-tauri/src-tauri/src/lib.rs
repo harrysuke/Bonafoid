@@ -1,3 +1,5 @@
+mod deploy;
+
 use tauri::{Manager, State};
 
 use nocode_ide::{
@@ -125,8 +127,25 @@ pub fn run() {
             bpmn_export,
             bpmn_validate,
             workflow_run,
+            deploy::github_get_config,
+            deploy::github_set_config,
+            deploy::dockerhub_get_config,
+            deploy::dockerhub_set_config,
+            deploy::deploy_project,
+            deploy::list_deployments,
+            deploy::refresh_deployment,
         ])
         .setup(|app| {
+            // The vault key and the integration store live in the app-data
+            // directory, never in the project tree or a git repository. If
+            // the path cannot be resolved the deploy commands report a clear
+            // error instead of taking the rest of the IDE down.
+            let app_data = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::temp_dir().join("nocode-ide-desktop"));
+            app.manage(deploy::DeployState::init(&app_data));
+
             #[cfg(debug_assertions)]
             {
                 let window = app.get_webview_window("main").unwrap();

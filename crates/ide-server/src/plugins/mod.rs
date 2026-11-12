@@ -261,6 +261,7 @@ mod tests {
                 crate::preview::RunConfig::from_env(),
             )),
             plugins: Arc::new(PluginRegistry::with_root(root)),
+            deploy: None,
         };
         crate::server::build_router(state, "apps/ide-web/dist")
     }
