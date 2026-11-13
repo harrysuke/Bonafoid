@@ -47,7 +47,7 @@ bytes = "1"
 
 # Auth
 argon2 = "0.5"
-jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
+jsonwebtoken = { version = "10", default-features = false, features = ["use_pem"] }
 rsa = { version = "0.9", features = ["pem"] }
 rand = "0.8"
 sha2 = "0.10"
