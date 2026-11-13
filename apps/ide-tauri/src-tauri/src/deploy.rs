@@ -350,6 +350,14 @@ pub async fn deploy_project(
     let project = current_project(&ide)?;
     let project_id = project.id.0.to_string();
     let api_base = api_base.unwrap_or_else(|| DEFAULT_API_BASE.to_string());
+    // 15.4: this value is baked into the generated frontend at build time.
+    // Refuse anything that could smuggle a credential into a generated file
+    // or change the meaning of a template.
+    if !nocode_deploy::valid_api_base(&api_base) {
+        return Err(
+            "the public API base URL must be a plain absolute http(s) URL".to_string(),
+        );
+    }
 
     // Scoped so no MutexGuard is held across an await.
     let (config, sealed, branch_created) = {

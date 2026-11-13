@@ -17,17 +17,23 @@ import type {
   BpmnValidationReport,
   DatabaseDriver,
   DatabaseSettings,
+  DeploymentResponse,
+  DockerHubConfigRequest,
   GenerationReport,
+  GitHubConfigRequest,
+  GitHubConfigResponse,
   PlatformApi,
   PlatformPlugin,
   PlatformProject,
   PlatformUser,
   PreviewBuildTarget,
+  RegistryConfigResponse,
 } from '@nocode/ide-core';
 import { applyDatabaseDriver } from '@nocode/ide-core';
 import { currentUser as sessionUser, logout as endSession } from '../auth/session';
 import {
   bpmnApi,
+  deployApi,
   generationApi,
   pluginApi,
   previewApi,
@@ -246,6 +252,25 @@ export const webPlatform: PlatformApi = {
   async pluginUninstall(id: string): Promise<void> {
     await pluginApi.uninstall(id);
   },
+
+  // Deploy surface (Phase 15). `deployApi` sends the CSRF header on every
+  // mutating request and never receives a token back: the config responses
+  // are redacted server-side.
+  deployGithubGet: (): Promise<GitHubConfigResponse> => deployApi.githubConfig(),
+
+  deployGithubSet: (request: GitHubConfigRequest): Promise<GitHubConfigResponse> =>
+    deployApi.setGithubConfig(request),
+
+  deployDockerhubGet: (): Promise<RegistryConfigResponse> => deployApi.dockerhubConfig(),
+
+  deployDockerhubSet: (request: DockerHubConfigRequest): Promise<RegistryConfigResponse> =>
+    deployApi.setDockerhubConfig(request),
+
+  deployProject: (projectId: string, apiBase?: string): Promise<DeploymentResponse> =>
+    deployApi.deploy(projectId, apiBase),
+
+  deployList: (projectId: string): Promise<DeploymentResponse[]> =>
+    deployApi.list(projectId),
 
   async workflowRun(
     workflowJson: string,

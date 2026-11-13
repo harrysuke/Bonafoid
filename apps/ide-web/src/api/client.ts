@@ -10,6 +10,14 @@
  * session cookies, and a 401 triggers exactly one refresh + replay.
  */
 
+import type {
+  DeploymentResponse,
+  DockerHubConfigRequest,
+  GitHubConfigRequest,
+  GitHubConfigResponse,
+  RegistryConfigResponse,
+} from '@nocode/ide-core';
+
 export interface ApiUser {
   id: string;
   email: string;
@@ -495,4 +503,43 @@ export const pluginApi = {
 
   uninstall: (id: string): Promise<void> =>
     request<void>(`/api/v1/plugins/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+};
+
+/* ------------------------------------------------------------------ *
+ * Deploy (Phase 15)
+ * ------------------------------------------------------------------ */
+
+export const deployApi = {
+  /** Redacted GitHub config — never a token. */
+  githubConfig: (): Promise<GitHubConfigResponse> =>
+    request<GitHubConfigResponse>('/api/v1/integrations/github'),
+
+  /** Set (and verify) the GitHub PAT. The token is write-only. */
+  setGithubConfig: (body: GitHubConfigRequest): Promise<GitHubConfigResponse> =>
+    request<GitHubConfigResponse>('/api/v1/integrations/github', {
+      method: 'POST',
+      body,
+    }),
+
+  /** Redacted Docker Hub config — never a token. */
+  dockerhubConfig: (): Promise<RegistryConfigResponse> =>
+    request<RegistryConfigResponse>('/api/v1/integrations/dockerhub'),
+
+  /** Set (and verify) the Docker Hub config. Omit `token` to keep the sealed one. */
+  setDockerhubConfig: (body: DockerHubConfigRequest): Promise<RegistryConfigResponse> =>
+    request<RegistryConfigResponse>('/api/v1/integrations/dockerhub', {
+      method: 'POST',
+      body,
+    }),
+
+  /** Deploy a project: generate → commit → push → CI. */
+  deploy: (projectId: string, apiBase?: string): Promise<DeploymentResponse> =>
+    request<DeploymentResponse>(`/api/v1/projects/${projectId}/deploy`, {
+      method: 'POST',
+      body: apiBase && apiBase.trim() ? { api_base: apiBase.trim() } : {},
+    }),
+
+  /** Deployment history for a project (refreshes CI status server-side). */
+  list: (projectId: string): Promise<DeploymentResponse[]> =>
+    request<DeploymentResponse[]>(`/api/v1/projects/${projectId}/deployments`),
 };

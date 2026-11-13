@@ -144,6 +144,79 @@ export interface PlatformPlugin {
   entry_points: string[];
 }
 
+/* ------------------------------------------------------------------ *
+ * Deploy surface (Phase 15)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Lifecycle of a deployment. Mirrors the server's `DeploymentStatus`,
+ * serialized snake_case on the wire. A deploy is a long pipeline: a successful
+ * push is `pushed`, never `ci_succeeded`.
+ */
+export type DeploymentStatus =
+  | 'generating'
+  | 'committing'
+  | 'pushing'
+  | 'pushed'
+  | 'ci_queued'
+  | 'ci_running'
+  | 'ci_succeeded'
+  | 'ci_failed'
+  | 'failed';
+
+/** Redacted GitHub integration config. The PAT is never returned. */
+export interface GitHubConfigResponse {
+  configured: boolean;
+  owner: string;
+  repo: string;
+  branch: string;
+  verified: boolean;
+}
+
+/** A GitHub PAT submission. The token travels only in this request body. */
+export interface GitHubConfigRequest {
+  owner: string;
+  repo: string;
+  branch: string;
+  token: string;
+}
+
+/** Redacted Docker Hub / registry config. The token is never returned. */
+export interface RegistryConfigResponse {
+  configured: boolean;
+  namespace: string;
+  registry: string;
+  backend_image: string;
+  frontend_image: string;
+  verified: boolean;
+}
+
+/**
+ * A Docker Hub configuration submission. Omit `token` to keep the already
+ * sealed credential (an update that only changes the namespace, say).
+ */
+export interface DockerHubConfigRequest {
+  namespace: string;
+  registry: string;
+  token?: string;
+}
+
+/** One deployment, as both the server and the desktop report it identically. */
+export interface DeploymentResponse {
+  id: string;
+  project_id: string;
+  commit_sha: string;
+  status: DeploymentStatus;
+  /** True ONLY when CI has succeeded. A mere push is not deployed. */
+  deployed: boolean;
+  ci_state: 'queued' | 'running' | 'succeeded' | 'failed' | 'not_started';
+  github_run_id: number | null;
+  github_run_url: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PlatformApi {
   /** Which host is running the IDE. */
   readonly kind: 'tauri' | 'web';
@@ -287,4 +360,17 @@ export interface PlatformApi {
 
   /** End the session. No-op where there is no session to end. */
   logout?(): Promise<void>;
+
+  /**
+   * Deployment integrations (Phase 15). Optional: only hosts wired to the
+   * integration service expose them. The web server does; the desktop shell
+   * can too, via its local deploy commands. The Deploy page gates itself on
+   * `deployGithubGet` being a function, like the plugin panel does.
+   */
+  deployGithubGet?(): Promise<GitHubConfigResponse>;
+  deployGithubSet?(request: GitHubConfigRequest): Promise<GitHubConfigResponse>;
+  deployDockerhubGet?(): Promise<RegistryConfigResponse>;
+  deployDockerhubSet?(request: DockerHubConfigRequest): Promise<RegistryConfigResponse>;
+  deployProject?(projectId: string, apiBase?: string): Promise<DeploymentResponse>;
+  deployList?(projectId: string): Promise<DeploymentResponse[]>;
 }

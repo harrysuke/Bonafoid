@@ -12,6 +12,7 @@ import { ThemeBuilder } from './pages/ThemeBuilder';
 import { PluginManager } from './pages/PluginManager';
 import { CodeGenerator } from './pages/CodeGenerator';
 import { PreviewPanel } from './pages/PreviewPanel';
+import { DeployPanel } from './pages/DeployPanel';
 import { useProjectStore } from './stores/projectStore';
 
 export function IdeApp() {
@@ -39,6 +40,7 @@ export function IdeApp() {
         <Route path="/plugins" element={<PluginManager />} />
         <Route path="/preview" element={<PreviewPanel />} />
         <Route path="/generate" element={<CodeGenerator />} />
+        <Route path="/deploy" element={<DeployPanel />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

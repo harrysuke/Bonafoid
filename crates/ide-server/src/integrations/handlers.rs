@@ -12,9 +12,9 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use nocode_deploy::{
-    classify_run, safe_error, ComposeConfig, DeployConfig, DeployError, DeployOptions,
-    DeployService, GitHubClient, GitHubConfig, GitHubConfigResponse, GitHubError, RegistryConfig,
-    RegistryConfigResponse, VaultError, WorkflowRun,
+    classify_run, safe_error, valid_api_base, ComposeConfig, DeployConfig, DeployError,
+    DeployOptions, DeployService, GitHubClient, GitHubConfig, GitHubConfigResponse, GitHubError,
+    RegistryConfig, RegistryConfigResponse, VaultError, WorkflowRun,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -76,6 +76,17 @@ pub struct DockerHubConfigRequest {
     pub registry: String,
     /// Omit on update to keep the already-sealed token.
     pub token: Option<String>,
+}
+
+/// Body of `POST /api/v1/projects/:id/deploy`.
+///
+/// `api_base` is the public URL baked into the generated frontend bundle at
+/// build time (Phase 15 / 15.4): it is a *deploy input*, not a runtime
+/// setting. Omitting it keeps the operator's `IDE_PUBLIC_API_BASE` default.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct DeployRequest {
+    pub api_base: Option<String>,
 }
 
 /// `GET /api/v1/integrations/github` — redacted config, never a token.
@@ -250,10 +261,27 @@ pub async fn deploy_project(
     headers: HeaderMap,
     user: AuthUser,
     Path(project_id): Path<String>,
+    Json(body): Json<DeployRequest>,
 ) -> Result<Response, ApiError> {
     require_csrf(&headers)?;
     let service = require_deploy(&state)?;
     let project = require_project(&state.db, &user.id, &project_id).await?;
+
+    // 15.4: the public API base URL is captured at build time, so it must be
+    // correct *before* this deploy. Validate it before doing any work; the
+    // operator default is used when the caller does not supply one.
+    let api_base = match body.api_base.as_deref().map(str::trim) {
+        Some(value) if !value.is_empty() => {
+            if !valid_api_base(value) {
+                return Err(ApiError::BadRequest(
+                    "api_base must be a plain absolute http(s) URL without credentials or query"
+                        .into(),
+                ));
+            }
+            value.trim_end_matches('/').to_string()
+        }
+        _ => public_api_base(),
+    };
 
     let github_row = store::get_integration(&state.db, &user.id, KIND_GITHUB)
         .await?
@@ -276,7 +304,6 @@ pub async fn deploy_project(
     let branch = github.branch.clone();
     let branch_created_by_deploy =
         store::has_deployment_on_branch(&state.db, &user.id, &project_id, &branch).await?;
-    let api_base = public_api_base();
     let config = DeployConfig {
         github,
         compose: ComposeConfig {

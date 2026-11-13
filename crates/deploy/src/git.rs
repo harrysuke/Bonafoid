@@ -190,6 +190,16 @@ impl GitService {
 
     /// Push an existing commit object to `branch`. Fast-forward only, no
     /// force, no upstream tracking. The token never enters argv.
+    ///
+    /// On Windows an AV scanner or indexer can hold an object file while git
+    /// migrates it into a local bare repository, producing "Permission
+    /// denied" / "unable to migrate objects to permanent storage" with the
+    /// ref rejected. A blind replay would be unsafe, so a retry happens ONLY
+    /// when `ls-remote` proves the branch still points at `tip_before`. If it
+    /// already points at `commit_sha` the push landed and we report success;
+    /// if anything else changed, the state is ambiguous and the error stands.
+    /// The explicit non-forced refspec also makes git reject a non-fast-forward
+    /// update if another writer moves the ref between the read and the replay.
     #[instrument(skip(self, token))]
     pub async fn push(
         &self,
@@ -197,11 +207,48 @@ impl GitService {
         branch: &str,
         commit_sha: &str,
         token: &str,
+        tip_before: Option<&str>,
     ) -> Result<String, GitError> {
         let owned = Self::push_args(branch, commit_sha)?;
         let args: Vec<&str> = owned.iter().map(String::as_str).collect();
-        let output = run(dir, &args, Some(token), "push").await?;
-        Ok(output)
+        let mut attempt = 1;
+        loop {
+            match run(dir, &args, Some(token), "push").await {
+                Ok(output) => return Ok(output),
+                Err(error) => {
+                    let message = match &error {
+                        GitError::Command { message, .. } => message.clone(),
+                        _ => return Err(error),
+                    };
+                    if attempt >= GIT_ATTEMPTS || !is_transient_lock(&message) {
+                        return Err(error);
+                    }
+                    // A failed read is itself ambiguous: do not replay.
+                    let observed = match self.ls_remote_head(dir, branch, token).await {
+                        Ok(tip) => tip,
+                        Err(_) => return Err(error),
+                    };
+                    match push_retry_decision(observed.as_deref(), commit_sha, tip_before) {
+                        PushRetry::AlreadyPushed => {
+                            warn!(attempt, "push reported a transient failure but the remote already has this commit");
+                            return Ok(String::new());
+                        }
+                        PushRetry::Retry => {
+                            warn!(
+                                attempt,
+                                "transient git push failure; remote ref unchanged, retrying"
+                            );
+                            tokio::time::sleep(Duration::from_millis(100 * attempt as u64)).await;
+                            attempt += 1;
+                        }
+                        PushRetry::Ambiguous => {
+                            warn!(attempt, "transient git push failure with a changed remote ref; not replaying");
+                            return Err(error);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Full SHA of HEAD (used only for local verification).
@@ -279,6 +326,12 @@ const TRANSIENT_LOCK_SIGNATURES: &[&str] = &[
     "Access is denied",
     "being used by another process",
     "os error 5",
+    // A push into a local bare repository on Windows can fail while git
+    // migrates loose objects into permanent storage when an indexer or AV
+    // scanner briefly holds the destination file. The remote ref is NOT
+    // updated on this path; GitService::push verifies that before retrying.
+    "unable to write file",
+    "unable to migrate objects to permanent storage",
 ];
 
 const GIT_ATTEMPTS: usize = 3;
@@ -289,11 +342,40 @@ fn is_transient_lock(message: &str) -> bool {
         .any(|signature| message.contains(signature))
 }
 
-/// `push` is deliberately excluded: it is the only operation that mutates a
-/// remote, so an ambiguous failure must never be replayed. Every other
-/// operation here is local and idempotent.
+/// `push` is deliberately excluded from the blanket retry: it is the only
+/// operation that mutates a remote, so an ambiguous failure must never be
+/// replayed blindly. [`GitService::push`] implements its own VERIFIED retry
+/// that reads the remote ref before deciding whether a replay is safe.
+/// Every other operation here is local and idempotent.
 fn may_retry(operation: &'static str) -> bool {
     operation != "push"
+}
+
+/// What to do after a transient `git push` failure, given a fresh read of the
+/// remote ref. Pure so the safety rule can be unit-tested without spawning
+/// git or touching a network.
+#[derive(Debug, PartialEq, Eq)]
+enum PushRetry {
+    /// The remote already has exactly our commit: the push did land.
+    AlreadyPushed,
+    /// The ref is exactly where it was before: replaying cannot lose a write.
+    Retry,
+    /// Somebody else moved the ref. Never replay into an ambiguous state.
+    Ambiguous,
+}
+
+fn push_retry_decision(
+    observed_tip: Option<&str>,
+    commit_sha: &str,
+    tip_before: Option<&str>,
+) -> PushRetry {
+    if observed_tip == Some(commit_sha) {
+        PushRetry::AlreadyPushed
+    } else if observed_tip == tip_before {
+        PushRetry::Retry
+    } else {
+        PushRetry::Ambiguous
+    }
 }
 
 /// Run git, retrying only a bounded, local, transient file-lock failure.
@@ -375,6 +457,58 @@ mod tests {
     fn credential_helper_value_has_no_literal_token() {
         assert!(CREDENTIAL_HELPER.contains("$GITHUB_TOKEN"));
         assert!(!CREDENTIAL_HELPER.contains("ghp_"));
+    }
+
+    #[test]
+    fn push_retries_only_when_the_remote_ref_is_provably_unchanged() {
+        const OLD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+        // A brand-new branch that still does not exist: safe to replay.
+        assert_eq!(push_retry_decision(None, SHA, None), PushRetry::Retry);
+        // An existing branch that still points at the same parent: safe.
+        assert_eq!(
+            push_retry_decision(Some(OLD), SHA, Some(OLD)),
+            PushRetry::Retry
+        );
+        // The ref reached our commit despite the error: success, no replay.
+        assert_eq!(
+            push_retry_decision(Some(SHA), SHA, Some(OLD)),
+            PushRetry::AlreadyPushed
+        );
+        assert_eq!(
+            push_retry_decision(Some(SHA), SHA, None),
+            PushRetry::AlreadyPushed
+        );
+        // The branch appeared, disappeared, or was moved by another writer.
+        assert_eq!(
+            push_retry_decision(Some(OLD), SHA, None),
+            PushRetry::Ambiguous
+        );
+        assert_eq!(
+            push_retry_decision(None, SHA, Some(OLD)),
+            PushRetry::Ambiguous
+        );
+        assert_eq!(
+            push_retry_decision(
+                Some("cccccccccccccccccccccccccccccccccccccccc"),
+                SHA,
+                Some(OLD)
+            ),
+            PushRetry::Ambiguous
+        );
+    }
+
+    #[test]
+    fn windows_object_migration_failure_is_classified_as_transient() {
+        assert!(is_transient_lock(
+            "error: unable to write file ./objects/d9/f40c: Permission denied"
+        ));
+        assert!(is_transient_lock(
+            "! [remote rejected] main (unable to migrate objects to permanent storage)"
+        ));
+        // An auth or non-fast-forward failure must never trigger a replay.
+        assert!(!is_transient_lock("remote: Invalid username or password"));
+        assert!(!is_transient_lock("[rejected] main (non-fast-forward)"));
     }
 
     #[test]

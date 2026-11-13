@@ -4,7 +4,7 @@ import {
   Menu, ChevronLeft, ChevronRight, Home,
   Database, GitBranch, FileText, Palette,
   Puzzle, Code, Settings, LogOut, Sun, Moon, ChevronDown,
-  FilePlus, FolderOpen, Save, Table2, Monitor
+  FilePlus, FolderOpen, Save, Table2, Monitor, Rocket
 } from 'lucide-react';
 import { getPlatform } from '../platform/registry';
 import { useUIStore } from '../stores/uiStore';
@@ -25,6 +25,7 @@ const navigation = [
   { name: 'Plugins', href: '/plugins', icon: Puzzle },
   { name: 'Preview', href: '/preview', icon: Monitor },
   { name: 'Generate', href: '/generate', icon: Code },
+  { name: 'Deploy', href: '/deploy', icon: Rocket },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
@@ -143,7 +144,7 @@ export function Layout() {
                 title={sidebarCollapsed ? item.name : undefined}
                 onClick={() => {
                   setSidebarOpen(false);
-                  const panel = item.href === '/' ? 'dashboard' : item.href.replace('/', '') as 'forms' | 'workflows' | 'data' | 'lists' | 'preview' | 'pages' | 'theme' | 'plugins' | 'generate' | 'settings';
+                  const panel = item.href === '/' ? 'dashboard' : item.href.replace('/', '') as 'forms' | 'workflows' | 'data' | 'lists' | 'preview' | 'pages' | 'theme' | 'plugins' | 'generate' | 'deploy' | 'settings';
           setActivePanel(panel);
                 }}
               >

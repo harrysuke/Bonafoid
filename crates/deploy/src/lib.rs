@@ -111,6 +111,53 @@ pub fn valid_repo_component(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
+/// A public API base URL is baked into the generated frontend at build time,
+/// then interpolated into YAML and Rust templates. It must be an absolute,
+/// plain http(s) URL: no userinfo (which could smuggle a credential), no
+/// whitespace/control characters, and no shell, template or YAML
+/// metacharacters that could change the meaning of the generated file.
+pub fn valid_api_base(value: &str) -> bool {
+    if value.is_empty() || value.len() > 300 {
+        return false;
+    }
+    let Some(rest) = value
+        .strip_prefix("https://")
+        .or_else(|| value.strip_prefix("http://"))
+    else {
+        return false;
+    };
+    let forbidden = |c: char| {
+        c.is_control()
+            || c.is_whitespace()
+            || matches!(
+                c,
+                '"' | '\''
+                    | '`'
+                    | '\\'
+                    | '$'
+                    | '{'
+                    | '}'
+                    | '<'
+                    | '>'
+                    | '|'
+                    | ';'
+                    | '&'
+                    | '@'
+                    | '#'
+                    | '?'
+                    | '^'
+                    | '!'
+                    | '('
+                    | ')'
+            )
+    };
+    if rest.chars().any(forbidden) {
+        return false;
+    }
+    let authority = rest.split('/').next().unwrap_or_default();
+    !authority.is_empty() && !authority.starts_with(':')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,5 +203,20 @@ mod tests {
         assert!(!valid_repo_component("acme/app"));
         assert!(!valid_repo_component("a b"));
         assert!(!valid_repo_component(""));
+    }
+
+    #[test]
+    fn api_base_accepts_only_plain_absolute_http_urls() {
+        assert!(valid_api_base("http://localhost:8081"));
+        assert!(valid_api_base("https://api.example.com"));
+        assert!(valid_api_base("https://api.example.com/v1"));
+        assert!(!valid_api_base(""));
+        assert!(!valid_api_base("api.example.com"));
+        assert!(!valid_api_base("javascript:alert(1)"));
+        assert!(!valid_api_base("https://user:secret@api.example.com"));
+        assert!(!valid_api_base("https://api.example.com/${INJECT}"));
+        assert!(!valid_api_base("https://api.example.com #comment"));
+        assert!(!valid_api_base("https://api.example.com\nRUN evil"));
+        assert!(!valid_api_base("https://"));
     }
 }

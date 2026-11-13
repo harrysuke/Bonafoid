@@ -25,6 +25,23 @@ fn test_keys() -> Arc<JwtKeys> {
         .clone()
 }
 
+/// Install a WARN-level tracing writer once per test binary.
+///
+/// `error.rs` logs the scrubbed reason for a deploy 500 through
+/// `tracing::error!`; with no subscriber that reason is discarded and a
+/// transient Windows git file-lock failure is only visible as an opaque
+/// `{"error":"internal_error"}` response. The test writer attaches the log
+/// to the failing test instead of flooding stdout on every green run.
+fn init_test_logging() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_test_writer()
+            .try_init();
+    });
+}
+
 /// A GitHub REST stand-in. `runs` is shared so a test can change what CI
 /// reports between two GETs without restarting the server.
 struct FakeGitHub {
@@ -137,6 +154,7 @@ struct Harness {
 
 impl Harness {
     async fn new(enable_deploy: bool) -> Self {
+        init_test_logging();
         let github = FakeGitHub::start().await;
         let dir = tempfile::tempdir().expect("temp dir");
         let db = crate::db::connect_sqlite_memory().await.expect("db");
@@ -509,6 +527,54 @@ async fn ci_success_requires_a_run_for_this_exact_commit() {
     assert_eq!(status, StatusCode::OK, "list: {body}");
     assert_eq!(json(&body)[0]["status"], json!("ci_succeeded"), "{body}");
     assert_eq!(json(&body)[0]["deployed"], json!(true));
+    assert!(!body.contains("ghp_"));
+}
+
+/// 15.4: the public API base URL is a deploy input. It must be validated
+/// before it is baked into generated files, and a valid one must not change
+/// the honest `pushed` / `deployed:false` result.
+#[tokio::test]
+async fn deploy_validates_the_public_api_base_deploy_input() {
+    let h = Harness::new(true).await;
+    let (cookie, csrf) = register(&h.app, "api-base@example.com").await;
+    configure(&h, &cookie, &csrf).await;
+    let project_id = create_project(&h, &cookie, &csrf).await;
+    let uri = format!("/api/v1/projects/{project_id}/deploy");
+
+    for bad in [
+        "javascript:alert(1)",
+        "https://user:secret@api.example.com",
+        "https://api.example.com/${INJECT}",
+        "https://api.example.com\nRUN evil",
+    ] {
+        let (status, body) = h
+            .call(request(
+                "POST",
+                &uri,
+                Some(&cookie),
+                Some(&csrf),
+                json!({ "api_base": bad }),
+            ))
+            .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "accepted an unsafe api_base: {body}"
+        );
+    }
+
+    let (status, body) = h
+        .call(request(
+            "POST",
+            &uri,
+            Some(&cookie),
+            Some(&csrf),
+            json!({ "api_base": "https://api.example.com/v1" }),
+        ))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "valid api_base: {body}");
+    assert_eq!(json(&body)["status"], json!("pushed"));
+    assert_eq!(json(&body)["deployed"], json!(false));
     assert!(!body.contains("ghp_"));
 }
 

@@ -245,7 +245,9 @@ impl DeployService {
             .git
             .ls_remote_head(&stage, &effective.github.branch, token.as_str())
             .await?;
-        let parent = match remote_tip {
+        // Borrow here: `remote_tip` is also the pre-push baseline that
+        // GitService::push uses to prove a transient retry is safe.
+        let parent = match &remote_tip {
             Some(tip) => {
                 if !options.branch_created_by_deploy {
                     return Err(DeployError::BranchExists(effective.github.branch.clone()));
@@ -253,11 +255,11 @@ impl DeployService {
                 self.git
                     .fetch(&stage, &effective.github.branch, token.as_str())
                     .await?;
-                if self.git.tree_of(&stage, &tip).await? == tree {
+                if self.git.tree_of(&stage, tip).await? == tree {
                     // Same generated tree: no new commit, no new push.
                     return Err(DeployError::Idempotent);
                 }
-                Some(tip)
+                Some(tip.clone())
             }
             None => None,
         };
@@ -273,6 +275,7 @@ impl DeployService {
                 &effective.github.branch,
                 &commit_sha,
                 token.as_str(),
+                remote_tip.as_deref(),
             )
             .await?;
 

@@ -13,8 +13,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import type {
   BpmnValidationReport,
+  DeploymentResponse,
+  DockerHubConfigRequest,
   GenerationReport,
+  GitHubConfigRequest,
+  GitHubConfigResponse,
   PlatformApi,
+  RegistryConfigResponse,
   WorkflowRunSummary,
 } from '@nocode/ide-core';
 
@@ -135,5 +140,66 @@ export const tauriPlatform: PlatformApi = {
       variables,
       autoCompleteTasks,
     });
+  },
+
+  // Deploy surface (Phase 15). The desktop owns its own encrypted vault and
+  // talks to the same `nocode-deploy` crate through Tauri commands. Response
+  // shapes are identical to the web REST API, so the shared UI is unchanged.
+  async deployGithubGet(): Promise<GitHubConfigResponse> {
+    assertTauri();
+    return invoke<GitHubConfigResponse>('github_get_config');
+  },
+
+  async deployGithubSet(request: GitHubConfigRequest): Promise<GitHubConfigResponse> {
+    assertTauri();
+    return invoke<GitHubConfigResponse>('github_set_config', {
+      owner: request.owner,
+      repo: request.repo,
+      branch: request.branch,
+      token: request.token,
+    });
+  },
+
+  async deployDockerhubGet(): Promise<RegistryConfigResponse> {
+    assertTauri();
+    return invoke<RegistryConfigResponse>('dockerhub_get_config');
+  },
+
+  async deployDockerhubSet(request: DockerHubConfigRequest): Promise<RegistryConfigResponse> {
+    assertTauri();
+    return invoke<RegistryConfigResponse>('dockerhub_set_config', {
+      namespace: request.namespace,
+      registry: request.registry,
+      token: request.token ?? null,
+    });
+  },
+
+  async deployProject(_projectId: string, apiBase?: string): Promise<DeploymentResponse> {
+    assertTauri();
+    // The desktop command deploys whichever project is currently open and
+    // filters history by that project's id, so it needs no path argument.
+    return invoke<DeploymentResponse>('deploy_project', { apiBase: apiBase ?? null });
+  },
+
+  async deployList(projectId: string): Promise<DeploymentResponse[]> {
+    assertTauri();
+    // The web host refreshes CI status inside its list route. The desktop
+    // polls the most recent non-terminal deployment here instead, so history
+    // does not stay stuck at `pushed` forever.
+    const existing = await invoke<DeploymentResponse[]>('list_deployments');
+    const pending = existing.find(
+      (row) =>
+        row.project_id === projectId &&
+        !['ci_succeeded', 'ci_failed', 'failed'].includes(row.status),
+    );
+    if (pending) {
+      try {
+        await invoke<DeploymentResponse>('refresh_deployment', { id: pending.id });
+      } catch {
+        // Best effort: a GitHub outage must not hide stored history.
+      }
+    }
+    const all = await invoke<DeploymentResponse[]>('list_deployments');
+    return all.filter((row) => row.project_id === projectId);
   },
 };

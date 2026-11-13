@@ -30,11 +30,18 @@ export type {
   WorkflowRunStep,
   WorkflowOpenTask,
   WorkflowRunEvent,
+  DeploymentStatus,
+  GitHubConfigResponse,
+  GitHubConfigRequest,
+  RegistryConfigResponse,
+  DockerHubConfigRequest,
+  DeploymentResponse,
 } from './platform/types';
 
 export { useProjectStore, type FieldPatch, type RelationPatch } from './stores/projectStore';
 export { useUIStore } from './stores/uiStore';
 export { usePluginStore, type PluginState } from './stores/pluginStore';
+export { useDeployStore, deploySupported, type DeployState } from './stores/deployStore';
 
 export { confirmLeave, useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard';
 export {
@@ -54,5 +61,6 @@ export * from './utils/formModel';
 export * from './utils/listModel';
 export * from './utils/pageModel';
 export * from './utils/workflowModel';
+export * from './utils/deploy';
 
 export { Button, Input, Select, Card, CardHeader, CardContent, CardFooter } from './components/ui';
