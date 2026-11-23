@@ -15,6 +15,13 @@ use std::path::Path;
 /// pushing to a branch CI will never build.
 const MAIN_TRIGGER: &str = "  push:\n    branches: [main]\n";
 
+/// The exact default build argument emitted by `codegen` into
+/// `docker/docker-compose.yml`. The frontend bakes `API_BASE` into its WASM
+/// bundle at compile time, so a deploy must fill this slot BEFORE the
+/// workflow builds the image. Failing closed here is deliberate: silently
+/// shipping a frontend pointed at localhost would look successful in CI.
+const API_BASE_SLOT: &str = "${API_BASE:-http://localhost:3000}";
+
 #[derive(Debug, thiserror::Error)]
 pub enum ComposeError {
     #[error("generated deployment file is missing: {0}")]
@@ -127,6 +134,25 @@ pub fn patch_workflow_branch(workflow: &str, branch: &str) -> Result<String, Com
         &format!("  push:\n    branches: ['{branch}']\n"),
         1,
     ))
+}
+
+/// Bake the operator's public API base URL into the generated compose file.
+///
+/// `api_base` has already been through `valid_api_base()`, which forbids
+/// quotes, whitespace, shell/template metacharacters and userinfo, so the
+/// substitution cannot change the meaning of the YAML. An unexpected compose
+/// shape is an error: codegen may have changed and we must not push an image
+/// whose frontend still points at localhost.
+pub fn patch_compose_api_base(compose: &str, api_base: &str) -> Result<String, ComposeError> {
+    if !crate::valid_api_base(api_base) {
+        return Err(ComposeError::Mismatch("invalid API base URL".into()));
+    }
+    if !compose.contains(API_BASE_SLOT) {
+        return Err(ComposeError::Mismatch(
+            "generated compose has no API_BASE build-argument slot".into(),
+        ));
+    }
+    Ok(compose.replacen(API_BASE_SLOT, &format!("${{API_BASE:-{api_base}}}"), 1))
 }
 
 /// Verify that the staged generated tree agrees with the image names and
@@ -311,6 +337,14 @@ mod tests {
             .with_slug(&project.slug),
             api_base: "https://api.example.com".into(),
         };
+        let compose_path = stage.path().join("docker/docker-compose.yml");
+        let compose = std::fs::read_to_string(&compose_path).expect("generated compose");
+        let patched = patch_compose_api_base(&compose, &config.api_base).expect("patch api base");
+        std::fs::write(&compose_path, patched).expect("write patched compose");
+        assert!(!std::fs::read_to_string(&compose_path)
+            .unwrap()
+            .contains(API_BASE_SLOT));
+
         verify_generated(stage.path(), &config).expect("generated files must agree");
 
         // A configuration that disagrees with the generated tree must be
@@ -330,5 +364,24 @@ mod tests {
             patch_workflow_branch("on:\n  push:\n    branches: ['**']\n", "main"),
             Err(ComposeError::UnexpectedTrigger)
         ));
+    }
+
+    #[test]
+    fn api_base_patch_replaces_only_the_compose_build_argument() {
+        let compose =
+            format!("  frontend:\n    build:\n      args:\n        API_BASE: {API_BASE_SLOT}\n");
+        let patched = patch_compose_api_base(&compose, "https://api.example.com/v1").unwrap();
+        assert!(patched.contains("API_BASE: ${API_BASE:-https://api.example.com/v1}"));
+        assert!(!patched.contains(API_BASE_SLOT));
+        // The YAML key must appear once. Count the assignment form, not the
+        // bare `API_BASE:` substring, which also occurs inside the
+        // `${API_BASE:-...}` default expression of the replacement value.
+        assert_eq!(patched.matches("API_BASE: ${").count(), 1);
+
+        // A validated-but-hostile value can never reach a generated file.
+        assert!(patch_compose_api_base(&compose, "https://x/${INJECT}").is_err());
+        assert!(patch_compose_api_base(&compose, "https://u:p@example.com").is_err());
+        // A codegen change must fail loudly, not ship a localhost frontend.
+        assert!(patch_compose_api_base("unrelated: yaml", "https://api.example.com").is_err());
     }
 }

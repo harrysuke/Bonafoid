@@ -236,7 +236,7 @@ fn validate_secret(secret: &str) -> Result<String, ApiError> {
     Ok(secret.to_string())
 }
 
-fn required_string(config: &Map<String, Value>, key: &str) -> Result<&str, ApiError> {
+fn required_string<'a>(config: &'a Map<String, Value>, key: &str) -> Result<&'a str, ApiError> {
     config
         .get(key)
         .and_then(Value::as_str)
@@ -369,6 +369,17 @@ pub async fn list(
         .map(ConnectorResponse::from_row)
         .collect::<Result<Vec<_>, ApiError>>()?;
     Ok(Json(items))
+}
+
+/// `GET /api/v1/connectors/{id}` — one instance, scoped to the caller's
+/// tenant. Another tenant's id is indistinguishable from a missing one.
+pub async fn get(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    user: AuthUser,
+) -> Result<Json<ConnectorResponse>, ApiError> {
+    let row = load(&state, &user, &id).await?;
+    Ok(Json(ConnectorResponse::from_row(&row)?))
 }
 
 /// `POST /api/v1/connectors` — validate, redact, seal and store.

@@ -151,7 +151,9 @@ mod tests {
         assert_eq!(parsed.nodes.len(), 2);
         assert_eq!(parsed.edges.len(), 1);
         let regenerated = export_bpmn(&parsed).expect("export works");
-        assert_eq!(regenerated, MINIMAL_XML);
+        // The exporter emits `\n`; the fixture is embedded verbatim and may
+        // have been checked out with CRLF on Windows, so compare normalised.
+        assert_eq!(regenerated, MINIMAL_XML.replace("\r\n", "\n"));
     }
 
     #[test]

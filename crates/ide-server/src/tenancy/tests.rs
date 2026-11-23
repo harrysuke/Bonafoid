@@ -25,8 +25,62 @@ fn keys() -> Arc<JwtKeys> {
 }
 
 async fn app() -> Router {
+    app_and_db().await.0
+}
+
+/// Build the router and keep a handle to the same database, so a test can seed
+/// the rows a forged token implies (a real login would have created them).
+async fn app_and_db() -> (Router, sea_orm::DatabaseConnection) {
     let db = connect_sqlite_memory().await.expect("in-memory db");
-    build_router(AppState::new(db, keys()), "apps/ide-web/dist")
+    let router = build_router(AppState::new(db.clone(), keys()), "apps/ide-web/dist");
+    (router, db)
+}
+
+/// Insert the tenant, user and membership rows that a JWT claims.
+///
+/// Tests forge tokens directly instead of registering, so nothing else creates
+/// these rows; without them `projects.user_id` fails its foreign key and
+/// membership-scoped queries return nothing.
+async fn seed_member(
+    db: &sea_orm::DatabaseConnection,
+    user_id: &str,
+    tenant_id: &str,
+    role: &str,
+) {
+    for (sql, values) in [
+        (
+            "INSERT OR IGNORE INTO tenants (id, name, slug) VALUES (?, ?, ?)",
+            vec![
+                Value::from(tenant_id.to_string()),
+                Value::from(tenant_id.to_string()),
+                Value::from(tenant_id.to_string()),
+            ],
+        ),
+        (
+            "INSERT OR IGNORE INTO users (id, email, password_hash, tenant_id) VALUES (?, ?, 'hash', ?)",
+            vec![
+                Value::from(user_id.to_string()),
+                Value::from(format!("{user_id}@example.com")),
+                Value::from(tenant_id.to_string()),
+            ],
+        ),
+        (
+            "INSERT OR IGNORE INTO tenant_members (tenant_id, user_id, role) VALUES (?, ?, ?)",
+            vec![
+                Value::from(tenant_id.to_string()),
+                Value::from(user_id.to_string()),
+                Value::from(role.to_string()),
+            ],
+        ),
+    ] {
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            sql,
+            values,
+        ))
+        .await
+        .expect("seed member");
+    }
 }
 
 fn bearer(user: &str, tenant: &str, roles: &[&str], platform: Option<&str>) -> String {
@@ -41,6 +95,14 @@ fn bearer(user: &str, tenant: &str, roles: &[&str], platform: Option<&str>) -> S
         now,
     );
     format!("Bearer {}", keys().encode(&claims).expect("token"))
+}
+
+async fn body_json(response: axum::response::Response) -> serde_json::Value {
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    // Empty bodies (204, redirects) are not JSON; callers treat them as null.
+    serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
 }
 
 async fn request(
@@ -75,6 +137,8 @@ async fn seed_project(
     user_id: &str,
     name: &str,
 ) {
+    // `projects.user_id` is a foreign key, so the owner must exist first.
+    seed_member(db, user_id, tenant_id, "owner").await;
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Sqlite,
         "INSERT INTO projects (id, tenant_id, user_id, name, slug, version, data) \
@@ -122,7 +186,8 @@ async fn migrations_create_tenancy_tables_and_backfill() {
 
 #[tokio::test]
 async fn tenant_create_list_and_members_work() {
-    let app = app().await;
+    let (app, db) = app_and_db().await;
+    seed_member(&db, "owner", DEFAULT_TENANT_ID, "owner").await;
     let token = bearer("owner", DEFAULT_TENANT_ID, &["owner"], None);
     let (status, list) = request(&app, Method::GET, "/api/v1/tenants", &token, None).await;
     assert_eq!(status, StatusCode::OK);

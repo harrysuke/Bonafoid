@@ -167,7 +167,7 @@ fn call_tool(
     match tools::dispatch(server, caller, name, arguments.clone()) {
         Ok(value) => {
             audit(server, caller, name, &arguments, "ok");
-            Ok(error::into_tool_result(value))
+            Ok(value)
         }
         Err(error) => {
             let status = if error.is_client_error() {

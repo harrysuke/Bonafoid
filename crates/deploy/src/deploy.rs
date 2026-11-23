@@ -14,7 +14,9 @@
 //! whose `head_sha` equals this deployment's commit may move it to
 //! `CiSucceeded`.
 
-use crate::compose::{patch_workflow_branch, verify_generated, ComposeConfig, ComposeError};
+use crate::compose::{
+    patch_compose_api_base, patch_workflow_branch, verify_generated, ComposeConfig, ComposeError,
+};
 use crate::git::{GitError, GitService};
 use crate::github::{GitHubClient, GitHubConfig, GitHubError, WorkflowRun, GITHUB_API_BASE};
 use crate::vault::{CredentialVault, SealedCredential, VaultError};
@@ -213,6 +215,17 @@ impl DeployService {
 
         // 1. Generate the tree (codegen writes .github/workflows/deploy.yml).
         generate_project(project, &stage).await?;
+
+        // 1a. The public API base URL is a BUILD argument, not a runtime
+        //     setting: the frontend bakes it into its WASM bundle. Fill the
+        //     generated compose slot now, before CI builds and pushes images.
+        let compose_path = stage.join("docker/docker-compose.yml");
+        let generated_compose = fs::read_to_string(&compose_path).await?;
+        fs::write(
+            &compose_path,
+            patch_compose_api_base(&generated_compose, &effective.api_base)?,
+        )
+        .await?;
 
         // 2. Carry the model alongside the code, as the roadmap requires.
         let model_json = serde_json::to_string_pretty(project)?;

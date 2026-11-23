@@ -49,7 +49,14 @@ bytes = "1"
 
 # Auth
 argon2 = "0.5"
-jsonwebtoken = { version = "10", default-features = false, features = ["use_pem"] }
+# jsonwebtoken 10 no longer implies a crypto backend: it must be selected
+# explicitly. `rust_crypto` is the pure-Rust provider (rsa/sha2/hmac), which
+# keeps the build free of a C toolchain; `use_pem` is still needed for the
+# RS256 PEM keys generated in auth::jwt.
+jsonwebtoken = { version = "10", default-features = false, features = [
+    "use_pem",
+    "rust_crypto",
+] }
 rsa = { version = "0.9", features = ["pem"] }
 rand = "0.8"
 sha2 = "0.10"

@@ -439,6 +439,12 @@ impl Default for VariableId {
     }
 }
 
+impl std::fmt::Display for VariableId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "type", content = "config")]
 pub enum VariableType {
@@ -491,6 +497,12 @@ impl Default for SignalId {
     }
 }
 
+impl std::fmt::Display for SignalId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SignalScope {
@@ -521,6 +533,12 @@ impl TimerId {
 impl Default for TimerId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl std::fmt::Display for TimerId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 

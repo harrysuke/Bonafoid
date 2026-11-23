@@ -25,6 +25,7 @@ use crate::{
 };
 
 use super::{engine, store, stripe};
+use super::stripe::BillingProvider;
 
 /// Platform super-admin guard, built from the async role helper so a tenant
 /// admin can never create plans.
@@ -287,7 +288,7 @@ pub async fn subscribe(
         ));
     }
 
-    let existing = store::get_billable_subscription(&state.db, &user.tenant_id).await?;
+    let existing = store::get_billable_subscription(&state.db, &user.0.tenant_id).await?;
     let status = match existing.as_ref() {
         None => engine::SubscriptionStatus::Trialing.as_str().to_string(),
         Some(row) => {
@@ -318,7 +319,7 @@ pub async fn subscribe(
     store::upsert_subscription(
         &state.db,
         &id,
-        &user.tenant_id,
+        &user.0.tenant_id,
         &plan.id,
         &price.id,
         &status,
@@ -329,9 +330,14 @@ pub async fn subscribe(
         &now.to_rfc3339(),
     )
     .await?;
-    store::replace_entitlements(&state.db, &user.tenant_id, &baseline_entitlements(seats)).await?;
+    store::replace_entitlements(
+        &state.db,
+        &user.0.tenant_id,
+        &baseline_entitlements(seats),
+    )
+    .await?;
 
-    let subscription = store::get_subscription(&state.db, &user.tenant_id, &id)
+    let subscription = store::get_subscription(&state.db, &user.0.tenant_id, &id)
         .await?
         .ok_or(ApiError::Internal)?;
     Ok(Json(subscription))
@@ -345,11 +351,11 @@ pub async fn cancel(
 ) -> Result<Json<CancelResponse>, ApiError> {
     require_csrf(&headers)?;
 
-    let subscription = store::get_billable_subscription(&state.db, &user.tenant_id)
+    let subscription = store::get_billable_subscription(&state.db, &user.0.tenant_id)
         .await?
         .ok_or(ApiError::NotFound)?;
     let updated =
-        store::cancel_subscription(&state.db, &user.tenant_id, &Utc::now().to_rfc3339()).await?;
+        store::cancel_subscription(&state.db, &user.0.tenant_id, &Utc::now().to_rfc3339()).await?;
     if !updated {
         return Err(ApiError::Conflict(
             "subscription is already set to cancel at period end".to_string(),
@@ -408,7 +414,7 @@ pub async fn record_usage(
     let now = Utc::now().to_rfc3339();
     store::upsert_usage(
         &state.db,
-        &user.tenant_id,
+        &user.0.tenant_id,
         &meter_key,
         body.quantity,
         &period,
@@ -416,7 +422,7 @@ pub async fn record_usage(
     )
     .await?;
     Ok(Json(UsageMeterResponse {
-        tenant_id: user.tenant_id.clone(),
+        tenant_id: user.0.tenant_id.clone(),
         meter_key,
         quantity: body.quantity,
         period,
@@ -443,7 +449,7 @@ pub async fn checkout(
     let price = store::get_price_for_plan(&state.db, &plan.id)
         .await?
         .ok_or(ApiError::Internal)?;
-    let seats = store::get_billable_subscription(&state.db, &user.tenant_id)
+    let seats = store::get_billable_subscription(&state.db, &user.0.tenant_id)
         .await?
         .map(|row| row.seat_count)
         .unwrap_or(1);
@@ -454,9 +460,9 @@ pub async fn checkout(
             plan_id: plan.id,
             price_id: price.id,
             seat_count: seats,
-            tenant_id: user.tenant_id.clone(),
-            user_id: user.id.clone(),
-            email: user.email.clone(),
+            tenant_id: user.0.tenant_id.clone(),
+            user_id: user.0.id.clone(),
+            email: user.0.email.clone(),
             success_url,
             cancel_url,
         })

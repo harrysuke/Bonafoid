@@ -27,14 +27,10 @@ fn call(
     if name == "load_workflow" && args.get("xml").is_some() {
         result.raw_xml_calls += 1;
     }
-    let response = tools::dispatch(server, caller, name, args).expect("tool exists");
-    match response {
-        Ok(value) => {
-            let text = value["content"][0]["text"].as_str().unwrap().to_string();
-            serde_json::from_str(&text).unwrap_or_else(|_| json!({ "text": text }))
-        }
-        Err(error) => panic!("{}: tool {name} failed: {error}", result.name),
-    }
+    let response = tools::dispatch(server, caller, name, args)
+        .unwrap_or_else(|error| panic!("{}: tool {name} failed: {error}", result.name));
+    let text = response["content"][0]["text"].as_str().unwrap().to_string();
+    serde_json::from_str(&text).unwrap_or_else(|_| json!({ "text": text }))
 }
 
 fn new_eval(name: &'static str) -> EvalResult {
@@ -422,7 +418,8 @@ fn malformed_config_is_rejected_before_mutation() {
             "node_type": "ServiceTask",
             "config": { "implementation": { "type": "Http", "config": { "nonsense": 1 } } },
         }),
-    )
-    .unwrap();
-    assert_eq!(result["isError"], json!(true));
+    );
+    // A rejected config surfaces as a domain error, so the transport renders it
+    // as a tool result with `isError: true` and the session is left untouched.
+    assert!(result.is_err(), "malformed config was accepted");
 }

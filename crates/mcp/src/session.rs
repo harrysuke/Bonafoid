@@ -259,7 +259,7 @@ mod tests {
         let (id, _) = store.create("local", workflow("A")).unwrap();
         let key = SessionKey::new("local", &id);
         let error = store
-            .mutate(&key, None, |wf| {
+            .mutate(&key, None, |wf| -> Result<(), McpError> {
                 wf.name = "mutated".into();
                 Err(McpError::Internal("nope".into()))
             })

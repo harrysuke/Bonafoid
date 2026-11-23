@@ -18,7 +18,7 @@ use axum::{
     http::Method,
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{get, post},
     Router,
 };
 
@@ -45,7 +45,7 @@ async fn csrf_before_body(request: Request, next: Next) -> Response {
     next.run(request).await
 }
 
-/// Exactly seven API routes: catalog, list/create, patch/delete, test, invoke.
+/// Connector API routes: catalog, list/create, get/patch/delete, test, invoke.
 pub fn connectors_router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/connectors/catalog", get(handlers::catalog))
@@ -55,7 +55,9 @@ pub fn connectors_router() -> Router<AppState> {
         )
         .route(
             "/api/v1/connectors/:id",
-            patch(handlers::patch).delete(handlers::delete),
+            get(handlers::get)
+                .patch(handlers::patch)
+                .delete(handlers::delete),
         )
         .route("/api/v1/connectors/:id/test", post(handlers::test))
         .route("/api/v1/connectors/:id/invoke", post(handlers::invoke))

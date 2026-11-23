@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::error::McpError;
+use crate::error::{self, McpError};
 use crate::{CallerContext, McpServer};
 
 /// MCP `tools/list` entry.
@@ -19,6 +19,9 @@ use crate::{CallerContext, McpServer};
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
+    /// MCP wire name is camelCase; a plain `input_schema` key would make every
+    /// client treat the tool as taking no arguments.
+    #[serde(rename = "inputSchema")]
     pub input_schema: Value,
 }
 
@@ -45,6 +48,11 @@ pub fn definitions() -> Vec<ToolDefinition> {
 type Handler = fn(&McpServer, &CallerContext, &str, Value) -> Option<Result<Value, McpError>>;
 
 /// Dispatch a tool call by name.
+///
+/// On success the returned value is the MCP tool result envelope
+/// (`{ content, isError }`) ready to be placed in a `tools/call` response;
+/// domain failures are returned as `Err` so the transport can decide between a
+/// tool result and a protocol-level error.
 pub fn dispatch(
     server: &McpServer,
     caller: &CallerContext,
@@ -59,7 +67,9 @@ pub fn dispatch(
     ];
     for handler in HANDLERS {
         if let Some(result) = handler(server, caller, name, arguments.clone()) {
-            return result;
+            // `Ok` is formatted as a tool result; `Err` stays an error so the
+            // transport can classify it (client vs server) before rendering.
+            return result.map(|value| error::into_tool_result(Ok::<Value, McpError>(value)));
         }
     }
     Err(McpError::UnknownTool(name.to_string()))

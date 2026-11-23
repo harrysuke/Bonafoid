@@ -368,14 +368,17 @@ mod tests {
     #[test]
     fn rate_allow_enforces_capacity_and_refills() {
         let mut bucket: HashMap<String, (f64, i64)> = HashMap::new();
-        assert!(rate_allow(&mut bucket, "tenant-a", 0, 60.0));
-        assert!(rate_allow(&mut bucket, "tenant-a", 1, 60.0));
-        assert!(!rate_allow(&mut bucket, "tenant-a", 1, 60.0));
+        // Capacity equals `rate_per_min`, so a 60/min bucket may burst 60
+        // requests at once and then deny until the bucket refills.
+        for _ in 0..60 {
+            assert!(rate_allow(&mut bucket, "tenant-a", 0, 60.0));
+        }
+        assert!(!rate_allow(&mut bucket, "tenant-a", 0, 60.0));
         // Other tenants have their own bucket.
-        assert!(rate_allow(&mut bucket, "tenant-b", 1, 60.0));
-        // 1 token per second at 60/min: one refill after a full second.
-        assert!(rate_allow(&mut bucket, "tenant-a", 1001, 60.0));
-        assert!(!rate_allow(&mut bucket, "tenant-a", 1001, 60.0));
+        assert!(rate_allow(&mut bucket, "tenant-b", 0, 60.0));
+        // 1 token per second at 60/min: exactly one refill after a full second.
+        assert!(rate_allow(&mut bucket, "tenant-a", 1000, 60.0));
+        assert!(!rate_allow(&mut bucket, "tenant-a", 1000, 60.0));
         assert!(!rate_allow(&mut bucket, "x", 0, 0.0));
     }
 

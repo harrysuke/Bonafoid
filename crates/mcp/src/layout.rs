@@ -239,7 +239,7 @@ mod tests {
         });
         workflow.edges.push(nocode_model::WorkflowEdge {
             id: nocode_model::EdgeId::new(),
-            source: end.id,
+            source: end.id.clone(),
             target: tail,
             source_handle: None,
             target_handle: None,

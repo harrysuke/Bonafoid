@@ -191,10 +191,12 @@ pub fn merge_json_objects(base: &mut Value, patch: &Value) {
         return;
     };
     for (key, value) in patch_map {
-        if let (Some(previous), Some(incoming)) = (base_map.get_mut(key), value.as_object()) {
-            if previous.is_object() {
-                merge_json_objects(previous, incoming);
-                continue;
+        if value.is_object() {
+            if let Some(previous) = base_map.get_mut(key) {
+                if previous.is_object() {
+                    merge_json_objects(previous, value);
+                    continue;
+                }
             }
         }
         base_map.insert(key.clone(), value.clone());

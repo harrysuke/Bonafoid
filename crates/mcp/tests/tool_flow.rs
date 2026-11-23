@@ -16,9 +16,7 @@ fn tool(server: &McpServer, caller: &CallerContext, name: &str, args: Value) -> 
 }
 
 fn tool_error(server: &McpServer, caller: &CallerContext, name: &str, args: Value) -> McpError {
-    tools::dispatch(server, caller, name, args)
-        .expect("tool exists")
-        .expect_err("tool should fail")
+    tools::dispatch(server, caller, name, args).expect_err("tool should fail")
 }
 
 fn server() -> McpServer {
