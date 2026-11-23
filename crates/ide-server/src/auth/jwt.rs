@@ -37,21 +37,51 @@ pub struct Claims {
     pub iss: String,
     /// Token type: `access` or `refresh`.
     pub typ: String,
+    /// Active tenant. Signed into the claim so a request cannot choose one.
+    #[serde(default = "default_tenant")]
+    pub tenant_id: String,
+    /// Tenant roles resolved when the token was issued.
+    #[serde(default)]
+    pub roles: Vec<String>,
+    /// Platform role (`super_admin`), separate from tenant roles.
+    #[serde(default)]
+    pub platform_role: Option<String>,
     /// Issued-at (unix seconds).
     pub iat: i64,
     /// Expiry (unix seconds).
     pub exp: i64,
 }
 
+fn default_tenant() -> String {
+    crate::tenancy::schema::DEFAULT_TENANT_ID.to_string()
+}
+
 impl Claims {
-    /// Build an access token's claims.
+    /// Build an access token's claims with no tenant context (legacy/tests).
     pub fn access(sub: &str, email: &str, jti: &str, now: i64) -> Self {
+        Self::access_for(sub, email, default_tenant(), Vec::new(), None, jti, now)
+    }
+
+    /// Build an access token that carries the signed tenant and role set.
+    #[allow(clippy::too_many_arguments)]
+    pub fn access_for(
+        sub: &str,
+        email: &str,
+        tenant_id: String,
+        roles: Vec<String>,
+        platform_role: Option<String>,
+        jti: &str,
+        now: i64,
+    ) -> Self {
         Self {
             sub: sub.to_string(),
             email: email.to_string(),
             jti: jti.to_string(),
             iss: ISSUER.to_string(),
             typ: TOKEN_TYPE_ACCESS.to_string(),
+            tenant_id,
+            roles,
+            platform_role,
             iat: now,
             exp: now + ACCESS_TTL_SECS,
         }
@@ -65,6 +95,9 @@ impl Claims {
             jti: jti.to_string(),
             iss: ISSUER.to_string(),
             typ: TOKEN_TYPE_REFRESH.to_string(),
+            tenant_id: default_tenant(),
+            roles: Vec::new(),
+            platform_role: None,
             iat: now,
             exp: now + REFRESH_TTL_SECS,
         }

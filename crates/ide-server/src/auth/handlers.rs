@@ -81,6 +81,9 @@ pub async fn register(
     let password_hash = password::hash_password(&credentials.password)?;
     let user_id = Uuid::new_v4().to_string();
     store::insert_user(&state.db, &user_id, &email, &password_hash).await?;
+    // Every new account starts in the default tenant as its owner. The
+    // backfill migration guarantees the tenant row itself exists.
+    crate::tenancy::store::ensure_default_membership(&state.db, &user_id).await?;
 
     let user = store::find_user_by_id(&state.db, &user_id)
         .await?
@@ -184,9 +187,20 @@ pub async fn me(
 
 async fn issue_tokens(state: &AppState, user: &store::UserRow) -> Result<IssuedTokens, AuthError> {
     let now = jwt::now_secs();
+    let tenant_id = crate::tenancy::store::active_tenant(&state.db, &user.id).await?;
+    let roles = crate::tenancy::store::roles_for_user(&state.db, &user.id).await?;
+    let platform_role = crate::tenancy::store::platform_role(&state.db, &user.id).await?;
 
     let access_jti = Uuid::new_v4().to_string();
-    let access_claims = jwt::Claims::access(&user.id, &user.email, &access_jti, now);
+    let access_claims = jwt::Claims::access_for(
+        &user.id,
+        &user.email,
+        tenant_id,
+        roles,
+        platform_role,
+        &access_jti,
+        now,
+    );
     let access = state.keys.encode(&access_claims)?;
 
     let refresh_jti = Uuid::new_v4().to_string();

@@ -7,7 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+**Agentic workflow authoring** (`crates/mcp`, `docs/mcp-server.md`)
+- MCP server exposing 23 typed tools for creating, editing, validating,
+  simulating, exporting and saving BPMN workflows; agents never emit raw XML.
+- Read-only grounding resources for the generated workflow/project JSON
+  Schemas, the 16-type node catalogue, known-good JSON/XML examples and an
+  authoring guide.
+- Deterministic layered auto-layout and server-owned node/edge UUIDs; sessions
+  carry revisions, bounded undo/redo and caller-scoped isolation.
+- stdio transport (`nocode-mcp` binary) and an authenticated Streamable HTTP
+  route at `POST /mcp` mounted by `nocode-ide-server` with read/write scopes.
+- Claude Desktop/Cursor configuration example and a five-prompt agent
+  evaluation proxy.
+
+**Container images and CI/CD** (`.github/workflows/docker.yml`, `.hadolint.yaml`)
+- Workflow that lints both Dockerfiles with hadolint, validates
+  `docker-compose.yml` on the default and preview profiles, then builds the
+  lean image and boots it on a fresh volume.
+- The boot is asserted, not assumed: `/health`, `/ready`, the served web IDE, a
+  non-root UID, a database created on the volume, `docker compose up` against
+  the built image, and a SIGTERM stop in under five seconds.
+- Multi-arch (`amd64`, `arm64`) publishes to GHCR on `main` and on `v*` tags;
+  the `-preview` image is published on tags. No secrets required — GHCR
+  authenticates with the workflow's own token.
+- Trivy scan of the built image with SARIF upload to the Security tab.
+- `.hadolint.yaml` sets the threshold to `error` and documents why apt package
+  versions are not pinned.
+
+### Fixed
+
+- **`Dockerfile` did not build at all.** Its manifest list was hand-maintained
+  and had missed `crates/mcp` and `crates/deploy`, so cargo refused to load the
+  workspace. Both Dockerfiles now copy `crates/*/Cargo.toml` with
+  `COPY --parents`, and the stub-source list is derived from those manifests
+  instead of a second hand-written list.
+- **The image ignored SIGTERM.** `docker stop`, `compose down` and Kubernetes
+  all signal first and kill ten seconds later; the server had no handler, so
+  every stop waited out the grace period and then killed the process
+  mid-request. `serve` now drains in-flight requests on SIGTERM
+  (`crates/ide-server/src/server.rs`); a stop takes about two seconds.
+- **`DATABASE_URL` in the image had no `mode=rwc`**, so a container started on
+  an empty volume could not create its SQLite file. The image default now
+  matches `docker-compose.yml`.
+- **The workspace did not compile on current stable Rust.** `sqlx-postgres`
+  0.7.4 fails on the never-type fallback change (rust-lang/rust#148922). The
+  workspace enabled `sqlx-postgres` and `sqlx-mysql` through `sea-orm` although
+  the IDE is SQLite-only, so both drivers were dropped — less compile time, a
+  smaller image, and the build works on stable again.
+
+### Changed
+
+- Cargo and npm caches are BuildKit cache mounts rather than image layers, so a
+  source-only change relinks instead of rebuilding the dependency graph.
+- The build re-touches the copied sources before compiling: the stub build
+  caches artifacts for the same crates, `COPY` preserves the context's older
+  timestamps, and cargo decides freshness by mtime — without the touch it
+  declares the crates fresh and installs the stub `fn main() {}` binary.
 
 ## [0.1.0] — 2026-10-29
 

@@ -32,10 +32,11 @@ pub fn projects_router() -> Router<AppState> {
 /// Load a project owned by `user_id` or return `NotFound`.
 pub async fn require_project(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
     id: &str,
 ) -> Result<Project, ApiError> {
-    let row = store::get_project(db, user_id, id)
+    let row = store::get_project(db, tenant_id, user_id, id)
         .await?
         .ok_or(ApiError::NotFound)?;
     let project: Project = serde_json::from_str(&row.data).map_err(|error| {

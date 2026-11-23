@@ -1,0 +1,30 @@
+{
+  "description": "Agent evaluation prompts for the Bonafoid MCP server. Score each run on valid == true, tool-call count and zero raw-XML authoring calls.",
+  "scoring": {
+    "threshold_valid_ratio": 0.9,
+    "max_tool_calls": 20,
+    "forbidden_patterns": ["load_workflow(xml=...)", "pasting BPMN XML"]
+  },
+  "prompts": [
+    {
+      "id": "linear_approval",
+      "prompt": "Build a simple invoice approval workflow: start, a manager reviews it, then end."
+    },
+    {
+      "id": "parallel_signing",
+      "prompt": "Create a contract workflow where two departments sign in parallel and both branches end."
+    },
+    {
+      "id": "timer_escalation",
+      "prompt": "Model a support ticket that starts on a timer, waits for an agent, and ends. Declare the timer definition."
+    },
+    {
+      "id": "service_notification",
+      "prompt": "Build a workflow that starts, calls an HTTP service notification, then ends."
+    },
+    {
+      "id": "gateway_loop",
+      "prompt": "Build a review loop: submit, decide, loop back for another review when rejected, otherwise end."
+    }
+  ]
+}

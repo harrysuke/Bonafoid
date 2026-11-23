@@ -26,16 +26,16 @@ use serde::Serialize;
 
 use crate::server::AppState;
 
-/// Where a user's plugins are stored on disk.
+/// Where a tenant's plugins are stored on disk.
 pub fn plugins_root() -> PathBuf {
     std::env::var("IDE_PLUGIN_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("plugin-workspaces"))
 }
 
-/// The per-user plugin hosts.
+/// The per-tenant plugin hosts (Phase 7 isolation).
 ///
-/// A host is created the first time a user touches their plugins, and
+/// A host is created the first time a tenant touches its plugins, and
 /// kept for the lifetime of the server.
 #[derive(Default)]
 pub struct PluginRegistry {
@@ -44,12 +44,12 @@ pub struct PluginRegistry {
 }
 
 /// `PluginHost` is not `Debug`, and a host is a Wasmtime engine: printing
-/// one would be noise. The user ids are enough to see who has a host.
+/// one would be noise. The tenant ids are enough to see which hosts exist.
 impl std::fmt::Debug for PluginRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let hosts = self.hosts.lock().unwrap();
         f.debug_struct("PluginRegistry")
-            .field("users", &hosts.keys().collect::<Vec<_>>())
+            .field("tenants", &hosts.keys().collect::<Vec<_>>())
             .finish()
     }
 }
@@ -76,17 +76,17 @@ impl PluginRegistry {
         self.root.lock().unwrap().clone()
     }
 
-    /// The host for `user_id`, created on first use.
-    pub fn host(&self, user_id: &str) -> Result<Arc<PluginHost>, crate::error::ApiError> {
+    /// The host for `tenant_id`, created on first use.
+    pub fn host(&self, tenant_id: &str) -> Result<Arc<PluginHost>, crate::error::ApiError> {
         let mut hosts = self.hosts.lock().unwrap();
-        if let Some(host) = hosts.get(user_id) {
+        if let Some(host) = hosts.get(tenant_id) {
             return Ok(Arc::clone(host));
         }
         let host = Arc::new(PluginHost::new().map_err(|error| {
             tracing::error!(%error, "cannot create the plugin host");
             crate::error::ApiError::Internal
         })?);
-        hosts.insert(user_id.to_string(), Arc::clone(&host));
+        hosts.insert(tenant_id.to_string(), Arc::clone(&host));
         Ok(host)
     }
 
@@ -98,22 +98,22 @@ impl PluginRegistry {
         let rows = store::list_plugins_for_all_users(db).await?;
         for row in rows {
             if row.enabled {
-                let _host = self.host(&row.user_id)?;
+                let _host = self.host(&row.tenant_id)?;
                 // The on-disk module is rebuilt from DB + disk on restart.
             }
         }
         Ok(())
     }
 
-    /// The directory a user's plugin with `id` is stored in.
-    pub fn plugin_dir(&self, user_id: &str, id: &str) -> PathBuf {
+    /// The directory a tenant's plugin with `id` is stored in.
+    pub fn plugin_dir(&self, tenant_id: &str, id: &str) -> PathBuf {
         // The ids are validated as reverse-DNS identifiers, but a path is
         // built from them here, so anything unexpected is refused rather
         // than joined.
-        if !is_safe_path_component(id) || !is_safe_path_component(user_id) {
+        if !is_safe_path_component(id) || !is_safe_path_component(tenant_id) {
             return self.root().join("_invalid");
         }
-        self.root().join(user_id).join(id)
+        self.root().join(tenant_id).join(id)
     }
 }
 
@@ -262,6 +262,7 @@ mod tests {
             )),
             plugins: Arc::new(PluginRegistry::with_root(root)),
             deploy: None,
+            mcp: Arc::new(nocode_mcp::McpServer::new(nocode_mcp::Config::from_env())),
         };
         crate::server::build_router(state, "apps/ide-web/dist")
     }

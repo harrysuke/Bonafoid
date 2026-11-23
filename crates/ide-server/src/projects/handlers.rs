@@ -82,11 +82,12 @@ fn parse_timestamp(value: &str) -> Option<DateTime<Utc>> {
 /// Insert a freshly built project under a unique slug and return the 201 detail.
 async fn insert_with_unique_slug(
     state: &AppState,
+    tenant_id: &str,
     user_id: &str,
     mut project: Project,
     slug_base: &str,
 ) -> Result<Response, ApiError> {
-    let slug = store::unique_slug(&state.db, user_id, slug_base, None).await?;
+    let slug = store::unique_slug(&state.db, tenant_id, user_id, slug_base, None).await?;
     let now = Utc::now();
     project.slug = slug.clone();
     project.created_at = now;
@@ -97,6 +98,7 @@ async fn insert_with_unique_slug(
     store::insert_project(
         &state.db,
         &id,
+        tenant_id,
         user_id,
         &project.name,
         &slug,
@@ -133,7 +135,7 @@ pub async fn list(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> Result<Json<Vec<ProjectSummary>>, ApiError> {
-    let rows = store::list_projects(&state.db, &user.id).await?;
+    let rows = store::list_projects(&state.db, &user.tenant_id, &user.id).await?;
     let summaries = rows.iter().map(ProjectSummary::from).collect();
     Ok(Json(summaries))
 }
@@ -154,7 +156,7 @@ pub async fn create(
         project.description = body.description;
     }
     let slug_base = slugify(&name);
-    insert_with_unique_slug(&state, &user.id, project, &slug_base).await
+    insert_with_unique_slug(&state, &user.tenant_id, &user.id, project, &slug_base).await
 }
 
 /// `GET /api/v1/projects/:id`
@@ -163,7 +165,7 @@ pub async fn get(
     user: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<ProjectDetail>, ApiError> {
-    let row = store::get_project(&state.db, &user.id, &id)
+    let row = store::get_project(&state.db, &user.tenant_id, &user.id, &id)
         .await?
         .ok_or(ApiError::NotFound)?;
     let data: Project = serde_json::from_str(&row.data).map_err(|error| {
@@ -186,7 +188,7 @@ pub async fn update(
 ) -> Result<Json<ProjectDetail>, ApiError> {
     require_csrf(&headers)?;
 
-    let existing = store::get_project(&state.db, &user.id, &id)
+    let existing = store::get_project(&state.db, &user.tenant_id, &user.id, &id)
         .await?
         .ok_or(ApiError::NotFound)?;
 
@@ -204,6 +206,7 @@ pub async fn update(
     let written = store::update_project(
         &state.db,
         &id,
+        &user.tenant_id,
         &user.id,
         &project.name,
         project.description.as_deref(),
@@ -244,7 +247,7 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     require_csrf(&headers)?;
-    let removed = store::delete_project(&state.db, &user.id, &id).await?;
+    let removed = store::delete_project(&state.db, &user.tenant_id, &user.id, &id).await?;
     if !removed {
         return Err(ApiError::NotFound);
     }
@@ -259,7 +262,7 @@ pub async fn duplicate(
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
     require_csrf(&headers)?;
-    let existing = store::get_project(&state.db, &user.id, &id)
+    let existing = store::get_project(&state.db, &user.tenant_id, &user.id, &id)
         .await?
         .ok_or(ApiError::NotFound)?;
     let mut project: Project = serde_json::from_str(&existing.data).map_err(|error| {
@@ -279,7 +282,7 @@ pub async fn duplicate(
     project.name = format!("{} Copy", base);
     project.published_at = None;
     let slug_base = slugify(&format!("{}-copy", existing.summary.slug));
-    insert_with_unique_slug(&state, &user.id, project, &slug_base).await
+    insert_with_unique_slug(&state, &user.tenant_id, &user.id, project, &slug_base).await
 }
 
 /// `POST /api/v1/projects/import`
@@ -295,7 +298,7 @@ pub async fn import(
     project.id = ProjectId::new();
     project.published_at = None;
     let slug_base = slugify(&name);
-    insert_with_unique_slug(&state, &user.id, project, &slug_base).await
+    insert_with_unique_slug(&state, &user.tenant_id, &user.id, project, &slug_base).await
 }
 
 /// `GET /api/v1/projects/:id/export`
@@ -304,7 +307,7 @@ pub async fn export(
     user: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
-    let row = store::get_project(&state.db, &user.id, &id)
+    let row = store::get_project(&state.db, &user.tenant_id, &user.id, &id)
         .await?
         .ok_or(ApiError::NotFound)?;
     let project: Project = serde_json::from_str(&row.data).map_err(|error| {

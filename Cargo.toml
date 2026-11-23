@@ -7,6 +7,7 @@ members = [
     "crates/plugins",
     "crates/bpmn",
     "crates/ide-server",
+    "crates/mcp",
     "crates/deploy",
     "xtask",
 ]
@@ -42,7 +43,16 @@ tauri_plugin_shell = "2.0"
 
 # Web/Backend
 axum = { version = "0.7", features = ["ws", "json", "multipart", "form"] }
-sea-orm = { version = "0.12", features = ["sqlx-postgres", "sqlx-sqlite", "sqlx-mysql", "chrono", "uuid", "macros"] }
+# SQLite only: the IDE's migrations are SQLite-specific (see
+# crates/ide-server/src/migration.rs) and there is no Postgres or MySQL code
+# path in this workspace. The generated projects pick their own driver in
+# crates/codegen; that is a separate dependency tree.
+#
+# The postgres and mysql drivers were removed rather than left enabled: they
+# are ~2 minutes of compile time and ~10 MB of image per backend for code that
+# cannot be reached, and sqlx 0.7's `sqlx-postgres` no longer compiles on
+# current stable Rust (never-type fallback, rust-lang/rust#148922).
+sea-orm = { version = "0.12", features = ["sqlx-sqlite", "chrono", "uuid", "macros"] }
 tower-http = { version = "0.5", features = ["cors", "trace", "fs", "add-extension"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }

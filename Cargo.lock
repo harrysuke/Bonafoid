@@ -2092,6 +2092,7 @@ dependencies = [
  "nocode-codegen",
  "nocode-deploy",
  "nocode-ide",
+ "nocode-mcp",
  "nocode-model",
  "nocode-plugins",
  "rand 0.8.8",
@@ -2110,6 +2111,24 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "nocode-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "indexmap",
+ "nocode-bpmn",
+ "nocode-ide",
+ "nocode-model",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "uuid",
 ]
 
 [[package]]

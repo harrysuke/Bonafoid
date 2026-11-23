@@ -13,6 +13,21 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0001_initial", INITIAL_SCHEMA),
     ("0002_plugins", PLUGINS_SCHEMA),
     ("0003_integrations", INTEGRATIONS_SCHEMA),
+    ("0004_tenancy", crate::tenancy::schema::TENANCY_SCHEMA),
+    (
+        "0005_tenant_backfill",
+        crate::tenancy::schema::TENANT_BACKFILL,
+    ),
+    ("0006_billing", crate::billing::schema::BILLING_SCHEMA),
+    ("0007_admin", crate::admin::schema::ADMIN_SCHEMA),
+    (
+        "0008_connectors",
+        crate::connectors::schema::CONNECTORS_SCHEMA,
+    ),
+    (
+        "0009_versioning",
+        crate::versioning::schema::VERSIONING_SCHEMA,
+    ),
 ];
 
 const INITIAL_SCHEMA: &str = r#"
@@ -229,6 +244,66 @@ mod tests {
             names.contains(&"deployments".to_string()),
             "missing deployments: {names:?}"
         );
+        // Milestone 2 / 3 tables (Phases 7-11).
+        for expected in [
+            "tenants",
+            "tenant_members",
+            "plans",
+            "subscriptions",
+            "invoices",
+            "entitlements",
+            "webhook_events",
+            "platform_flags",
+            "audit_log",
+            "connector_instances",
+            "project_revisions",
+            "project_branches",
+            "project_environments",
+            "environment_secrets",
+        ] {
+            assert!(
+                names.contains(&expected.to_string()),
+                "missing {expected}: {names:?}"
+            );
+        }
+    }
+
+    /// The backfill migration must create the default tenant and give every
+    /// pre-tenancy row a tenant id, so old data stays reachable.
+    #[tokio::test]
+    async fn tenant_backfill_migrates_existing_rows() {
+        let db = connect_sqlite_memory().await.unwrap();
+        let rows = db
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT id FROM tenants WHERE id = 'default-tenant'",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1, "default tenant missing");
+
+        let columns: Vec<String> = db
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA table_info(projects)",
+            ))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.try_get::<String>("", "name").unwrap())
+            .collect();
+        assert!(columns.contains(&"tenant_id".to_string()));
+        let columns: Vec<String> = db
+            .query_all(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA table_info(users)",
+            ))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.try_get::<String>("", "name").unwrap())
+            .collect();
+        assert!(columns.contains(&"platform_role".to_string()));
     }
 
     /// The sealed columns must exist and be separate from the readable

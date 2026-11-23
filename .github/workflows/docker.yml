@@ -1,0 +1,354 @@
+name: Docker
+
+# Container pipeline for the IDE images.
+#
+#   changes   decides whether a pull request touches anything the image is
+#             built from, so a docs-only PR does not pay for a release build
+#   lint      hadolint on both Dockerfiles and `docker compose config` on the
+#             default and preview profiles — seconds, fails before the build
+#   build     builds the lean image, boots it on a fresh volume, probes
+#             /health and /ready, checks it runs unprivileged, checks it stops
+#             on SIGTERM, then runs the real compose file against that image
+#   publish   multi-arch push to GHCR on main and on v* tags
+#
+# The preview image is built and published on tags only. It compiles cargo,
+# trunk and the wasm32 target inside the image, which is minutes of runner time
+# on every pull request for an image only self-hosted deployments pull.
+#
+# No secrets are required: GHCR authenticates with the workflow's GITHUB_TOKEN,
+# and pull requests never push.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      push_image:
+        description: Push the images to GHCR even though this is not a main or tag build
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A superseded pull request build is wasted runner time; a superseded release
+  # build is not, so only PRs cancel in progress.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  changes:
+    name: Detect image changes
+    runs-on: ubuntu-latest
+    # The top-level token is contents:read; listing a pull request's changed
+    # files goes through the pull request API and needs this.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      image: ${{ steps.filter.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      # Path filtering only makes sense for pull requests. A tag build compares
+      # against the parent commit, so a release that changes nothing but the
+      # version would be skipped — exactly the build that must not be skipped.
+      - if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            image:
+              - 'Dockerfile'
+              - 'Dockerfile.preview'
+              - 'docker-compose.yml'
+              - '.dockerignore'
+              - '.hadolint.yaml'
+              - '.github/workflows/docker.yml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'xtask/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'packages/**'
+              - 'apps/ide-web/**'
+
+  lint:
+    name: Lint Dockerfiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: hadolint (Dockerfile)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          config: .hadolint.yaml
+
+      - name: hadolint (Dockerfile.preview)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile.preview
+          config: .hadolint.yaml
+
+      # Parses the compose file the way `docker compose` will, including the
+      # profile-gated preview service, without starting anything.
+      - name: Compose file is valid
+        run: |
+          docker compose config --quiet
+          docker compose --profile preview config --quiet
+
+  build:
+    name: Build + smoke test
+    runs-on: ubuntu-latest
+    needs: [changes, lint]
+    if: needs.changes.outputs.image == 'true' || github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      # For uploading the Trivy SARIF report to the Security tab.
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          # `load` puts the image in the runner's docker daemon so the smoke
+          # test below can run it. That rules out multi-platform here; the
+          # publish job is where arm64 is built.
+          load: true
+          tags: |
+            nocode-ide:ci
+            nocode-ide:latest
+          build-args: |
+            VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+            REVISION=${{ github.sha }}
+            SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+
+      - name: Boot on a fresh volume and probe
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke -p 18081:8081 -v smoke-data:/data nocode-ide:ci
+
+          ready=0
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18081/ready > /dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$ready" != 1 ]; then
+            echo "::error::container never answered /ready on a fresh volume"
+            docker logs smoke
+            exit 1
+          fi
+
+          # Liveness and readiness both have to answer, and the web IDE has to
+          # be served — a server that is up but has no dist/ is not a working
+          # deployment.
+          curl -fsS http://127.0.0.1:18081/health
+          echo
+          curl -fsS http://127.0.0.1:18081/ready
+          echo
+          curl -fsS http://127.0.0.1:18081/ | grep -q 'id="root"'
+
+          # The image must not run as root, and the database must have been
+          # created by that unprivileged user on the volume — this is the check
+          # that catches a /data volume with the wrong ownership.
+          uid="$(docker exec smoke id -u)"
+          if [ "$uid" = "0" ]; then
+            echo "::error::container runs as root"
+            exit 1
+          fi
+          echo "running as uid $uid"
+          docker exec smoke test -s /data/ide.db
+
+      - name: Stops on SIGTERM
+        run: |
+          set -euo pipefail
+          start="$(date +%s)"
+          # 20s ceiling: if the server ignored SIGTERM, docker waits out the
+          # timeout and the elapsed time exposes it.
+          docker stop -t 20 smoke > /dev/null
+          elapsed=$(( $(date +%s) - start ))
+          echo "stop took ${elapsed}s"
+          if [ "$elapsed" -gt 5 ]; then
+            echo "::error::SIGTERM was not handled gracefully (${elapsed}s to stop)"
+            exit 1
+          fi
+          docker rm -f smoke
+          docker volume rm smoke-data
+
+      # Exercises the file users actually run, against the image just built
+      # (`--no-build`; the compose service is tagged nocode-ide:latest above).
+      - name: Compose up against the built image
+        run: |
+          set -euo pipefail
+          docker compose up -d --no-build --wait --wait-timeout 180
+          curl -fsS http://127.0.0.1:8081/health
+          echo
+          curl -fsS http://127.0.0.1:8081/ready
+          echo
+          docker compose ps
+
+      - name: Compose logs
+        if: failure()
+        run: docker compose logs --no-color || true
+
+      - name: Compose down
+        if: always()
+        run: docker compose down -v --remove-orphans || true
+
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: nocode-ide:ci
+          format: sarif
+          output: trivy.sarif
+          severity: CRITICAL,HIGH
+          # Base-image fixes that Debian has not shipped yet are not actionable
+          # here, and failing on them would block every build.
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Upload scan results
+        # Fork PRs get a read-only token, so the upload would fail there.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-nocode-ide
+
+  publish:
+    name: Publish to GHCR
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: |
+      github.event_name != 'pull_request' && (
+        github.ref == 'refs/heads/main' ||
+        startsWith(github.ref, 'refs/tags/v') ||
+        inputs.push_image
+      )
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR rejects uppercase repository names, and this repository has one.
+      - name: Resolve image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      # arm64 is emulated here; the Rust build is slow under QEMU but the GHA
+      # cache keeps repeat builds to a relink.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+            REVISION=${{ github.sha }}
+            SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+          provenance: true
+          sbom: true
+
+  publish-preview:
+    name: Publish preview image to GHCR
+    runs-on: ubuntu-latest
+    needs: [build]
+    # Tag builds only: the preview image is ~2 GB and only self-hosted
+    # deployments that want hosted previews pull it.
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.push_image
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # amd64 only: a wasm build under QEMU is not worth the runner minutes,
+      # and the preview image is a self-hosting convenience, not a base for
+      # downstream images.
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: |
+            suffix=-preview
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.preview
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+            REVISION=${{ github.sha }}
+            SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=preview
+          cache-to: type=gha,mode=max,scope=preview
+          provenance: true
+          sbom: true

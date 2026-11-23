@@ -265,7 +265,7 @@ pub async fn deploy_project(
 ) -> Result<Response, ApiError> {
     require_csrf(&headers)?;
     let service = require_deploy(&state)?;
-    let project = require_project(&state.db, &user.id, &project_id).await?;
+    let project = require_project(&state.db, &user.tenant_id, &user.id, &project_id).await?;
 
     // 15.4: the public API base URL is captured at build time, so it must be
     // correct *before* this deploy. Validate it before doing any work; the
@@ -378,7 +378,7 @@ pub async fn list_deployments(
     Path(project_id): Path<String>,
 ) -> Result<Json<Vec<DeploymentResponse>>, ApiError> {
     let service = require_deploy(&state)?;
-    let _project = require_project(&state.db, &user.id, &project_id).await?;
+    let _project = require_project(&state.db, &user.tenant_id, &user.id, &project_id).await?;
     let mut rows = store::list_deployments(&state.db, &user.id, &project_id).await?;
     refresh_statuses(&state, &service, &user.id, &mut rows).await;
     Ok(Json(

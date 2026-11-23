@@ -23,6 +23,7 @@ fn text(value: &str) -> Value {
 #[derive(Debug, Clone)]
 pub struct PluginRow {
     pub id: String,
+    pub tenant_id: String,
     pub manifest: String,
     pub enabled: bool,
     pub created_at: String,
@@ -33,6 +34,7 @@ pub struct PluginRow {
 fn map_row(row: &QueryResult) -> Result<PluginRow, ApiError> {
     Ok(PluginRow {
         id: row.try_get("", "id").map_err(ApiError::from)?,
+        tenant_id: row.try_get("", "tenant_id").map_err(ApiError::from)?,
         user_id: row.try_get("", "user_id").map_err(ApiError::from)?,
         manifest: row.try_get("", "manifest").map_err(ApiError::from)?,
         enabled: row.try_get::<i64>("", "enabled").map_err(ApiError::from)? != 0,
@@ -47,7 +49,7 @@ pub async fn list_plugins_for_all_users(
 ) -> Result<Vec<PluginRow>, ApiError> {
     let rows = db
         .query_all(statement(
-            "SELECT id, user_id, manifest, enabled, created_at, updated_at FROM plugins",
+            "SELECT id, tenant_id, user_id, manifest, enabled, created_at, updated_at FROM plugins",
             vec![],
         ))
         .await
@@ -58,13 +60,14 @@ pub async fn list_plugins_for_all_users(
 /// Every plugin installed by `user_id`, oldest first.
 pub async fn list_plugins(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
 ) -> Result<Vec<PluginRow>, ApiError> {
     let rows = db
         .query_all(statement(
-            "SELECT id, user_id, manifest, enabled, created_at, updated_at FROM plugins \
-             WHERE user_id = ? ORDER BY created_at ASC, id ASC",
-            vec![text(user_id)],
+            "SELECT id, tenant_id, user_id, manifest, enabled, created_at, updated_at FROM plugins \
+             WHERE tenant_id = ? AND user_id = ? ORDER BY created_at ASC, id ASC",
+            vec![text(tenant_id), text(user_id)],
         ))
         .await
         .map_err(ApiError::from)?;
@@ -74,14 +77,15 @@ pub async fn list_plugins(
 /// One plugin installed by `user_id`.
 pub async fn get_plugin(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
     id: &str,
 ) -> Result<Option<PluginRow>, ApiError> {
     let rows = db
         .query_all(statement(
-            "SELECT id, user_id, manifest, enabled, created_at, updated_at FROM plugins \
-             WHERE user_id = ? AND id = ?",
-            vec![text(user_id), text(id)],
+            "SELECT id, tenant_id, user_id, manifest, enabled, created_at, updated_at FROM plugins \
+             WHERE tenant_id = ? AND user_id = ? AND id = ?",
+            vec![text(tenant_id), text(user_id), text(id)],
         ))
         .await
         .map_err(ApiError::from)?;
@@ -91,13 +95,14 @@ pub async fn get_plugin(
 /// Record a newly installed plugin.
 pub async fn insert_plugin(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
     id: &str,
     manifest: &str,
 ) -> Result<(), ApiError> {
     db.execute(statement(
-        "INSERT INTO plugins (id, user_id, manifest, enabled) VALUES (?, ?, ?, 1)",
-        vec![text(id), text(user_id), text(manifest)],
+        "INSERT INTO plugins (id, tenant_id, user_id, manifest, enabled) VALUES (?, ?, ?, ?, 1)",
+        vec![text(id), text(tenant_id), text(user_id), text(manifest)],
     ))
     .await
     .map_err(ApiError::from)?;
@@ -107,6 +112,7 @@ pub async fn insert_plugin(
 /// Turn a plugin on or off.
 pub async fn set_enabled(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
     id: &str,
     enabled: bool,
@@ -114,9 +120,10 @@ pub async fn set_enabled(
     let result = db
         .execute(statement(
             "UPDATE plugins SET enabled = ?, updated_at = datetime('now') \
-             WHERE user_id = ? AND id = ?",
+             WHERE tenant_id = ? AND user_id = ? AND id = ?",
             vec![
                 Value::from(if enabled { 1i64 } else { 0i64 }),
+                text(tenant_id),
                 text(user_id),
                 text(id),
             ],
@@ -129,13 +136,14 @@ pub async fn set_enabled(
 /// Forget a plugin.
 pub async fn delete_plugin(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
     id: &str,
 ) -> Result<bool, ApiError> {
     let result = db
         .execute(statement(
-            "DELETE FROM plugins WHERE user_id = ? AND id = ?",
-            vec![text(user_id), text(id)],
+            "DELETE FROM plugins WHERE tenant_id = ? AND user_id = ? AND id = ?",
+            vec![text(tenant_id), text(user_id), text(id)],
         ))
         .await
         .map_err(ApiError::from)?;

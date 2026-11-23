@@ -23,7 +23,17 @@ the docs describe.
 - **Hosted preview** — build the generated app on the server, run it on an
   allocated port, and browse it at `/preview/{buildId}/` with the API proxied
   through the IDE server. Reports honestly when the host lacks the toolchain.
-- **Plugins** — per-user WebAssembly plugins executed in a wasmtime sandbox.
+- **Plugins** — per-tenant WebAssembly plugins executed in a wasmtime sandbox.
+- **Teams and billing** — tenant-scoped projects, roles, plans, entitlements,
+  usage meters and Stripe webhook intake (web IDE).
+- **Delivery** — GitHub + Docker Hub credentials in an encrypted vault, a
+  generated CI workflow that builds and pushes the image, and a Deploy page
+  that reports success only when CI for that exact commit passed.
+- **Versioning** — an append-only project history with branches, diffs,
+  environments and write-only environment secrets.
+- **MCP workflow authoring** — AI clients can build, validate, simulate and
+  save BPMN workflows through granular tools over stdio or `POST /mcp`
+  ([guide](docs/mcp-server.md)).
 
 ## Repository layout
 
@@ -37,7 +47,8 @@ crates/
                commands, service layer, BPMN helpers, and an egui widget shell
                (`IdeApp`) that no shipped binary currently launches
   ide-server/  Web IDE server (Axum + SeaORM): auth, projects, generation,
-               BPMN, plugins, hosted previews
+               BPMN, plugins, hosted previews, /mcp endpoint
+  mcp/         MCP server: granular workflow tools, resources, layout, transports
 packages/
   ide-core/    The IDE itself: React components, pages, zustand stores, types.
                Both frontends are thin shells around this package
@@ -90,7 +101,7 @@ Everything is environment-driven; no config file is required.
 | `PORT` | `8081` | Listen port. |
 | `JWT_KEYS_DIR` | `jwt_keys` | Directory holding the RSA signing keypair; generated on first start. |
 | `IDE_WEB_DIST` | `apps/ide-web/dist` | Built SPA to serve. |
-| `IDE_PLUGIN_ROOT` | `plugin-workspaces` | Per-user plugin directories. |
+| `IDE_PLUGIN_ROOT` | `plugin-workspaces` | Per-tenant plugin directories. |
 | `IDE_PREVIEW_ROOT` | `preview-workspaces` | Preview workspaces, logs and the cargo target cache. |
 | `IDE_PREVIEW_TIMEOUT_SECS` | `900` | Wall-clock limit for one preview build. |
 | `IDE_PREVIEW_PARALLEL` | `2` | Concurrent builds **per user**. |
@@ -219,6 +230,57 @@ keys and preview workspaces on the `/data` volume, and declare a healthcheck
 against `/health`. There is no Postgres option: the migrations are SQLite-specific,
 so offering one would only produce a container that fails on first boot.
 
+### CI/CD
+
+[`.github/workflows/docker.yml`](.github/workflows/docker.yml) is the container
+pipeline. It needs no configuration: it authenticates to GHCR with the
+workflow's own `GITHUB_TOKEN`.
+
+| Trigger | What runs |
+| --- | --- |
+| Pull request | hadolint and `docker compose config`, then a lean image build, boot on a fresh volume, `/health` + `/ready` + web IDE probes, non-root and SIGTERM checks, `docker compose up` against the built image, Trivy scan |
+| Push to `main` | The above, then a multi-arch (`amd64`, `arm64`) push of the lean image |
+| Tag `v*` | The lean image plus the `-preview` image, tagged with the semver, `major.minor`, `sha-` and `latest` tags |
+
+A pull request that touches nothing the image is built from — docs, the Tauri
+app, the other workflows — skips the build. A tag build never skips it, because
+a release that changes only the version still has to publish.
+
+```bash
+docker pull ghcr.io/harrysuke/bonafoid:latest
+docker run -p 8081:8081 -v nocode-data:/data ghcr.io/harrysuke/bonafoid:latest
+
+# The preview image is published on tags only
+docker pull ghcr.io/harrysuke/bonafoid:latest-preview
+```
+
+Cutting a release is `git tag v0.2.0 && git push origin v0.2.0`: `release.yml`
+attaches the CLI binaries, `docker.yml` publishes the images, and both use the
+tag as the version.
+
+### Deploy quickstart (generated apps)
+
+Generated projects default to **SQLite** — no database server is needed. To
+ship an app to Docker Hub from the IDE:
+
+1. Set `IDE_SECRET_KEY` on the IDE server to a stable 64-character hex key
+   (32 bytes). Without it the credential vault is disabled and the Deploy
+   page reports the feature as unconfigured.
+2. Open **Deploy** in the web IDE. Save a GitHub PAT (`repo` scope) with the
+   owner/repository/branch, and Docker Hub credentials. Both secrets are
+   encrypted at rest and are never returned to the UI.
+3. Set the generated backend's public API base URL (the Deploy page validates
+   it as an absolute plain HTTP(S) URL).
+4. In the target GitHub repository, add exactly two Actions secrets:
+   `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
+5. Press **Deploy**. The IDE pushes the generated tree plus its model JSON
+   and `.github/workflows/deploy.yml`; CI builds and pushes the image. The
+   page reports success only after that workflow succeeds for the pushed
+   commit — a push alone is not a deployment.
+
+The full walkthrough, including verification and troubleshooting, is in
+[chapter 13 of the user manual](docs/user-manual.md).
+
 ## Documentation
 
 | Document | What it covers |
@@ -229,6 +291,7 @@ so offering one would only produce a container that fails on first boot.
 | [docs/Data Models.md](docs/Data%20Models.md) | Every model, field and wire shape |
 | [docs/UI-UX Wireframes & Mockups.md](docs/UI-UX%20Wireframes%20%26%20Mockups.md) | Screen-by-screen UI reference |
 | [docs/verify-preview.md](docs/verify-preview.md) | How to verify the hosted preview path end to end |
+| [docs/mcp-server.md](docs/mcp-server.md) | MCP tools, resources, transports, client setup |
 
 **New to Bonafoid?** Start with the user manual; it walks through building a
 CRUD application from sign-in to deployment.

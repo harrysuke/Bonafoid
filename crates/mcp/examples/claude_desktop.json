@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "bonafoid": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--manifest-path",
+        "<repo>/crates/mcp/Cargo.toml",
+        "-p",
+        "nocode-mcp"
+      ],
+      "env": {
+        "MCP_TRANSPORT": "stdio"
+      }
+    }
+  }
+}

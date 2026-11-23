@@ -5,7 +5,7 @@ interface UIState {
   sidebarOpen: boolean;
   sidebarCollapsed: boolean;
   theme: 'light' | 'dark';
-  activePanel: 'dashboard' | 'forms' | 'workflows' | 'data' | 'lists' | 'preview' | 'pages' | 'theme' | 'plugins' | 'generate' | 'deploy' | 'settings';
+  activePanel: 'dashboard' | 'forms' | 'workflows' | 'data' | 'lists' | 'preview' | 'pages' | 'theme' | 'plugins' | 'generate' | 'deploy' | 'tenants' | 'billing' | 'admin' | 'connectors' | 'version' | 'settings';
   notifications: Notification[];
   setSidebarOpen: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;

@@ -13,6 +13,11 @@ import { PluginManager } from './pages/PluginManager';
 import { CodeGenerator } from './pages/CodeGenerator';
 import { PreviewPanel } from './pages/PreviewPanel';
 import { DeployPanel } from './pages/DeployPanel';
+import { TenantsPanel } from './pages/TenantsPanel';
+import { BillingPanel } from './pages/BillingPanel';
+import { AdminPanel } from './pages/AdminPanel';
+import { ConnectorsPanel } from './pages/ConnectorsPanel';
+import { VersionPanel } from './pages/VersionPanel';
 import { useProjectStore } from './stores/projectStore';
 
 export function IdeApp() {
@@ -41,6 +46,11 @@ export function IdeApp() {
         <Route path="/preview" element={<PreviewPanel />} />
         <Route path="/generate" element={<CodeGenerator />} />
         <Route path="/deploy" element={<DeployPanel />} />
+        <Route path="/tenants" element={<TenantsPanel />} />
+        <Route path="/billing" element={<BillingPanel />} />
+        <Route path="/admin" element={<AdminPanel />} />
+        <Route path="/connectors" element={<ConnectorsPanel />} />
+        <Route path="/version" element={<VersionPanel />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

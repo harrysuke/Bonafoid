@@ -73,6 +73,26 @@ impl From<anyhow::Error> for AuthError {
     }
 }
 
+/// Tenant lookups during token issuance use the shared store, which reports
+/// `ApiError`. The wire-facing auth handlers speak `AuthError`. The store's
+/// string variants are only produced by request validation, never by a
+/// database detail, so a stable static message is enough here; no heap
+/// value is leaked into a `'static` lifetime.
+impl From<crate::error::ApiError> for AuthError {
+    fn from(error: crate::error::ApiError) -> Self {
+        match error {
+            crate::error::ApiError::BadRequest(_) => AuthError::BadRequest("invalid request"),
+            crate::error::ApiError::Forbidden(_) => AuthError::Forbidden("forbidden"),
+            crate::error::ApiError::Conflict(_) => AuthError::Conflict("conflict"),
+            crate::error::ApiError::Unauthorized => AuthError::Unauthorized,
+            _ => {
+                tracing::error!(error = %error, "auth store error");
+                AuthError::Internal
+            }
+        }
+    }
+}
+
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
         let (status, message) = self.parts();
@@ -89,12 +109,49 @@ impl IntoResponse for AuthError {
 }
 
 /// An authenticated user extracted from a request.
+///
+/// `tenant_id` and `roles` come from the SIGNED token claim, never from a
+/// query parameter or header the caller controls. Tokens are short-lived
+/// (15 minutes), so a role change takes effect at the next refresh.
 #[derive(Debug, Clone)]
 pub struct AuthUser {
     /// User id (the JWT subject).
     pub id: String,
     /// User email (convenience only; not used for authorization).
     pub email: String,
+    /// Active tenant, signed into the token by the auth handler.
+    pub tenant_id: String,
+    /// Tenant roles (`owner`/`admin`/`member`) from the signed claim.
+    pub roles: Vec<String>,
+    /// Platform-level role. `Some("super_admin")` is NOT a tenant role.
+    pub platform_role: Option<String>,
+}
+
+impl AuthUser {
+    /// Whether the user holds a tenant role.
+    pub fn has_role(&self, role: &str) -> bool {
+        self.roles.iter().any(|value| value == role)
+    }
+
+    /// Whether the user may perform tenant-admin actions.
+    pub fn is_tenant_admin(&self) -> bool {
+        self.has_role("owner") || self.has_role("admin")
+    }
+
+    /// Whether the user is a platform super administrator.
+    pub fn is_super_admin(&self) -> bool {
+        self.platform_role.as_deref() == Some("super_admin")
+    }
+
+    fn from_claims(claims: jwt::Claims) -> Self {
+        Self {
+            id: claims.sub,
+            email: claims.email,
+            tenant_id: claims.tenant_id,
+            roles: claims.roles,
+            platform_role: claims.platform_role,
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -112,10 +169,60 @@ impl FromRequestParts<AppState> for AuthUser {
             .keys
             .decode_access(&token)
             .map_err(|_| AuthError::Unauthorized)?;
-        Ok(AuthUser {
-            id: claims.sub,
-            email: claims.email,
-        })
+        Ok(Self::from_claims(claims))
+    }
+}
+
+/// Role-guarded extractor. `RequireRole::admin` requires an owner/admin role
+/// in the signed tenant; `RequireRole::super_admin` requires the separate
+/// platform role and fails closed for a tenant admin.
+#[derive(Debug, Clone)]
+pub struct RequireRole(pub AuthUser);
+
+impl RequireRole {
+    const ADMIN: &'static str = "tenant admin or owner";
+    const SUPER_ADMIN: &'static str = "platform super admin";
+
+    /// Require a tenant owner/admin role.
+    pub async fn admin(parts: &mut Parts, state: &AppState) -> Result<Self, AuthError> {
+        let user = AuthUser::from_request_parts(parts, state).await?;
+        if !user.is_tenant_admin() {
+            return Err(AuthError::Forbidden(Self::ADMIN));
+        }
+        Ok(Self(user))
+    }
+
+    /// Require the platform super-admin role. Tenant roles are not enough.
+    pub async fn super_admin(parts: &mut Parts, state: &AppState) -> Result<Self, AuthError> {
+        let user = AuthUser::from_request_parts(parts, state).await?;
+        if !user.is_super_admin() {
+            return Err(AuthError::Forbidden(Self::SUPER_ADMIN));
+        }
+        Ok(Self(user))
+    }
+}
+
+impl std::ops::Deref for RequireRole {
+    type Target = AuthUser;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[async_trait::async_trait]
+impl FromRequestParts<AppState> for RequireRole {
+    type Rejection = AuthError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let user = AuthUser::from_request_parts(parts, state).await?;
+        if !user.has_role("member") && !user.is_tenant_admin() {
+            return Err(AuthError::Forbidden("tenant membership"));
+        }
+        Ok(Self(user))
     }
 }
 

@@ -4,7 +4,8 @@ import {
   Menu, ChevronLeft, ChevronRight, Home,
   Database, GitBranch, FileText, Palette,
   Puzzle, Code, Settings, LogOut, Sun, Moon, ChevronDown,
-  FilePlus, FolderOpen, Save, Table2, Monitor, Rocket
+  FilePlus, FolderOpen, Save, Table2, Monitor, Rocket,
+  Building2, CreditCard, ShieldCheck, PlugZap, GitCommitHorizontal
 } from 'lucide-react';
 import { getPlatform } from '../platform/registry';
 import { useUIStore } from '../stores/uiStore';
@@ -26,6 +27,11 @@ const navigation = [
   { name: 'Preview', href: '/preview', icon: Monitor },
   { name: 'Generate', href: '/generate', icon: Code },
   { name: 'Deploy', href: '/deploy', icon: Rocket },
+  { name: 'Workspaces', href: '/tenants', icon: Building2 },
+  { name: 'Billing', href: '/billing', icon: CreditCard },
+  { name: 'Version', href: '/version', icon: GitCommitHorizontal },
+  { name: 'Connectors', href: '/connectors', icon: PlugZap },
+  { name: 'Admin', href: '/admin', icon: ShieldCheck },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
@@ -144,7 +150,7 @@ export function Layout() {
                 title={sidebarCollapsed ? item.name : undefined}
                 onClick={() => {
                   setSidebarOpen(false);
-                  const panel = item.href === '/' ? 'dashboard' : item.href.replace('/', '') as 'forms' | 'workflows' | 'data' | 'lists' | 'preview' | 'pages' | 'theme' | 'plugins' | 'generate' | 'deploy' | 'settings';
+                  const panel = item.href === '/' ? 'dashboard' : item.href.replace('/', '') as 'forms' | 'workflows' | 'data' | 'lists' | 'preview' | 'pages' | 'theme' | 'plugins' | 'generate' | 'deploy' | 'tenants' | 'billing' | 'admin' | 'connectors' | 'version' | 'settings';
           setActivePanel(panel);
                 }}
               >

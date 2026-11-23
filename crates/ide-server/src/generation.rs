@@ -43,10 +43,11 @@ pub fn generation_router() -> Router<AppState> {
 /// Returns the generated project together with its slug for download naming.
 async fn build(
     state: &AppState,
+    tenant_id: &str,
     user_id: &str,
     id: &str,
 ) -> Result<(GeneratedProject, String), ApiError> {
-    let project = require_project(&state.db, user_id, id).await?;
+    let project = require_project(&state.db, tenant_id, user_id, id).await?;
     let slug = project.slug.clone();
     let generated = nocode_codegen::generate_project_in_memory(&project)
         .await
@@ -79,7 +80,7 @@ async fn generate(
     user: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<GeneratedFiles>, ApiError> {
-    let (generated, _slug) = build(&state, &user.id, &id).await?;
+    let (generated, _slug) = build(&state, &user.tenant_id, &user.id, &id).await?;
     Ok(Json(summarize(id, &generated)))
 }
 
@@ -89,7 +90,7 @@ async fn files(
     user: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<GeneratedFiles>, ApiError> {
-    let (generated, _slug) = build(&state, &user.id, &id).await?;
+    let (generated, _slug) = build(&state, &user.tenant_id, &user.id, &id).await?;
     Ok(Json(summarize(id, &generated)))
 }
 
@@ -99,7 +100,7 @@ async fn archive(
     user: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
-    let (generated, slug) = build(&state, &user.id, &id).await?;
+    let (generated, slug) = build(&state, &user.tenant_id, &user.id, &id).await?;
     let bytes = generated.to_zip().map_err(ApiError::from)?;
     let filename = sanitize_filename(&slug);
     let headers = [

@@ -36,12 +36,53 @@ export type {
   RegistryConfigResponse,
   DockerHubConfigRequest,
   DeploymentResponse,
+  Tenant,
+  TenantMember,
+  Plan,
+  PlanCreateRequest,
+  Subscription,
+  Invoice,
+  Entitlement,
+  UsageMeter,
+  BillingSession,
+  CancelResult,
+  MonthlyRevenue,
+  AdminAnalytics,
+  AdminUsage,
+  AdminUser,
+  AdminUserUpdate,
+  ImpersonationResult,
+  PlatformFlag,
+  FlagCreateRequest,
+  FlagUpdateRequest,
+  FlagOverride,
+  AuditEntry,
+  ConnectorInfo,
+  ConnectorInstance,
+  ConnectorCreateRequest,
+  ConnectorUpdateRequest,
+  ConnectorInvokeRequest,
+  ConnectorInvokeResult,
+  ConnectorTestResult,
+  Revision,
+  Branch,
+  Environment,
+  DiffLine,
+  DiffResult,
+  SecretKey,
+  StatusReport,
+  Incident,
 } from './platform/types';
 
 export { useProjectStore, type FieldPatch, type RelationPatch } from './stores/projectStore';
 export { useUIStore } from './stores/uiStore';
 export { usePluginStore, type PluginState } from './stores/pluginStore';
 export { useDeployStore, deploySupported, type DeployState } from './stores/deployStore';
+export { useTenantStore, tenantSupported, type TenantState } from './stores/tenantStore';
+export { useBillingStore, billingSupported, type BillingState } from './stores/billingStore';
+export { useAdminStore, adminSupported, type AdminState } from './stores/adminStore';
+export { useConnectorStore, connectorSupported, type ConnectorState } from './stores/connectorStore';
+export { useVersionStore, versionSupported, type VersionState } from './stores/versionStore';
 
 export { confirmLeave, useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard';
 export {
@@ -62,5 +103,6 @@ export * from './utils/listModel';
 export * from './utils/pageModel';
 export * from './utils/workflowModel';
 export * from './utils/deploy';
+export * from './utils/saas';
 
 export { Button, Input, Select, Card, CardHeader, CardContent, CardFooter } from './components/ui';

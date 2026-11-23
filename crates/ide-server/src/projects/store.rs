@@ -58,31 +58,39 @@ fn map_summary(row: &QueryResult) -> Result<ProjectSummaryRow, ApiError> {
     })
 }
 
-/// List every project owned by `user_id`, most recently updated first.
+/// List every project owned by `user_id` in `tenant_id`, most recently updated
+/// first. The tenant is part of the WHERE clause, never a post-filter.
 pub async fn list_projects(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
 ) -> Result<Vec<ProjectSummaryRow>, ApiError> {
     let sql = format!(
-        "SELECT {SUMMARY_COLUMNS} FROM projects WHERE user_id = ? \
+        "SELECT {SUMMARY_COLUMNS} FROM projects WHERE tenant_id = ? AND user_id = ? \
          ORDER BY updated_at DESC, name ASC"
     );
     let rows = db
-        .query_all(statement(&sql, vec![text(user_id)]))
+        .query_all(statement(&sql, vec![text(tenant_id), text(user_id)]))
         .await
         .map_err(ApiError::from)?;
     rows.iter().map(map_summary).collect()
 }
 
-/// Fetch one project (summary + JSON document) owned by `user_id`.
+/// Fetch one project (summary + JSON document) owned by `user_id` in `tenant_id`.
 pub async fn get_project(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
     id: &str,
 ) -> Result<Option<ProjectRow>, ApiError> {
-    let sql = format!("SELECT {SUMMARY_COLUMNS}, data FROM projects WHERE id = ? AND user_id = ?");
+    let sql = format!(
+        "SELECT {SUMMARY_COLUMNS}, data FROM projects WHERE id = ? AND user_id = ? AND tenant_id = ?"
+    );
     let row = db
-        .query_one(statement(&sql, vec![text(id), text(user_id)]))
+        .query_one(statement(
+            &sql,
+            vec![text(id), text(user_id), text(tenant_id)],
+        ))
         .await
         .map_err(ApiError::from)?;
     match row {
@@ -100,6 +108,7 @@ pub async fn get_project(
 pub async fn insert_project(
     db: &DatabaseConnection,
     id: &str,
+    tenant_id: &str,
     user_id: &str,
     name: &str,
     slug: &str,
@@ -110,12 +119,13 @@ pub async fn insert_project(
     updated_at: &str,
 ) -> Result<(), ApiError> {
     let sql = "INSERT INTO projects \
-               (id, user_id, name, slug, description, version, data, created_at, updated_at) \
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+               (id, tenant_id, user_id, name, slug, description, version, data, created_at, updated_at) \
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     db.execute(statement(
         sql,
         vec![
             text(id),
+            text(tenant_id),
             text(user_id),
             text(name),
             text(slug),
@@ -137,6 +147,7 @@ pub async fn insert_project(
 pub async fn update_project(
     db: &DatabaseConnection,
     id: &str,
+    tenant_id: &str,
     user_id: &str,
     name: &str,
     description: Option<&str>,
@@ -148,7 +159,7 @@ pub async fn update_project(
     let sql = "UPDATE projects SET \
                name = ?, description = ?, version = ?, data = ?, \
                revision = revision + 1, updated_at = ? \
-               WHERE id = ? AND user_id = ? AND revision = ?";
+               WHERE id = ? AND user_id = ? AND tenant_id = ? AND revision = ?";
     let result = db
         .execute(statement(
             sql,
@@ -160,6 +171,7 @@ pub async fn update_project(
                 text(updated_at),
                 text(id),
                 text(user_id),
+                text(tenant_id),
                 Value::from(expected_revision),
             ],
         ))
@@ -171,12 +183,16 @@ pub async fn update_project(
 /// Delete a project owned by `user_id`. Returns whether a row was removed.
 pub async fn delete_project(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
     id: &str,
 ) -> Result<bool, ApiError> {
-    let sql = "DELETE FROM projects WHERE id = ? AND user_id = ?";
+    let sql = "DELETE FROM projects WHERE id = ? AND user_id = ? AND tenant_id = ?";
     let result = db
-        .execute(statement(sql, vec![text(id), text(user_id)]))
+        .execute(statement(
+            sql,
+            vec![text(id), text(user_id), text(tenant_id)],
+        ))
         .await
         .map_err(ApiError::from)?;
     Ok(result.rows_affected() == 1)
@@ -185,6 +201,7 @@ pub async fn delete_project(
 /// Whether `slug` is already taken by another project of `user_id`.
 pub async fn slug_exists(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
     slug: &str,
     exclude_id: Option<&str>,
@@ -192,12 +209,12 @@ pub async fn slug_exists(
     let (sql, values) = match exclude_id {
         Some(exclude) => (
             "SELECT COUNT(*) AS count FROM projects \
-             WHERE user_id = ? AND slug = ? AND id <> ?",
-            vec![text(user_id), text(slug), text(exclude)],
+             WHERE tenant_id = ? AND user_id = ? AND slug = ? AND id <> ?",
+            vec![text(tenant_id), text(user_id), text(slug), text(exclude)],
         ),
         None => (
-            "SELECT COUNT(*) AS count FROM projects WHERE user_id = ? AND slug = ?",
-            vec![text(user_id), text(slug)],
+            "SELECT COUNT(*) AS count FROM projects WHERE tenant_id = ? AND user_id = ? AND slug = ?",
+            vec![text(tenant_id), text(user_id), text(slug)],
         ),
     };
     let row = db
@@ -214,18 +231,19 @@ pub async fn slug_exists(
 /// Derive a slug unique to `user_id`, appending `-2`, `-3`, ... on collision.
 pub async fn unique_slug(
     db: &DatabaseConnection,
+    tenant_id: &str,
     user_id: &str,
     base: &str,
     exclude_id: Option<&str>,
 ) -> Result<String, ApiError> {
     let base = if base.is_empty() { "project" } else { base };
-    if !slug_exists(db, user_id, base, exclude_id).await? {
+    if !slug_exists(db, tenant_id, user_id, base, exclude_id).await? {
         return Ok(base.to_string());
     }
     let mut suffix = 2u32;
     loop {
         let candidate = format!("{base}-{suffix}");
-        if !slug_exists(db, user_id, &candidate, exclude_id).await? {
+        if !slug_exists(db, tenant_id, user_id, &candidate, exclude_id).await? {
             return Ok(candidate);
         }
         suffix += 1;

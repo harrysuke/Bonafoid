@@ -56,6 +56,8 @@ pub struct AppState {
     /// deliberately no auto-generated key: a key that changes between
     /// restarts makes every stored credential undecryptable.
     pub deploy: Option<Arc<DeployService>>,
+    /// Shared MCP tool/resource dispatcher used by the `/mcp` route.
+    pub mcp: Arc<nocode_mcp::McpServer>,
 }
 
 /// Build the deploy service from the environment, or report why it is off.
@@ -90,6 +92,7 @@ impl AppState {
             runs: Arc::new(RunManager::new(RunConfig::from_env())),
             plugins: Arc::new(PluginRegistry::default()),
             deploy: deploy_from_env(),
+            mcp: mcp_from_env(),
         }
     }
 
@@ -121,8 +124,13 @@ impl AppState {
             runs: Arc::new(RunManager::new(runs)),
             plugins: Arc::new(PluginRegistry::default()),
             deploy: deploy_from_env(),
+            mcp: mcp_from_env(),
         }
     }
+}
+
+fn mcp_from_env() -> Arc<nocode_mcp::McpServer> {
+    Arc::new(nocode_mcp::McpServer::new(nocode_mcp::Config::from_env()))
 }
 
 #[derive(Debug, Serialize)]
@@ -153,9 +161,15 @@ pub fn build_router(state: AppState, web_dist: &str) -> Router {
         .route("/ready", get(ready))
         .route("/api/v1/version", get(version))
         .merge(auth::auth_router())
+        .merge(crate::tenancy::tenancy_router())
+        .merge(crate::billing::billing_router())
+        .merge(crate::admin::admin_router())
+        .merge(crate::connectors::connectors_router())
+        .merge(crate::versioning::versioning_router())
         .merge(crate::projects::projects_router())
         .merge(crate::generation::generation_router())
         .merge(crate::bpmn::bpmn_router())
+        .merge(crate::mcp::mcp_router())
         .merge(crate::plugins::plugins_router())
         .merge(crate::integrations::integrations_router())
         .merge(crate::preview::preview_router())
@@ -190,11 +204,59 @@ pub async fn serve(config: ServerConfig, state: AppState) -> Result<()> {
         }
     });
 
-    let result = axum::serve(listener, router).await;
+    // Drain in-flight requests on SIGTERM instead of being killed after the
+    // container runtime's grace period. `docker stop`, `compose down` and
+    // Kubernetes all send SIGTERM first and SIGKILL ten seconds later; without
+    // this handler the process ignores SIGTERM, every stop takes the full
+    // grace period, and a request mid-flight loses its response.
+    let result = axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal())
+        .await;
 
     reaper.abort();
     state.runs.stop_all().await;
     result.context("ide server error")
+}
+
+/// Resolves when the process is asked to stop: Ctrl-C interactively, SIGTERM
+/// from a process supervisor or container runtime.
+///
+/// If a handler cannot be installed the corresponding branch never resolves:
+/// failing to listen for a signal must not shut the server down.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {}
+            Err(error) => {
+                tracing::warn!(%error, "failed to install Ctrl-C handler");
+                std::future::pending::<()>().await
+            }
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                let _ = signal.recv().await;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "failed to install SIGTERM handler");
+                std::future::pending::<()>().await
+            }
+        }
+    };
+
+    // SIGTERM does not exist on Windows; Ctrl-C and the console close event do.
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    tracing::info!("shutdown signal received, draining in-flight requests");
 }
 
 async fn health() -> Json<HealthResponse> {

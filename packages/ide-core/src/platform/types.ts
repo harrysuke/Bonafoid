@@ -217,6 +217,344 @@ export interface DeploymentResponse {
   updated_at: string;
 }
 
+/* ------------------------------------------------------------------ *
+ * SaaS surfaces (Phases 7-11)
+ * ------------------------------------------------------------------ */
+
+/** A workspace the signed-in user belongs to. */
+export interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  plan_id: string | null;
+  status: string;
+  /** Membership role, present on `GET /tenants` and absent on admin listings. */
+  role?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A tenant membership row. Never carries credentials. */
+export interface TenantMember {
+  tenant_id: string;
+  user_id: string;
+  email: string;
+  role: string;
+  created_at: string;
+}
+
+/** A sellable billing plan. Money is integer minor units (cents). */
+export interface Plan {
+  id: string;
+  name: string;
+  description: string | null;
+  currency: string;
+  interval: string;
+  amount_cents: number;
+  is_active: boolean;
+  external_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Body of `POST /billing/plans`. */
+export interface PlanCreateRequest {
+  name: string;
+  description?: string;
+  currency: string;
+  interval: string;
+  amount_cents: number;
+}
+
+/** The active subscription of the current tenant, when it has one. */
+export interface Subscription {
+  id: string;
+  tenant_id: string;
+  plan_id: string;
+  price_id: string;
+  status: string;
+  seat_count: number;
+  period_start: string;
+  period_end: string;
+  cancel_at_period_end: boolean;
+  external_customer_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One invoice issued to the current tenant. */
+export interface Invoice {
+  id: string;
+  tenant_id: string;
+  subscription_id: string;
+  amount_cents: number;
+  currency: string;
+  status: string;
+  issued_at: string;
+  paid_at: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  description: string | null;
+}
+
+/** A feature grant. A missing key fails closed. */
+export interface Entitlement {
+  feature_key: string;
+  enabled: boolean;
+  limit_value: number | null;
+}
+
+/** One usage counter for the current period. */
+export interface UsageMeter {
+  tenant_id: string;
+  meter_key: string;
+  quantity: number;
+  period: string;
+  updated_at: string;
+}
+
+/** Provider checkout/portal session: only its id and redirect URL are public. */
+export interface BillingSession {
+  id: string;
+  url: string;
+}
+
+/** Outcome of cancelling a subscription. */
+export interface CancelResult {
+  subscription_id: string;
+  cancel_at_period_end: boolean;
+}
+
+/** One month of platform revenue. */
+export interface MonthlyRevenue {
+  month: string;
+  revenue_cents: number;
+}
+
+/** Platform-wide billing analytics (super-admin only). */
+export interface AdminAnalytics {
+  mrr_cents: number;
+  arr_cents: number;
+  churn_rate: number;
+  revenue_by_plan: Record<string, number>;
+  monthly_series: MonthlyRevenue[];
+  active_subscriptions: number;
+  churned_subscriptions: number;
+}
+
+/** Platform-wide object counts (super-admin only). */
+export interface AdminUsage {
+  projects: number;
+  integrations: number;
+  deployments: number;
+  usage_events: number;
+  tenant_members: number;
+  audit_log: number;
+}
+
+/** A user as listed by the platform admin panel. */
+export interface AdminUser {
+  id: string;
+  email: string;
+  is_active: boolean;
+  is_verified: boolean;
+  platform_role: string | null;
+  tenant_id: string | null;
+  last_login_at: string | null;
+  created_at: string;
+}
+
+/** Partial update accepted by `PATCH /admin/users/:id`. */
+export interface AdminUserUpdate {
+  is_active?: boolean;
+  is_verified?: boolean;
+  /** Only `super_admin` is a valid role; `null` clears it. Omit to leave it. */
+  platform_role?: string | null;
+}
+
+/** Audit-only impersonation record. No session token is swapped. */
+export interface ImpersonationResult {
+  impersonation_id: string;
+  note: string;
+}
+
+/** A platform-wide feature flag. Not the per-project feature-flags model. */
+export interface PlatformFlag {
+  key: string;
+  description: string | null;
+  enabled: boolean;
+  rollout_percentage: number;
+  kill_switch: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Body of `POST /admin/flags`. */
+export interface FlagCreateRequest {
+  key: string;
+  description?: string;
+  enabled?: boolean;
+  rollout_percentage?: number;
+  kill_switch?: boolean;
+}
+
+/** Partial update accepted by `PATCH /admin/flags/:key`. */
+export interface FlagUpdateRequest {
+  description?: string | null;
+  enabled?: boolean;
+  rollout_percentage?: number;
+  kill_switch?: boolean;
+}
+
+/** Result of setting a tenant flag override. */
+export interface FlagOverride {
+  flag_key: string;
+  tenant_id: string;
+  enabled: boolean;
+}
+
+/** One immutable admin audit-log row. */
+export interface AuditEntry {
+  id: string;
+  actor_user_id: string;
+  actor_email: string | null;
+  tenant_id: string | null;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  before_json: string | null;
+  after_json: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+/** A connector kind advertised by the catalog. */
+export interface ConnectorInfo {
+  kind: string;
+  description: string;
+}
+
+/**
+ * A tenant's connector instance. `config` is redacted by the server and
+ * `secret_set` reports only whether a sealed credential exists — no secret
+ * value is ever present.
+ */
+export interface ConnectorInstance {
+  id: string;
+  tenant_id: string;
+  kind: string;
+  name: string;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  secret_set: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Body of `POST /connectors`. `secret` is write-only. */
+export interface ConnectorCreateRequest {
+  kind: string;
+  name: string;
+  config: Record<string, unknown>;
+  secret?: string;
+}
+
+/** Partial update accepted by `PATCH /connectors/:id`. */
+export interface ConnectorUpdateRequest {
+  name?: string;
+  config?: Record<string, unknown>;
+  secret?: string;
+}
+
+/** One JSON-proxy request through an http_rest/webhook connector. */
+export interface ConnectorInvokeRequest {
+  method: string;
+  path: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+}
+
+/** Response of a connector invoke proxy call. */
+export interface ConnectorInvokeResult {
+  status: number;
+  body: unknown;
+}
+
+/** Outcome of `POST /connectors/:id/test`. */
+export interface ConnectorTestResult {
+  ok: boolean;
+  message: string;
+  latency_ms: number;
+}
+
+/** An append-only project revision. `data` is the full project JSON value. */
+export interface Revision {
+  id: string;
+  project_id: string;
+  parent_id: string | null;
+  branch: string;
+  message: string;
+  author_id: string;
+  data: unknown;
+  created_at: string;
+}
+
+/** A named pointer at a revision head. */
+export interface Branch {
+  name: string;
+  head_revision_id: string;
+  created_at: string;
+}
+
+/** A deployment environment. `config` is redacted; secrets are never returned. */
+export interface Environment {
+  name: string;
+  config: Record<string, unknown>;
+  revision_id: string | null;
+  status: string;
+  updated_at: string;
+}
+
+/** One line of a deterministic project-JSON diff. */
+export interface DiffLine {
+  kind: string;
+  text: string;
+}
+
+/** Response of `GET /versioning/diff`. */
+export interface DiffResult {
+  from: string;
+  to: string;
+  lines: DiffLine[];
+}
+
+/** A sealed environment secret, listed by key only. */
+export interface SecretKey {
+  key: string;
+}
+
+/** Public component-health report. No tenant data is exposed. */
+export interface StatusReport {
+  status: string;
+  components: {
+    database: string;
+    plugin_host: string;
+    preview_toolchain: string;
+    storage: string;
+    queue_depth: number;
+  };
+}
+
+/** Public, allowlisted status incident. */
+export interface Incident {
+  status: string;
+  component: string | null;
+  title: string;
+  opened_at: string;
+  resolved_at: string | null;
+}
+
 export interface PlatformApi {
   /** Which host is running the IDE. */
   readonly kind: 'tauri' | 'web';
@@ -373,4 +711,156 @@ export interface PlatformApi {
   deployDockerhubSet?(request: DockerHubConfigRequest): Promise<RegistryConfigResponse>;
   deployProject?(projectId: string, apiBase?: string): Promise<DeploymentResponse>;
   deployList?(projectId: string): Promise<DeploymentResponse[]>;
+
+  /*
+   * SaaS surfaces (Phases 7-11). These are OPTIONAL: the desktop host has no
+   * tenancy, billing, admin, connector or versioning service and omits them.
+   * Every consuming store and page gates itself on the capability it needs
+   * (usually `typeof platform.<method> === 'function'`) before calling through.
+   */
+
+  /** Tenants the signed-in user belongs to. */
+  tenantList?(): Promise<Tenant[]>;
+  /** Create a tenant and become its owner. */
+  tenantCreate?(name: string, slug: string): Promise<Tenant>;
+  /** Rename a tenant or change its status (`active` / `suspended`). */
+  tenantUpdate?(id: string, name: string, status: string): Promise<Tenant>;
+  /** Switch the session's active tenant; the response carries new cookies. */
+  tenantSwitch?(id: string): Promise<{ tenant_id: string; csrf_token: string }>;
+  /** Members of a tenant the caller administers. */
+  tenantMembers?(id: string): Promise<TenantMember[]>;
+  /** Add or update a membership. */
+  tenantAddMember?(id: string, userId: string, role: string): Promise<TenantMember>;
+  /** Remove a membership. The last owner is protected server-side. */
+  tenantRemoveMember?(id: string, userId: string): Promise<void>;
+
+  /** Active, sellable plans. */
+  billingPlans?(): Promise<Plan[]>;
+  /** Create a plan (platform super-admin). */
+  billingCreatePlan?(body: PlanCreateRequest): Promise<Plan>;
+  /** The current tenant's subscription, or null. */
+  billingSubscription?(): Promise<Subscription | null>;
+  /** Subscribe the current tenant to a plan. */
+  billingSubscribe?(planId: string, seatCount?: number): Promise<Subscription>;
+  /** Cancel at period end. */
+  billingCancel?(): Promise<CancelResult>;
+  /** Invoices issued to the current tenant. */
+  billingInvoices?(): Promise<Invoice[]>;
+  /** Feature grants of the current tenant. */
+  billingEntitlements?(): Promise<Entitlement[]>;
+  /** Usage meters of the current tenant. */
+  billingUsage?(): Promise<UsageMeter[]>;
+  /** Add to a usage meter for the current period. */
+  billingRecordUsage?(meterKey: string, quantity: number): Promise<UsageMeter>;
+  /** Start a provider checkout; redirect the browser to `url`. */
+  billingCheckout?(planId: string, successUrl: string, cancelUrl: string): Promise<BillingSession>;
+  /** Start a provider billing-portal session. */
+  billingPortal?(returnUrl: string): Promise<BillingSession>;
+
+  /** All tenants (platform super-admin). */
+  adminTenants?(search?: string, limit?: number, offset?: number): Promise<Tenant[]>;
+  /** Set a tenant's status (platform super-admin). */
+  adminUpdateTenant?(id: string, status: string): Promise<Tenant>;
+  /** All users (platform super-admin). */
+  adminUsers?(search?: string, limit?: number, offset?: number): Promise<AdminUser[]>;
+  /** Update a user's active/verified flags or platform role. */
+  adminUpdateUser?(id: string, body: AdminUserUpdate): Promise<AdminUser>;
+  /** Record an audit-only impersonation. No token is swapped. */
+  adminImpersonate?(id: string, reason?: string): Promise<ImpersonationResult>;
+  /** Platform revenue and churn analytics. */
+  adminAnalytics?(): Promise<AdminAnalytics>;
+  /** Platform object counts. */
+  adminUsage?(): Promise<AdminUsage>;
+  /** Platform-wide feature flags. */
+  adminFlags?(): Promise<PlatformFlag[]>;
+  /** Create a platform flag. */
+  adminCreateFlag?(body: FlagCreateRequest): Promise<PlatformFlag>;
+  /** Update a platform flag. */
+  adminUpdateFlag?(key: string, body: FlagUpdateRequest): Promise<PlatformFlag>;
+  /** Delete a platform flag. */
+  adminDeleteFlag?(key: string): Promise<void>;
+  /** Override a flag for one tenant. */
+  adminSetFlagOverride?(
+    flagKey: string,
+    tenantId: string,
+    enabled: boolean,
+  ): Promise<FlagOverride>;
+  /** Evaluate a flag for the current tenant. */
+  adminEvaluateFlag?(key: string): Promise<{ key: string; enabled: boolean }>;
+  /** Most recent admin audit entries. */
+  adminAudit?(limit?: number, offset?: number): Promise<AuditEntry[]>;
+
+  /** Public component-health report. */
+  statusGet?(): Promise<StatusReport>;
+  /** Public status incidents. */
+  statusIncidents?(): Promise<Incident[]>;
+
+  /** Supported connector kinds. */
+  connectorCatalog?(): Promise<ConnectorInfo[]>;
+  /** This tenant's redacted connector instances. */
+  connectorList?(): Promise<ConnectorInstance[]>;
+  /** Create a connector. The secret travels only in this request. */
+  connectorCreate?(body: ConnectorCreateRequest): Promise<ConnectorInstance>;
+  /** Update a connector; omit `secret` to keep the sealed credential. */
+  connectorUpdate?(id: string, body: ConnectorUpdateRequest): Promise<ConnectorInstance>;
+  /** Delete a connector. */
+  connectorDelete?(id: string): Promise<void>;
+  /** Probe a connector. */
+  connectorTest?(id: string): Promise<ConnectorTestResult>;
+  /** Proxy one JSON request through an http_rest/webhook connector. */
+  connectorInvoke?(id: string, body: ConnectorInvokeRequest): Promise<ConnectorInvokeResult>;
+
+  /** Branches of a project. */
+  versionBranches?(projectId: string): Promise<Branch[]>;
+  /** Create a branch at a revision (or the current head). */
+  versionCreateBranch?(projectId: string, name: string, fromRevisionId?: string): Promise<Branch>;
+  /** Newest-first revision history of a branch. */
+  versionHistory?(projectId: string, branch: string): Promise<Revision[]>;
+  /** Line-based diff between two revisions. */
+  versionDiff?(projectId: string, from: string, to: string): Promise<DiffResult>;
+  /** Commit the supplied project JSON to a branch. */
+  versionCommit?(
+    projectId: string,
+    branch: string,
+    message: string,
+    data: unknown,
+  ): Promise<Revision>;
+  /** Merge a source branch into a named target branch. */
+  versionMerge?(
+    targetBranch: string,
+    projectId: string,
+    sourceBranch: string,
+    strategy: string,
+  ): Promise<Revision>;
+  /** Append a revision that restores an earlier snapshot. */
+  versionRestore?(projectId: string, revisionId: string): Promise<Revision>;
+  /** Environments of a project. */
+  versionEnvironments?(projectId: string): Promise<Environment[]>;
+  /** Create an environment. */
+  versionCreateEnvironment?(
+    projectId: string,
+    name: string,
+    config?: Record<string, unknown>,
+  ): Promise<Environment>;
+  /** Replace an environment's redacted config. */
+  versionUpdateEnvironment?(
+    name: string,
+    projectId: string,
+    config: Record<string, unknown>,
+  ): Promise<Environment>;
+  /** Point an environment at a revision and record a deployment. */
+  versionPromote?(name: string, projectId: string, revisionId: string): Promise<Environment>;
+  /** Roll an environment back to a revision. */
+  versionRollback?(name: string, projectId: string, revisionId: string): Promise<Environment>;
+  /** List an environment's secret keys (values never returned). */
+  versionSecrets?(name: string, projectId: string): Promise<SecretKey[]>;
+  /** Store a write-only environment secret. */
+  versionSetSecret?(
+    name: string,
+    projectId: string,
+    key: string,
+    value: string,
+  ): Promise<SecretKey>;
+  /** Delete an environment secret by key. */
+  versionDeleteSecret?(name: string, projectId: string, key: string): Promise<void>;
 }

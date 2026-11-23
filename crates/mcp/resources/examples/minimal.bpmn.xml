@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" targetNamespace="http://nocode.ide/bpmn">
+  <process id="Process_1" name="Minimal" isExecutable="true">
+    <startEvent id="Node_0" name="Start" />
+    <endEvent id="Node_1" name="End" />
+    <sequenceFlow id="Flow_0" name="" sourceRef="Node_0" targetRef="Node_1" />
+  </process>
+  <bpmndi:BPMNDiagram id="Diagram_1">
+    <bpmndi:BPMNPlane id="Plane_1" bpmnElement="Process_1">
+      <bpmndi:BPMNShape id="Node_0_di" bpmnElement="Node_0"><dc:Bounds x="0" y="0" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Node_1_di" bpmnElement="Node_1"><dc:Bounds x="200" y="0" width="100" height="80" /></bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

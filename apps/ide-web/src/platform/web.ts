@@ -14,31 +14,72 @@
  */
 
 import type {
+  AdminAnalytics,
+  AdminUsage,
+  AdminUser,
+  AdminUserUpdate,
+  AuditEntry,
+  BillingSession,
   BpmnValidationReport,
+  Branch,
+  CancelResult,
+  ConnectorCreateRequest,
+  ConnectorInfo,
+  ConnectorInstance,
+  ConnectorInvokeRequest,
+  ConnectorInvokeResult,
+  ConnectorTestResult,
+  ConnectorUpdateRequest,
   DatabaseDriver,
   DatabaseSettings,
   DeploymentResponse,
+  DiffResult,
   DockerHubConfigRequest,
+  Entitlement,
+  Environment,
+  FlagCreateRequest,
+  FlagOverride,
+  FlagUpdateRequest,
   GenerationReport,
   GitHubConfigRequest,
   GitHubConfigResponse,
+  ImpersonationResult,
+  Incident,
+  Invoice,
+  Plan,
+  PlanCreateRequest,
   PlatformApi,
+  PlatformFlag,
   PlatformPlugin,
   PlatformProject,
   PlatformUser,
   PreviewBuildTarget,
   RegistryConfigResponse,
+  Revision,
+  SecretKey,
+  StatusReport,
+  Subscription,
+  Tenant,
+  TenantMember,
+  UsageMeter,
 } from '@nocode/ide-core';
 import { applyDatabaseDriver } from '@nocode/ide-core';
 import { currentUser as sessionUser, logout as endSession } from '../auth/session';
 import {
+  adminApi,
+  billingApi,
   bpmnApi,
+  connectorApi,
   deployApi,
   generationApi,
   pluginApi,
   previewApi,
   previewUrl,
   projectsApi,
+  rememberCsrfToken,
+  statusApi,
+  tenantApi,
+  versionApi,
 } from '../api/client';
 import type { ProjectDetail } from '../api/client';
 
@@ -288,6 +329,137 @@ export const webPlatform: PlatformApi = {
   async logout(): Promise<void> {
     await endSession();
   },
+
+  /* SaaS surfaces (Phases 7-11). All delegates go through the typed REST
+   * client, which attaches cookies and the CSRF header on mutations. No
+   * connector or environment secret is ever cached in this module. */
+
+  tenantList: (): Promise<Tenant[]> => tenantApi.list(),
+  tenantCreate: (name: string, slug: string): Promise<Tenant> => tenantApi.create(name, slug),
+  tenantUpdate: (id: string, name: string, status: string): Promise<Tenant> =>
+    tenantApi.update(id, name, status),
+  tenantSwitch: async (id: string): Promise<{ tenant_id: string; csrf_token: string }> => {
+    const result = await tenantApi.switch(id);
+    // The server issues the same CSRF token back; refresh the client cache so
+    // subsequent mutations keep working after the tenant switch.
+    rememberCsrfToken(result.csrf_token);
+    return result;
+  },
+  tenantMembers: (id: string): Promise<TenantMember[]> => tenantApi.members(id),
+  tenantAddMember: (id: string, userId: string, role: string): Promise<TenantMember> =>
+    tenantApi.addMember(id, userId, role),
+  tenantRemoveMember: (id: string, userId: string): Promise<void> =>
+    tenantApi.removeMember(id, userId),
+
+  billingPlans: (): Promise<Plan[]> => billingApi.plans(),
+  billingCreatePlan: (body: PlanCreateRequest): Promise<Plan> => billingApi.createPlan(body),
+  billingSubscription: (): Promise<Subscription | null> => billingApi.subscription(),
+  billingSubscribe: (planId: string, seatCount?: number): Promise<Subscription> =>
+    billingApi.subscribe(planId, seatCount),
+  billingCancel: (): Promise<CancelResult> => billingApi.cancel(),
+  billingInvoices: (): Promise<Invoice[]> => billingApi.invoices(),
+  billingEntitlements: (): Promise<Entitlement[]> => billingApi.entitlements(),
+  billingUsage: (): Promise<UsageMeter[]> => billingApi.usage(),
+  billingRecordUsage: (meterKey: string, quantity: number): Promise<UsageMeter> =>
+    billingApi.recordUsage(meterKey, quantity),
+  billingCheckout: (
+    planId: string,
+    successUrl: string,
+    cancelUrl: string,
+  ): Promise<BillingSession> => billingApi.checkout(planId, successUrl, cancelUrl),
+  billingPortal: (returnUrl: string): Promise<BillingSession> => billingApi.portal(returnUrl),
+
+  adminTenants: (search?: string, limit?: number, offset?: number): Promise<Tenant[]> =>
+    adminApi.tenants(search, limit, offset),
+  adminUpdateTenant: (id: string, status: string): Promise<Tenant> =>
+    adminApi.updateTenant(id, status),
+  adminUsers: (search?: string, limit?: number, offset?: number): Promise<AdminUser[]> =>
+    adminApi.users(search, limit, offset),
+  adminUpdateUser: (id: string, body: AdminUserUpdate): Promise<AdminUser> =>
+    adminApi.updateUser(id, body),
+  adminImpersonate: (id: string, reason?: string): Promise<ImpersonationResult> =>
+    adminApi.impersonate(id, reason),
+  adminAnalytics: (): Promise<AdminAnalytics> => adminApi.analytics(),
+  adminUsage: (): Promise<AdminUsage> => adminApi.usage(),
+  adminFlags: (): Promise<PlatformFlag[]> => adminApi.flags(),
+  adminCreateFlag: (body: FlagCreateRequest): Promise<PlatformFlag> => adminApi.createFlag(body),
+  adminUpdateFlag: (key: string, body: FlagUpdateRequest): Promise<PlatformFlag> =>
+    adminApi.updateFlag(key, body),
+  adminDeleteFlag: (key: string): Promise<void> => adminApi.deleteFlag(key),
+  adminSetFlagOverride: (
+    flagKey: string,
+    tenantId: string,
+    enabled: boolean,
+  ): Promise<FlagOverride> => adminApi.setOverride(flagKey, tenantId, enabled),
+  adminEvaluateFlag: (key: string): Promise<{ key: string; enabled: boolean }> =>
+    adminApi.evaluateFlag(key),
+  adminAudit: (limit?: number, offset?: number): Promise<AuditEntry[]> =>
+    adminApi.audit(limit, offset),
+
+  statusGet: (): Promise<StatusReport> => statusApi.get(),
+  statusIncidents: (): Promise<Incident[]> => statusApi.incidents(),
+
+  connectorCatalog: (): Promise<ConnectorInfo[]> => connectorApi.catalog(),
+  connectorList: (): Promise<ConnectorInstance[]> => connectorApi.list(),
+  connectorCreate: (body: ConnectorCreateRequest): Promise<ConnectorInstance> =>
+    connectorApi.create(body),
+  connectorUpdate: (id: string, body: ConnectorUpdateRequest): Promise<ConnectorInstance> =>
+    connectorApi.update(id, body),
+  connectorDelete: (id: string): Promise<void> => connectorApi.remove(id),
+  connectorTest: (id: string): Promise<ConnectorTestResult> => connectorApi.test(id),
+  connectorInvoke: (id: string, body: ConnectorInvokeRequest): Promise<ConnectorInvokeResult> =>
+    connectorApi.invoke(id, body),
+
+  versionBranches: (projectId: string): Promise<Branch[]> => versionApi.branches(projectId),
+  versionCreateBranch: (
+    projectId: string,
+    name: string,
+    fromRevisionId?: string,
+  ): Promise<Branch> => versionApi.createBranch(projectId, name, fromRevisionId),
+  versionHistory: (projectId: string, branch: string): Promise<Revision[]> =>
+    versionApi.history(projectId, branch),
+  versionDiff: (projectId: string, from: string, to: string): Promise<DiffResult> =>
+    versionApi.diff(projectId, from, to),
+  versionCommit: (
+    projectId: string,
+    branch: string,
+    message: string,
+    data: unknown,
+  ): Promise<Revision> => versionApi.commit(projectId, branch, message, data),
+  versionMerge: (
+    targetBranch: string,
+    projectId: string,
+    sourceBranch: string,
+    strategy: string,
+  ): Promise<Revision> => versionApi.merge(targetBranch, projectId, sourceBranch, strategy),
+  versionRestore: (projectId: string, revisionId: string): Promise<Revision> =>
+    versionApi.restore(projectId, revisionId),
+  versionEnvironments: (projectId: string): Promise<Environment[]> =>
+    versionApi.environments(projectId),
+  versionCreateEnvironment: (
+    projectId: string,
+    name: string,
+    config?: Record<string, unknown>,
+  ): Promise<Environment> => versionApi.createEnvironment(projectId, name, config),
+  versionUpdateEnvironment: (
+    name: string,
+    projectId: string,
+    config: Record<string, unknown>,
+  ): Promise<Environment> => versionApi.updateEnvironment(name, projectId, config),
+  versionPromote: (name: string, projectId: string, revisionId: string): Promise<Environment> =>
+    versionApi.promote(name, projectId, revisionId),
+  versionRollback: (name: string, projectId: string, revisionId: string): Promise<Environment> =>
+    versionApi.rollback(name, projectId, revisionId),
+  versionSecrets: (name: string, projectId: string): Promise<SecretKey[]> =>
+    versionApi.secrets(name, projectId),
+  versionSetSecret: (
+    name: string,
+    projectId: string,
+    key: string,
+    value: string,
+  ): Promise<SecretKey> => versionApi.setSecret(name, projectId, key, value),
+  versionDeleteSecret: (name: string, projectId: string, key: string): Promise<void> =>
+    versionApi.deleteSecret(name, projectId, key),
 };
 
 /** Apply an in-place edit to the working copy and return its JSON. */

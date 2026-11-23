@@ -187,7 +187,7 @@ async fn start_build(
 ) -> Result<(axum::http::StatusCode, Json<BuildRecord>), ApiError> {
     crate::error::require_csrf(&headers)?;
 
-    let project = require_project(&state.db, &user.id, &project_id).await?;
+    let project = require_project(&state.db, &user.tenant_id, &user.id, &project_id).await?;
     let target = body.target.unwrap_or(BuildTarget::All);
     let build_id = Uuid::new_v4().to_string();
 
@@ -335,7 +335,7 @@ async fn start_run(
     // must speak the same one. The preview's own credentials are used, never
     // the project's: a preview executes generated code, and that code must not
     // reach the production database.
-    let project = require_project(&state.db, &user.id, &build.project_id).await?;
+    let project = require_project(&state.db, &user.tenant_id, &user.id, &build.project_id).await?;
     let database_url = preview_database_url(
         &project.settings.database.driver,
         &project.settings.database.url,

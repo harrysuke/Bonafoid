@@ -23,8 +23,8 @@ pub async fn list(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> Result<Json<Vec<PluginSummary>>, ApiError> {
-    let rows = store::list_plugins(&state.db, &user.id).await?;
-    let host = state.plugins.host(&user.id)?;
+    let rows = store::list_plugins(&state.db, &user.tenant_id, &user.id).await?;
+    let host = state.plugins.host(&user.tenant_id)?;
 
     let mut summaries = Vec::with_capacity(rows.len());
     for row in rows {
@@ -94,7 +94,7 @@ pub async fn install(
     let manifest = PluginManifest::from_json(&manifest_json)
         .map_err(|error| ApiError::BadRequest(format!("invalid plugin manifest: {error}")))?;
 
-    let host = state.plugins.host(&user.id)?;
+    let host = state.plugins.host(&user.tenant_id)?;
     if host.manifest(&manifest.id).is_some() {
         return Err(ApiError::Conflict(format!(
             "plugin {} is already installed",
@@ -112,7 +112,7 @@ pub async fn install(
 
     // Store the manifest and the module on disk, so the plugin survives a
     // restart.
-    let dir = state.plugins.plugin_dir(&user.id, &manifest.id);
+    let dir = state.plugins.plugin_dir(&user.tenant_id, &manifest.id);
     let manifest_path = dir.join("plugin.json");
     let module_path = dir.join(&manifest.entry_point);
     if let Err(error) =
@@ -138,7 +138,14 @@ pub async fn install(
             }
         })?;
 
-    store::insert_plugin(&state.db, &user.id, &manifest.id, &manifest_json).await?;
+    store::insert_plugin(
+        &state.db,
+        &user.tenant_id,
+        &user.id,
+        &manifest.id,
+        &manifest_json,
+    )
+    .await?;
 
     Ok((
         axum::http::StatusCode::CREATED,
@@ -156,19 +163,19 @@ pub async fn set_enabled(
 ) -> Result<Json<PluginSummary>, ApiError> {
     require_csrf(&headers)?;
 
-    let row = store::get_plugin(&state.db, &user.id, &id)
+    let row = store::get_plugin(&state.db, &user.tenant_id, &user.id, &id)
         .await?
         .ok_or(ApiError::NotFound)?;
     let manifest = PluginManifest::from_json(&row.manifest)
         .map_err(|error| ApiError::BadRequest(format!("stored manifest is corrupt: {error}")))?;
 
-    let host = state.plugins.host(&user.id)?;
+    let host = state.plugins.host(&user.tenant_id)?;
     if body.enabled {
         // Enabling a plugin that was never loaded needs the module back.
         if host.manifest(&id).is_none() {
             let module_path = state
                 .plugins
-                .plugin_dir(&user.id, &id)
+                .plugin_dir(&user.tenant_id, &id)
                 .join(&manifest.entry_point);
             let bytes = std::fs::read(&module_path).map_err(|error| {
                 tracing::error!(%error, path = %module_path.display(), "the plugin module is missing");
@@ -188,7 +195,7 @@ pub async fn set_enabled(
             .map_err(|_| ApiError::NotFound)?;
     }
 
-    store::set_enabled(&state.db, &user.id, &id, body.enabled).await?;
+    store::set_enabled(&state.db, &user.tenant_id, &user.id, &id, body.enabled).await?;
 
     Ok(Json(PluginSummary::from_manifest(&manifest, body.enabled)))
 }
@@ -202,19 +209,19 @@ pub async fn uninstall(
 ) -> Result<axum::http::StatusCode, ApiError> {
     require_csrf(&headers)?;
 
-    let removed = store::delete_plugin(&state.db, &user.id, &id).await?;
+    let removed = store::delete_plugin(&state.db, &user.tenant_id, &user.id, &id).await?;
     if !removed {
         return Err(ApiError::NotFound);
     }
 
     // A plugin that was never loaded is still uninstalled: the row is gone,
     // which is what the user asked for.
-    if let Ok(host) = state.plugins.host(&user.id) {
+    if let Ok(host) = state.plugins.host(&user.tenant_id) {
         let _ = host.uninstall(&id);
     }
     super::remove_plugin_files(
         &state.plugins.root(),
-        &state.plugins.plugin_dir(&user.id, &id),
+        &state.plugins.plugin_dir(&user.tenant_id, &id),
     );
 
     Ok(axum::http::StatusCode::NO_CONTENT)

@@ -1,0 +1,14 @@
+# hadolint configuration — used by .github/workflows/docker.yml.
+#
+# The threshold is `error`, not `warning`: the rules below are style opinions
+# about images that are rebuilt from source on every change, and blocking a
+# pull request on them would teach people to ignore the lint step.
+
+ignored:
+  # Pin apt package versions. Deliberately ignored: the runtime image installs
+  # ca-certificates and curl from Debian bookworm, and pinning either one would
+  # freeze a security-patched package at a stale version and break the build the
+  # next time Debian rotates a point release.
+  - DL3008
+
+failure-threshold: error

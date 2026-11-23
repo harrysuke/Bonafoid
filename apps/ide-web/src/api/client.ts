@@ -11,11 +11,45 @@
  */
 
 import type {
+  AdminAnalytics,
+  AdminUsage,
+  AdminUser,
+  AdminUserUpdate,
+  AuditEntry,
+  BillingSession,
+  Branch,
+  CancelResult,
+  ConnectorCreateRequest,
+  ConnectorInfo,
+  ConnectorInstance,
+  ConnectorInvokeRequest,
+  ConnectorInvokeResult,
+  ConnectorTestResult,
+  ConnectorUpdateRequest,
   DeploymentResponse,
+  DiffResult,
   DockerHubConfigRequest,
+  Entitlement,
+  Environment,
+  FlagCreateRequest,
+  FlagOverride,
+  FlagUpdateRequest,
   GitHubConfigRequest,
   GitHubConfigResponse,
+  ImpersonationResult,
+  Incident,
+  Invoice,
+  Plan,
+  PlanCreateRequest,
+  PlatformFlag,
   RegistryConfigResponse,
+  Revision,
+  SecretKey,
+  StatusReport,
+  Subscription,
+  Tenant,
+  TenantMember,
+  UsageMeter,
 } from '@nocode/ide-core';
 
 export interface ApiUser {
@@ -542,4 +576,317 @@ export const deployApi = {
   /** Deployment history for a project (refreshes CI status server-side). */
   list: (projectId: string): Promise<DeploymentResponse[]> =>
     request<DeploymentResponse[]>(`/api/v1/projects/${projectId}/deployments`),
+};
+
+/* ------------------------------------------------------------------ *
+ * SaaS surfaces (Phases 7-11)
+ * ------------------------------------------------------------------ */
+
+/** Build an encoded query string, omitting absent or empty parameters. */
+function queryString(params: Record<string, string | number | undefined>): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') query.set(key, String(value));
+  }
+  const encoded = query.toString();
+  return encoded ? `?${encoded}` : '';
+}
+
+/** Tenancy / workspaces (Phase 7). */
+export const tenantApi = {
+  list: (): Promise<Tenant[]> => request<Tenant[]>('/api/v1/tenants'),
+
+  create: (name: string, slug: string): Promise<Tenant> =>
+    request<Tenant>('/api/v1/tenants', { method: 'POST', body: { name, slug } }),
+
+  update: (id: string, name: string, status: string): Promise<Tenant> =>
+    request<Tenant>(`/api/v1/tenants/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: { name, status },
+    }),
+
+  /** Switch the session tenant; the response carries the refreshed CSRF token. */
+  switch: (id: string): Promise<{ tenant_id: string; csrf_token: string }> =>
+    request<{ tenant_id: string; csrf_token: string }>(
+      `/api/v1/tenants/${encodeURIComponent(id)}/switch`,
+      { method: 'POST' },
+    ),
+
+  members: (id: string): Promise<TenantMember[]> =>
+    request<TenantMember[]>(`/api/v1/tenants/${encodeURIComponent(id)}/members`),
+
+  addMember: (id: string, userId: string, role: string): Promise<TenantMember> =>
+    request<TenantMember>(`/api/v1/tenants/${encodeURIComponent(id)}/members`, {
+      method: 'POST',
+      body: { user_id: userId, role },
+    }),
+
+  removeMember: (id: string, userId: string): Promise<void> =>
+    request<void>(
+      `/api/v1/tenants/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    ),
+};
+
+/** Billing and monetization (Phase 8). */
+export const billingApi = {
+  plans: (): Promise<Plan[]> => request<Plan[]>('/api/v1/billing/plans'),
+
+  createPlan: (body: PlanCreateRequest): Promise<Plan> =>
+    request<Plan>('/api/v1/billing/plans', { method: 'POST', body }),
+
+  subscription: (): Promise<Subscription | null> =>
+    request<Subscription | null>('/api/v1/billing/subscription'),
+
+  subscribe: (planId: string, seatCount?: number): Promise<Subscription> =>
+    request<Subscription>('/api/v1/billing/subscribe', {
+      method: 'POST',
+      body: seatCount === undefined ? { plan_id: planId } : { plan_id: planId, seat_count: seatCount },
+    }),
+
+  cancel: (): Promise<CancelResult> =>
+    request<CancelResult>('/api/v1/billing/cancel', { method: 'POST' }),
+
+  invoices: (): Promise<Invoice[]> => request<Invoice[]>('/api/v1/billing/invoices'),
+
+  entitlements: (): Promise<Entitlement[]> =>
+    request<Entitlement[]>('/api/v1/billing/entitlements'),
+
+  usage: (): Promise<UsageMeter[]> => request<UsageMeter[]>('/api/v1/billing/usage'),
+
+  recordUsage: (meterKey: string, quantity: number): Promise<UsageMeter> =>
+    request<UsageMeter>('/api/v1/billing/record-usage', {
+      method: 'POST',
+      body: { meter_key: meterKey, quantity },
+    }),
+
+  checkout: (planId: string, successUrl: string, cancelUrl: string): Promise<BillingSession> =>
+    request<BillingSession>('/api/v1/billing/checkout', {
+      method: 'POST',
+      body: { plan_id: planId, success_url: successUrl, cancel_url: cancelUrl },
+    }),
+
+  portal: (returnUrl: string): Promise<BillingSession> =>
+    request<BillingSession>('/api/v1/billing/portal', {
+      method: 'POST',
+      body: { return_url: returnUrl },
+    }),
+};
+
+/** Platform administration (Phase 9). */
+export const adminApi = {
+  tenants: (search?: string, limit?: number, offset?: number): Promise<Tenant[]> =>
+    request<Tenant[]>(`/api/v1/admin/tenants${queryString({ search, limit, offset })}`),
+
+  updateTenant: (id: string, status: string): Promise<Tenant> =>
+    request<Tenant>(`/api/v1/admin/tenants/${encodeURIComponent(id)}/status`, {
+      method: 'PATCH',
+      body: { status },
+    }),
+
+  users: (search?: string, limit?: number, offset?: number): Promise<AdminUser[]> =>
+    request<AdminUser[]>(`/api/v1/admin/users${queryString({ search, limit, offset })}`),
+
+  updateUser: (id: string, body: AdminUserUpdate): Promise<AdminUser> =>
+    request<AdminUser>(`/api/v1/admin/users/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body,
+    }),
+
+  impersonate: (id: string, reason?: string): Promise<ImpersonationResult> =>
+    request<ImpersonationResult>(
+      `/api/v1/admin/users/${encodeURIComponent(id)}/impersonate`,
+      { method: 'POST', body: reason ? { reason } : {} },
+    ),
+
+  analytics: (): Promise<AdminAnalytics> =>
+    request<AdminAnalytics>('/api/v1/admin/analytics'),
+
+  usage: (): Promise<AdminUsage> => request<AdminUsage>('/api/v1/admin/usage'),
+
+  flags: (): Promise<PlatformFlag[]> => request<PlatformFlag[]>('/api/v1/admin/flags'),
+
+  createFlag: (body: FlagCreateRequest): Promise<PlatformFlag> =>
+    request<PlatformFlag>('/api/v1/admin/flags', { method: 'POST', body }),
+
+  updateFlag: (key: string, body: FlagUpdateRequest): Promise<PlatformFlag> =>
+    request<PlatformFlag>(`/api/v1/admin/flags/${encodeURIComponent(key)}`, {
+      method: 'PATCH',
+      body,
+    }),
+
+  deleteFlag: (key: string): Promise<void> =>
+    request<void>(`/api/v1/admin/flags/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+
+  setOverride: (flagKey: string, tenantId: string, enabled: boolean): Promise<FlagOverride> =>
+    request<FlagOverride>('/api/v1/admin/flags/overrides', {
+      method: 'POST',
+      body: { flag_key: flagKey, tenant_id: tenantId, enabled },
+    }),
+
+  evaluateFlag: (key: string): Promise<{ key: string; enabled: boolean }> =>
+    request<{ key: string; enabled: boolean }>(
+      `/api/v1/admin/flags/evaluate${queryString({ key })}`,
+    ),
+
+  audit: (limit?: number, offset?: number): Promise<AuditEntry[]> =>
+    request<AuditEntry[]>(`/api/v1/admin/audit${queryString({ limit, offset })}`),
+};
+
+/** Public service-status endpoints (Phase 9). */
+export const statusApi = {
+  get: (): Promise<StatusReport> => request<StatusReport>('/api/v1/status'),
+  incidents: (): Promise<Incident[]> => request<Incident[]>('/api/v1/status/incidents'),
+};
+
+/** Connector registry (Phase 10). Secrets travel only in create/update bodies. */
+export const connectorApi = {
+  catalog: (): Promise<ConnectorInfo[]> =>
+    request<ConnectorInfo[]>('/api/v1/connectors/catalog'),
+
+  list: (): Promise<ConnectorInstance[]> =>
+    request<ConnectorInstance[]>('/api/v1/connectors'),
+
+  create: (body: ConnectorCreateRequest): Promise<ConnectorInstance> =>
+    request<ConnectorInstance>('/api/v1/connectors', { method: 'POST', body }),
+
+  update: (id: string, body: ConnectorUpdateRequest): Promise<ConnectorInstance> =>
+    request<ConnectorInstance>(`/api/v1/connectors/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body,
+    }),
+
+  remove: (id: string): Promise<void> =>
+    request<void>(`/api/v1/connectors/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  test: (id: string): Promise<ConnectorTestResult> =>
+    request<ConnectorTestResult>(`/api/v1/connectors/${encodeURIComponent(id)}/test`, {
+      method: 'POST',
+    }),
+
+  invoke: (id: string, body: ConnectorInvokeRequest): Promise<ConnectorInvokeResult> =>
+    request<ConnectorInvokeResult>(`/api/v1/connectors/${encodeURIComponent(id)}/invoke`, {
+      method: 'POST',
+      body,
+    }),
+};
+
+/** Version control and environments (Phase 11). */
+export const versionApi = {
+  branches: (projectId: string): Promise<Branch[]> =>
+    request<Branch[]>(`/api/v1/versioning/branches${queryString({ project_id: projectId })}`),
+
+  createBranch: (
+    projectId: string,
+    name: string,
+    fromRevisionId?: string,
+  ): Promise<Branch> =>
+    request<Branch>('/api/v1/versioning/branches', {
+      method: 'POST',
+      body: {
+        project_id: projectId,
+        name,
+        ...(fromRevisionId ? { from_revision_id: fromRevisionId } : {}),
+      },
+    }),
+
+  history: (projectId: string, branch: string): Promise<Revision[]> =>
+    request<Revision[]>(
+      `/api/v1/versioning/history${queryString({ project_id: projectId, branch })}`,
+    ),
+
+  revision: (id: string): Promise<Revision> =>
+    request<Revision>(`/api/v1/versioning/revisions/${encodeURIComponent(id)}`),
+
+  diff: (projectId: string, from: string, to: string): Promise<DiffResult> =>
+    request<DiffResult>(
+      `/api/v1/versioning/diff${queryString({ project_id: projectId, from, to })}`,
+    ),
+
+  commit: (
+    projectId: string,
+    branch: string,
+    message: string,
+    data: unknown,
+  ): Promise<Revision> =>
+    request<Revision>('/api/v1/versioning/commits', {
+      method: 'POST',
+      body: { project_id: projectId, branch, message, data },
+    }),
+
+  merge: (
+    targetBranch: string,
+    projectId: string,
+    sourceBranch: string,
+    strategy: string,
+  ): Promise<Revision> =>
+    request<Revision>(
+      `/api/v1/versioning/branches/${encodeURIComponent(targetBranch)}/merge`,
+      { method: 'POST', body: { project_id: projectId, source_branch: sourceBranch, strategy } },
+    ),
+
+  restore: (projectId: string, revisionId: string): Promise<Revision> =>
+    request<Revision>('/api/v1/versioning/restore', {
+      method: 'POST',
+      body: { project_id: projectId, revision_id: revisionId },
+    }),
+
+  environments: (projectId: string): Promise<Environment[]> =>
+    request<Environment[]>(
+      `/api/v1/versioning/environments${queryString({ project_id: projectId })}`,
+    ),
+
+  createEnvironment: (
+    projectId: string,
+    name: string,
+    config: Record<string, unknown> = {},
+  ): Promise<Environment> =>
+    request<Environment>('/api/v1/versioning/environments', {
+      method: 'POST',
+      body: { project_id: projectId, name, config },
+    }),
+
+  updateEnvironment: (
+    name: string,
+    projectId: string,
+    config: Record<string, unknown>,
+  ): Promise<Environment> =>
+    request<Environment>(
+      `/api/v1/versioning/environments/${encodeURIComponent(name)}`,
+      { method: 'PATCH', body: { project_id: projectId, config } },
+    ),
+
+  promote: (name: string, projectId: string, revisionId: string): Promise<Environment> =>
+    request<Environment>(
+      `/api/v1/versioning/environments/${encodeURIComponent(name)}/promote`,
+      { method: 'POST', body: { project_id: projectId, revision_id: revisionId } },
+    ),
+
+  rollback: (name: string, projectId: string, revisionId: string): Promise<Environment> =>
+    request<Environment>(
+      `/api/v1/versioning/environments/${encodeURIComponent(name)}/rollback`,
+      { method: 'POST', body: { project_id: projectId, revision_id: revisionId } },
+    ),
+
+  secrets: (name: string, projectId: string): Promise<SecretKey[]> =>
+    request<SecretKey[]>(
+      `/api/v1/versioning/environments/${encodeURIComponent(name)}/secrets${queryString({ project_id: projectId })}`,
+    ),
+
+  setSecret: (
+    name: string,
+    projectId: string,
+    key: string,
+    value: string,
+  ): Promise<SecretKey> =>
+    request<SecretKey>(
+      `/api/v1/versioning/environments/${encodeURIComponent(name)}/secrets`,
+      { method: 'POST', body: { project_id: projectId, key, value } },
+    ),
+
+  deleteSecret: (name: string, projectId: string, key: string): Promise<void> =>
+    request<void>(
+      `/api/v1/versioning/environments/${encodeURIComponent(name)}/secrets/${encodeURIComponent(key)}${queryString({ project_id: projectId })}`,
+      { method: 'DELETE' },
+    ),
 };

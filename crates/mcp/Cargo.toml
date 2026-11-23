@@ -1,0 +1,30 @@
+[package]
+name = "nocode-mcp"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "MCP server for agentic BPMN workflow authoring"
+
+[lib]
+name = "nocode_mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nocode-mcp"
+path = "src/main.rs"
+
+[dependencies]
+nocode-model = { path = "../model" }
+nocode-bpmn = { path = "../bpmn" }
+nocode-ide = { path = "../ide" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+indexmap = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

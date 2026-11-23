@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # No-Code IDE server — image WITH the preview toolchain.
 #
 # Hosted previews compile a generated Rust backend with `cargo` and a Leptos
@@ -16,19 +17,21 @@ FROM rust:bookworm AS builder
 WORKDIR /src
 
 # Every workspace member's manifest must exist even when only the server is
-# built; `xtask` is a member, so its manifest is copied too.
+# built; `xtask` is a member, so its manifest is copied too. `--parents` keeps
+# the glob's directory structure, so a new crate is picked up without editing
+# this file.
 COPY Cargo.toml Cargo.lock ./
-COPY crates/model/Cargo.toml crates/model/
-COPY crates/codegen/Cargo.toml crates/codegen/
-COPY crates/bpmn/Cargo.toml crates/bpmn/
-COPY crates/plugins/Cargo.toml crates/plugins/
-COPY crates/ide/Cargo.toml crates/ide/
-COPY crates/ide-server/Cargo.toml crates/ide-server/
+COPY --parents crates/*/Cargo.toml ./
 COPY xtask/Cargo.toml xtask/
-RUN set -eux; \
-    for crate in model codegen bpmn plugins ide ide-server; do \
-      mkdir -p "crates/$crate/src"; \
-      echo "" > "crates/$crate/src/lib.rs"; \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
+    set -eux; \
+    for manifest in crates/*/Cargo.toml; do \
+      dir="$(dirname "$manifest")"; \
+      mkdir -p "$dir/src"; \
+      : > "$dir/src/lib.rs"; \
+      : > "$dir/src/main.rs"; \
     done; \
     mkdir -p xtask/src; \
     echo "fn main() {}" > xtask/src/main.rs; \
@@ -38,11 +41,28 @@ RUN set -eux; \
 
 COPY crates ./crates
 COPY xtask ./xtask
-RUN cargo build --release -p nocode-ide-server
+# `target/` is a cache mount here, so the binary has to be installed to a normal
+# path before this stage ends — a cache mount is not part of the image layer and
+# cannot be COPY --from'd by the runtime stage.
+#
+# The touch is load-bearing: the stub build above cached artifacts for these
+# crates, COPY preserves the context's older timestamps, and cargo decides
+# freshness by mtime — without it the stub `fn main() {}` binary is installed.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
+    find crates xtask -type f \( -name '*.rs' -o -name 'Cargo.toml' \) -exec touch {} + && \
+    cargo build --release -p nocode-ide-server && \
+    install -m 0755 target/release/nocode-ide-server /usr/local/bin/nocode-ide-server
 
 # Trunk builds the generated frontend; it is a separate binary, not a crate
-# dependency of the server.
-RUN cargo install trunk --locked --version 0.21.14
+# dependency of the server. It is compiled rather than downloaded so the image
+# does not trust a binary from a release URL, and CARGO_TARGET_DIR keeps its
+# build artifacts in the cache mount instead of a throwaway temp directory.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
+    CARGO_TARGET_DIR=/src/target cargo install trunk --locked --version 0.21.14 --root /usr/local
 
 # The web IDE is built in a node stage so the runtime image does not need node.
 FROM node:20-bookworm-slim AS web
@@ -51,12 +71,24 @@ COPY package.json package-lock.json ./
 COPY packages/ide-core/package.json packages/ide-core/
 COPY apps/ide-web/package.json apps/ide-web/
 COPY apps/ide-tauri/package.json apps/ide-tauri/
-RUN npm ci --ignore-scripts
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci --ignore-scripts
 COPY packages ./packages
 COPY apps/ide-web ./apps/ide-web
 RUN npm run build:web
 
 FROM rust:bookworm
+
+# OCI metadata; docker.yml passes the version and revision from the git ref.
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG SOURCE=https://github.com/harrysuke/Bonafoid
+LABEL org.opencontainers.image.title="nocode-ide-preview" \
+      org.opencontainers.image.description="No-Code IDE server plus the cargo/trunk toolchain used by hosted previews" \
+      org.opencontainers.image.source="${SOURCE}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 
 RUN set -eux; \
     apt-get update; \
@@ -67,8 +99,8 @@ RUN set -eux; \
     mkdir -p /data/previews /data/cargo; \
     chown -R nocode:nocode /app /data
 
-COPY --from=builder /src/target/release/nocode-ide-server /usr/local/bin/nocode-ide-server
-COPY --from=builder /usr/local/cargo/bin/trunk /usr/local/bin/trunk
+COPY --from=builder /usr/local/bin/nocode-ide-server /usr/local/bin/nocode-ide-server
+COPY --from=builder /usr/local/bin/trunk /usr/local/bin/trunk
 COPY --from=web /src/apps/ide-web/dist /app/web
 
 WORKDIR /app
@@ -81,7 +113,7 @@ USER nocode
 # value would be a second, conflicting source of truth.
 ENV PORT=8081 \
     HOST=0.0.0.0 \
-    DATABASE_URL=sqlite:///data/ide.db \
+    DATABASE_URL=sqlite:///data/ide.db?mode=rwc \
     JWT_KEYS_DIR=/data/jwt \
     IDE_WEB_DIST=/app/web \
     IDE_PREVIEW_ROOT=/data/previews \
@@ -91,6 +123,8 @@ ENV PORT=8081 \
 VOLUME ["/data"]
 EXPOSE 8081
 
+# Shell form because the port comes from the environment; exec form does not
+# expand it.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PORT}/health" || exit 1
 
