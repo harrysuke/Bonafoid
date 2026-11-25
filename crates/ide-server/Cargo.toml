@@ -38,7 +38,7 @@ sea-orm = { workspace = true }
 # pooled driver panics at runtime with "either the `runtime-async-std` or
 # `runtime-tokio` feature must be enabled". The drivers themselves come from
 # SeaORM's features.
-sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio"] }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
