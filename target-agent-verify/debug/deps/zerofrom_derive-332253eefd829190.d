@@ -1,0 +1,6 @@
+D:/nocode-ide/Bonafoid/target-agent-verify\debug\deps\zerofrom_derive-332253eefd829190.d: C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\zerofrom-derive-0.1.8\src\lib.rs C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\zerofrom-derive-0.1.8\src\visitor.rs
+
+D:/nocode-ide/Bonafoid/target-agent-verify\debug\deps\zerofrom_derive-332253eefd829190.dll: C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\zerofrom-derive-0.1.8\src\lib.rs C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\zerofrom-derive-0.1.8\src\visitor.rs
+
+C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\zerofrom-derive-0.1.8\src\lib.rs:
+C:\Users\khairi\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\zerofrom-derive-0.1.8\src\visitor.rs:

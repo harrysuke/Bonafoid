@@ -38,7 +38,37 @@ impl OpenAiProvider {
     }
 
     fn endpoint(&self) -> String {
-        format!("{}/v1/chat/completions", self.base_url)
+        chat_endpoint(&self.base_url)
+    }
+}
+
+/// Where an OpenAI-compatible gateway's chat route lives.
+///
+/// Most gateways are `{base}/v1/chat/completions`, but not all of them:
+/// OpenRouter is `/api/v1/...`, Zhipu is `/api/paas/v4/chat/completions`, and
+/// some (GitHub Models) publish a base URL that already *is* the path. A key
+/// stored in `agent_api_keys` carries a base URL the operator typed, so the
+/// rule has to be forgiving rather than assume one shape.
+fn chat_endpoint(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base.ends_with("/chat/completions") {
+        return base.to_string();
+    }
+    // `…/v1` or `…/v4`: the version is already part of the base.
+    let versioned = base
+        .rsplit('/')
+        .next()
+        .map(|segment| {
+            let mut chars = segment.chars();
+            matches!(chars.next(), Some('v'))
+                && chars.clone().next().is_some()
+                && chars.all(|c| c.is_ascii_digit())
+        })
+        .unwrap_or(false);
+    if versioned {
+        format!("{base}/chat/completions")
+    } else {
+        format!("{base}/v1/chat/completions")
     }
 }
 
@@ -419,6 +449,32 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(error, AgentError::Provider { .. }), "{error:?}");
+    }
+
+    #[test]
+    fn gateway_endpoints_follow_the_base_url_shape() {
+        assert_eq!(
+            chat_endpoint("https://api.openai.com"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            chat_endpoint("https://openrouter.ai/api/"),
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(
+            chat_endpoint("https://api.groq.com/openai"),
+            "https://api.groq.com/openai/v1/chat/completions"
+        );
+        // A version already in the base is not repeated.
+        assert_eq!(
+            chat_endpoint("https://open.bigmodel.cn/api/paas/v4"),
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+        );
+        // A base that is the full path is used as-is.
+        assert_eq!(
+            chat_endpoint("https://models.github.ai/inference/chat/completions"),
+            "https://models.github.ai/inference/chat/completions"
+        );
     }
 
     #[test]

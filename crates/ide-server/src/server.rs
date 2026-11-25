@@ -93,7 +93,10 @@ impl AppState {
     pub fn new(db: DatabaseConnection, keys: Arc<JwtKeys>) -> Self {
         Self {
             mcp: mcp_with_provider(&db),
-            agent: Arc::new(crate::agent::AgentRuntime::from_env()),
+            // The runtime reads `agent_api_keys` lazily, so the same state
+            // serves a deployment configured by environment variables and one
+            // configured from the drawer's provider picker.
+            agent: Arc::new(crate::agent::AgentRuntime::from_env_and_db(db.clone())),
             leases: Arc::new(nocode_mcp::MemoryLeaseStore::new()),
             db,
             keys,
@@ -140,7 +143,7 @@ impl AppState {
     ) -> Self {
         Self {
             mcp: mcp_with_provider(&db),
-            agent: Arc::new(crate::agent::AgentRuntime::from_env()),
+            agent: Arc::new(crate::agent::AgentRuntime::from_env_and_db(db.clone())),
             leases: Arc::new(nocode_mcp::MemoryLeaseStore::new()),
             db,
             keys,

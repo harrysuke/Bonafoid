@@ -44,7 +44,9 @@ use crate::auth::AuthUser;
 use crate::error::{require_csrf, ApiError};
 use crate::server::AppState;
 
+pub mod access;
 mod conversation;
+mod keys;
 mod provider;
 pub mod runtime;
 pub mod schema;
@@ -52,7 +54,7 @@ mod store;
 
 pub use conversation::{Conversation, ConversationMessage};
 pub use provider::SeaOrmProjectProvider;
-pub use runtime::AgentRuntime;
+pub use runtime::{AgentRuntime, CatalogView};
 
 /// Remove a deleted project's conversations.
 ///
@@ -106,6 +108,23 @@ pub fn agent_router() -> Router<AppState> {
                 .patch(rename_conversation)
                 .delete(delete_conversation),
         )
+        // The provider picker. Not project-scoped: a key belongs to the
+        // deployment, not to a project, and the drawer asks once per session.
+        .route("/api/v1/agent/providers", get(list_providers))
+}
+
+/// `GET /api/v1/agent/providers` — what the assistant can run, and with which
+/// models.
+///
+/// No key material is in the response: `ProviderInfo` has no field for it. The
+/// route is authenticated because the list is a deployment capability, not
+/// public information.
+async fn list_providers(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<CatalogView>, ApiError> {
+    access::require_owner(&state.db, &user).await?;
+    Ok(Json(state.agent.catalog_view().await))
 }
 
 /// Body of the chat request.
@@ -119,6 +138,15 @@ pub struct ChatBody {
     /// Continue an existing conversation. Absent means "start a new one".
     #[serde(default)]
     pub conversation_id: Option<String>,
+    /// Which provider to run, from `GET /agent/providers`.
+    ///
+    /// Absent means "the deployment's default", which is what a client that
+    /// predates the picker sends — and it must keep working.
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Model override for this run. Absent means the provider's default.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// Body of a rename request.
@@ -146,6 +174,10 @@ async fn chat(
     // Bearer tokens skip the double-submit check; cookie sessions must echo it.
     require_csrf(&headers)?;
 
+    // The credentials are sealed, but a sealed key is still spendable: only
+    // the operator's chosen user may reach the provider at all.
+    access::require_owner(&state.db, &user).await?;
+
     let caller = crate::mcp::caller_for(&user);
     if !caller.has_scope("project:write") {
         return Err(ApiError::Forbidden(
@@ -166,7 +198,13 @@ async fn chat(
         .map_err(|error| ApiError::BadRequest(error.to_string()))?;
 
     // A missing provider is an operator task, not a bug: 503 with the fix.
-    let provider = state.agent.provider()?.clone();
+    // Resolving before the lease means a bad selection costs no tokens and
+    // does not take the project away from another tab.
+    let resolved = state
+        .agent
+        .provider_for(body.provider.as_deref(), body.model.as_deref())
+        .await?;
+    let provider = resolved.provider.clone();
 
     // The run id is minted first: it is the lease holder, the audit key and the
     // id the browser receives, and all three must agree.
@@ -295,7 +333,9 @@ async fn chat(
     let stream_guard = tx.clone();
     let ctx = RunContext {
         run_id: run_id.clone(),
-        provider,
+        // Cloned for the summariser below: the run owns one handle, the
+        // spawned task keeps another.
+        provider: provider.clone(),
         executor: state.mcp.executor.clone(),
         caller,
         session_id,
@@ -312,7 +352,10 @@ async fn chat(
     // dropped. Nothing else can close it early.
     let db = state.db.clone();
     let projects = state.mcp.executor.projects.clone();
-    let summariser = state.agent.provider().ok().cloned();
+    // The same provider the run used summarises the conversation later: a
+    // second provider would mean a second key and a second model for one
+    // thread, which is exactly the inconsistency the picker exists to avoid.
+    let summariser = provider.clone();
     let conversation = conversation_id.clone();
     tokio::spawn(async move {
         let report = nocode_agent::run(ctx, request).await;
@@ -350,7 +393,7 @@ async fn chat(
         }
         // Compaction runs after the append so the count it sees is the count
         // the next turn will read.
-        match conversation::compact(&db, summariser.as_deref(), &conversation).await {
+        match conversation::compact(&db, Some(summariser.as_ref()), &conversation).await {
             Ok(true) => tracing::info!(conversation_id = %conversation, "compacted the conversation"),
             Ok(false) => {}
             Err(error) => {
@@ -407,6 +450,7 @@ async fn list_conversations(
     user: AuthUser,
     Path(project_id): Path<String>,
 ) -> Result<Json<Vec<Conversation>>, ApiError> {
+    access::require_owner(&state.db, &user).await?;
     require_project(&state, &user, &project_id).await?;
     let rows = conversation::list(
         &state.db,
@@ -428,6 +472,7 @@ async fn get_conversation(
     user: AuthUser,
     Path((project_id, conversation_id)): Path<(String, String)>,
 ) -> Result<Json<ConversationDetail>, ApiError> {
+    access::require_owner(&state.db, &user).await?;
     require_project(&state, &user, &project_id).await?;
     if !conversation::valid_id(&conversation_id) {
         return Err(ApiError::NotFound);
@@ -457,6 +502,7 @@ async fn rename_conversation(
     Json(body): Json<RenameBody>,
 ) -> Result<Json<Conversation>, ApiError> {
     require_csrf(&headers)?;
+    access::require_owner(&state.db, &user).await?;
     require_project(&state, &user, &project_id).await?;
     let title = body.title.trim();
     if title.is_empty() {
@@ -502,6 +548,7 @@ async fn delete_conversation(
     headers: HeaderMap,
 ) -> Result<axum::http::StatusCode, ApiError> {
     require_csrf(&headers)?;
+    access::require_owner(&state.db, &user).await?;
     require_project(&state, &user, &project_id).await?;
     if !conversation::valid_id(&conversation_id) {
         return Err(ApiError::NotFound);
@@ -703,10 +750,10 @@ mod tests {
             .clone()
     }
 
-    fn bearer(roles: Vec<String>) -> String {
+    fn bearer_for(user_id: &str, email: &str, roles: Vec<String>) -> String {
         let claims = Claims::access_for(
-            "user-1",
-            "agent@example.com",
+            user_id,
+            email,
             "default".into(),
             roles,
             None,
@@ -714,6 +761,10 @@ mod tests {
             now_secs(),
         );
         format!("Bearer {}", keys().encode(&claims).unwrap())
+    }
+
+    fn bearer(roles: Vec<String>) -> String {
+        bearer_for("user-1", "agent@example.com", roles)
     }
 
     /// The id the project row and the project document agree on.
@@ -732,6 +783,14 @@ mod tests {
         .unwrap();
         db.execute_unprepared(
             "INSERT OR IGNORE INTO users (id, email, password_hash) VALUES ('user-1', 'agent@example.com', 'x')",
+        )
+        .await
+        .unwrap();
+        // The fixture user is the owner, so the routes stay reachable by the
+        // existing tests. A second, non-owner user is used below to prove the
+        // allowlist actually refuses everyone else.
+        db.execute_unprepared(
+            "INSERT OR IGNORE INTO agent_key_access (user_id, email) VALUES ('user-1', 'agent@example.com')",
         )
         .await
         .unwrap();
@@ -784,6 +843,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_user_outside_the_owner_allowlist_cannot_run_the_agent() {
+        let (app, _db) = app(AgentRuntime::disabled("test".into())).await;
+        let response = app
+            .oneshot(chat_request(
+                r#"{"prompt":"build"}"#,
+                Some(bearer_for(
+                    "user-2",
+                    "someone-else@example.com",
+                    vec!["owner".into()],
+                )),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn the_provider_picker_is_owner_only() {
+        let (app, _db) = app(AgentRuntime::disabled("test".into())).await;
+        let request = Request::builder()
+            .uri("/api/v1/agent/providers")
+            .header(
+                "authorization",
+                bearer_for(
+                    "user-2",
+                    "someone-else@example.com",
+                    vec!["owner".into()],
+                ),
+            )
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
     async fn a_member_without_the_write_scope_is_refused() {
         let (app, _db) = app(AgentRuntime::disabled("test".into())).await;
         let response = app
@@ -820,6 +915,68 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn the_provider_picker_lists_the_configured_provider_without_a_key() {
+        let scripted = Arc::new(Scripted::new(vec![]));
+        let (app, _db) = app(AgentRuntime::with_provider(scripted, Limits::default())).await;
+
+        let request = Request::builder()
+            .uri("/api/v1/agent/providers")
+            .header("authorization", bearer(vec!["owner".into()]))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("json body");
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("valid JSON");
+        assert_eq!(value["providers"][0]["id"], "env");
+        assert_eq!(value["providers"][0]["platform"], "scripted");
+        assert_eq!(value["default"], "env");
+        // Nothing usable is missing, so the drawer shows no empty state.
+        assert!(value["reason"].is_null(), "{value}");
+        // The response has no field that could carry a key.
+        let text = String::from_utf8_lossy(&body);
+        assert!(!text.contains("api_key"), "{text}");
+        assert!(!text.contains("ciphertext"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn the_picker_requires_authentication() {
+        let (app, _db) = app(AgentRuntime::disabled("test".into())).await;
+        let request = Request::builder()
+            .uri("/api/v1/agent/providers")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_run_can_name_the_provider_the_picker_offered() {
+        let scripted = Arc::new(Scripted::new(vec![Turn::Text("Done.")]));
+        let (app, _db) = app(AgentRuntime::with_provider(scripted, Limits::default())).await;
+
+        // `env` is the picker's id for the server's own provider. Selecting it
+        // must behave exactly like sending no selection at all.
+        let response = app
+            .oneshot(chat_request(
+                r#"{"prompt":"build","mode":"auto","provider":"env"}"#,
+                Some(bearer(vec!["owner".into()])),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("sse body");
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("\"provider\":\"scripted\""), "{text}");
+        assert!(text.contains("\"status\":\"succeeded\""), "{text}");
     }
 
     #[tokio::test]

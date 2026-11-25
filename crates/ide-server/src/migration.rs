@@ -33,7 +33,54 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0011_agent_conversations",
         crate::agent::schema::CONVERSATION_SCHEMA,
     ),
+    ("0012_agent_api_keys", AGENT_KEYS_SCHEMA),
+    ("0013_agent_key_access", AGENT_KEY_ACCESS_SCHEMA),
 ];
+
+/// Migrated provider credentials for the assistant.
+///
+/// Plaintext never appears here: `sealed_nonce` / `sealed_ciphertext` hold a
+/// ChaCha20-Poly1305 blob in the same format as `nocode_deploy::CredentialVault`,
+/// so the existing vault is the only thing that can open them. `source_id`
+/// keeps the row traceable to the legacy `codingagent.db` import without
+/// exposing the credential itself.
+const AGENT_KEYS_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS agent_api_keys (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id         INTEGER UNIQUE,
+    platform          TEXT NOT NULL,
+    label             TEXT NOT NULL DEFAULT '',
+    sealed_nonce      TEXT NOT NULL,
+    sealed_ciphertext TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'unknown',
+    enabled           INTEGER NOT NULL DEFAULT 1,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    last_checked_at   TEXT,
+    base_url          TEXT,
+    user_id           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_api_keys_platform ON agent_api_keys(platform);
+"#;
+
+/// Owner allowlist for the assistant.
+///
+/// `agent_api_keys` is a deployment-wide credential store, so the key rows are
+/// only as private as the endpoints that can spend them. This table names the
+/// exact user ids allowed to run the assistant; every agent route checks it.
+/// `owner_user_id` on each key row records whose credentials those are, so a
+/// future multi-owner deployment can filter the catalog without guessing from
+/// the legacy `user_id` provenance column.
+const AGENT_KEY_ACCESS_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS agent_key_access (
+    user_id    TEXT PRIMARY KEY NOT NULL,
+    email      TEXT NOT NULL,
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+ALTER TABLE agent_api_keys ADD COLUMN owner_user_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_agent_api_keys_owner ON agent_api_keys(owner_user_id);
+"#;
 
 const INITIAL_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS users (

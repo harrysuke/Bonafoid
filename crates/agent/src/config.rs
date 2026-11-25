@@ -147,18 +147,44 @@ impl AgentConfig {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| kind.default_base_url().to_string());
 
-        Ok(Self {
-            kind,
-            model,
-            base_url: base_url.trim_end_matches('/').to_string(),
-            api_key,
+        Ok(Self::for_provider(kind, model, base_url, api_key))
+    }
+
+    /// The provider-independent half of the config, from the environment.
+    ///
+    /// A host that stores several keys (the server's `agent_api_keys` table)
+    /// builds one config per key: the limits, temperature and timeouts are the
+    /// same for all of them, so they are read once here and copied.
+    pub fn defaults() -> Self {
+        Self {
+            kind: ProviderKind::Anthropic,
+            model: ProviderKind::Anthropic.default_model().to_string(),
+            base_url: ProviderKind::Anthropic.default_base_url().to_string(),
+            api_key: None,
             max_tokens: env_u64("AGENT_MAX_OUTPUT_TOKENS", 4096) as u32,
             temperature: env_f32("AGENT_TEMPERATURE", 0.2),
             // On by default: streaming is the improvement, not the risk.
             stream_deltas: env_bool("AGENT_STREAM_DELTAS", true),
             request_timeout: Duration::from_secs(env_u64("AGENT_REQUEST_TIMEOUT", 120)),
             limits: Limits::from_env(),
-        })
+        }
+    }
+
+    /// One provider on top of [`Self::defaults`].
+    pub fn for_provider(
+        kind: ProviderKind,
+        model: impl Into<String>,
+        base_url: impl Into<String>,
+        api_key: Option<String>,
+    ) -> Self {
+        let mut config = Self::defaults();
+        config.kind = kind;
+        config.model = model.into();
+        // A trailing slash would produce `//v1/chat/completions`, which some
+        // gateways answer with a 404 rather than a redirect.
+        config.base_url = base_url.into().trim_end_matches('/').to_string();
+        config.api_key = api_key;
+        config
     }
 
     /// Whether the deployment can run an agent at all.
