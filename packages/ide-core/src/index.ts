@@ -73,6 +73,22 @@ export type {
   StatusReport,
   Incident,
 } from './platform/types';
+export type {
+  AgentMode,
+  AgentRunStatus,
+  AgentUsage,
+  AgentValidationIssue,
+  AgentDomain,
+  AgentConflict,
+  AgentEvent,
+  AgentChatRequest,
+  AgentChatHandle,
+  AgentProjectLockedBody,
+  AgentConversation,
+  AgentConversationDetail,
+  AgentConversationMessage,
+} from './types/agent';
+export type { AgentCapabilities, AgentSettings, AgentSettingsInput } from './platform/types';
 
 export { useProjectStore, type FieldPatch, type RelationPatch } from './stores/projectStore';
 export { useUIStore } from './stores/uiStore';
@@ -83,6 +99,14 @@ export { useBillingStore, billingSupported, type BillingState } from './stores/b
 export { useAdminStore, adminSupported, type AdminState } from './stores/adminStore';
 export { useConnectorStore, connectorSupported, type ConnectorState } from './stores/connectorStore';
 export { useVersionStore, versionSupported, type VersionState } from './stores/versionStore';
+export {
+  useAgentStore,
+  agentSupported,
+  hasAgent,
+  resetAgentStore,
+  type AgentState,
+  type AgentEntry,
+} from './stores/agentStore';
 
 export { confirmLeave, useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard';
 export {
@@ -104,5 +128,6 @@ export * from './utils/pageModel';
 export * from './utils/workflowModel';
 export * from './utils/deploy';
 export * from './utils/saas';
+export { createSseDecoder, parseSseFrame, type SseDecoder } from './utils/sse';
 
 export { Button, Input, Select, Card, CardHeader, CardContent, CardFooter } from './components/ui';

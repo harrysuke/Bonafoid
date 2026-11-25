@@ -1,3 +1,4 @@
+mod agent;
 mod deploy;
 
 use tauri::{Manager, State};
@@ -134,6 +135,14 @@ pub fn run() {
             deploy::deploy_project,
             deploy::list_deployments,
             deploy::refresh_deployment,
+            agent::agent_capabilities,
+            agent::agent_ready,
+            agent::agent_settings_get,
+            agent::agent_settings_set,
+            agent::agent_key_clear,
+            agent::agent_test_connection,
+            agent::agent_cancel,
+            agent::agent_chat,
         ])
         .setup(|app| {
             // The vault key and the integration store live in the app-data
@@ -145,6 +154,9 @@ pub fn run() {
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("nocode-ide-desktop"));
             app.manage(deploy::DeployState::init(&app_data));
+            // The assistant shares the same directory, and the same vault, as
+            // the deploy integrations: one key file to protect, not two.
+            app.manage(agent::AgentState::init(&app_data));
 
             #[cfg(debug_assertions)]
             {

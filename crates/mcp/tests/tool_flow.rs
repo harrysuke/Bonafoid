@@ -9,14 +9,14 @@ use nocode_mcp::{CallerContext, Config, McpServer};
 use serde_json::{json, Value};
 
 fn tool(server: &McpServer, caller: &CallerContext, name: &str, args: Value) -> Value {
-    let response = tools::dispatch(server, caller, name, args).expect("tool exists");
+    let response = tools::dispatch(&server.executor, caller, name, args).expect("tool exists");
     let text = response["content"][0]["text"].as_str().unwrap().to_string();
     assert_eq!(response["isError"], json!(false), "{name} failed: {text}");
     serde_json::from_str(&text).unwrap_or_else(|_| json!({ "text": text }))
 }
 
 fn tool_error(server: &McpServer, caller: &CallerContext, name: &str, args: Value) -> McpError {
-    tools::dispatch(server, caller, name, args).expect_err("tool should fail")
+    tools::dispatch(&server.executor, caller, name, args).expect_err("tool should fail")
 }
 
 fn server() -> McpServer {

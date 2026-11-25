@@ -13,12 +13,13 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::error::McpError;
+use crate::executor::McpToolExecutor;
 use crate::layout::{self, LayoutDirection, LayoutOptions};
 use crate::resources::catalogue::{
     self, default_node_type, merge_json_objects, parse_node_type_strict, validate_config_patch,
 };
 use crate::tools::{parse_args, schema_for, ToolDefinition};
-use crate::{CallerContext, McpServer};
+use crate::CallerContext;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -174,7 +175,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
 }
 
 pub fn dispatch(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     name: &str,
     arguments: Value,
@@ -200,7 +201,7 @@ pub fn dispatch(
 }
 
 fn add_node(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: AddNodeParams,
 ) -> Result<Value, McpError> {
@@ -276,7 +277,7 @@ fn add_node(
 }
 
 fn update_node(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: UpdateNodeParams,
 ) -> Result<Value, McpError> {
@@ -327,7 +328,7 @@ fn update_node(
 }
 
 fn remove_node(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: RemoveNodeParams,
 ) -> Result<Value, McpError> {
@@ -361,7 +362,7 @@ fn remove_node(
 }
 
 fn connect_nodes(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: ConnectParams,
 ) -> Result<Value, McpError> {
@@ -405,7 +406,7 @@ fn connect_nodes(
 }
 
 fn update_edge(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: UpdateEdgeParams,
 ) -> Result<Value, McpError> {
@@ -443,7 +444,7 @@ fn update_edge(
 }
 
 fn remove_edge(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: RemoveEdgeParams,
 ) -> Result<Value, McpError> {
@@ -463,7 +464,7 @@ fn remove_edge(
 }
 
 fn auto_layout(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: LayoutParams,
 ) -> Result<Value, McpError> {

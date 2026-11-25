@@ -10,6 +10,55 @@
  */
 
 import type { GenerationReport } from '../types/project';
+import type {
+  AgentChatHandle,
+  AgentChatRequest,
+  AgentConversation,
+  AgentConversationDetail,
+  AgentEvent,
+} from '../types/agent';
+
+/**
+ * What the current host can do with the assistant.
+ *
+ * A probe, not a boolean: local mode implements a Tauri command rather than
+ * `agentChat`, so `typeof agentChat === 'function'` would hide a working
+ * feature. The drawer renders when `local || remote`, and Build & Preview only
+ * when `preview` — the desktop host has no preview service.
+ */
+export interface AgentCapabilities {
+  /** Desktop with a configured provider key. */
+  local: boolean;
+  /** Web, or a desktop connected to a server. */
+  remote: boolean;
+  /** Provider kinds this host can drive, for the settings screen. */
+  providers: string[];
+  /** Whether this host can build and preview a generated app. */
+  preview: boolean;
+}
+
+/**
+ * The assistant's provider settings, as the settings panel sees them.
+ *
+ * The key is never part of this shape. `has_key` is the only thing the UI may
+ * know about it, because a host that returned the key would put it in a React
+ * prop, a devtools panel and a crash report (plan §15.4.1).
+ */
+export interface AgentSettings {
+  provider: string | null;
+  model: string | null;
+  base_url: string | null;
+  /** Whether a key is stored. The key itself never leaves the host. */
+  has_key: boolean;
+}
+
+/** A settings change. Omitting `api_key` keeps the stored key. */
+export interface AgentSettingsInput {
+  provider: string;
+  model?: string | null;
+  base_url?: string | null;
+  api_key?: string | null;
+}
 
 /** One validation finding returned by the BPMN engine. */
 export interface BpmnValidationIssue {
@@ -809,6 +858,62 @@ export interface PlatformApi {
   connectorTest?(id: string): Promise<ConnectorTestResult>;
   /** Proxy one JSON request through an http_rest/webhook connector. */
   connectorInvoke?(id: string, body: ConnectorInvokeRequest): Promise<ConnectorInvokeResult>;
+
+  /**
+   * Start an assistant run and stream its progress.
+   *
+   * Optional: the desktop host has no server-side agent, so the drawer hides
+   * itself when this is absent. The promise resolves once the stream is open
+   * (so an authentication or configuration failure arrives as a rejection
+   * before any UI state is committed); events then arrive through `onEvent`.
+   */
+  agentChat?(
+    projectId: string,
+    request: AgentChatRequest,
+    onEvent: (event: AgentEvent) => void,
+  ): Promise<AgentChatHandle>;
+
+  /**
+   * What this host can do with the assistant.
+   *
+   * Optional so a host that predates it still type-checks; `hasAgent()` falls
+   * back to probing `agentChat` when it is absent.
+   */
+  agentCapabilities?(): Promise<AgentCapabilities>;
+
+  /** This project's conversations, newest first (the history menu). */
+  agentConversations?(projectId: string): Promise<AgentConversation[]>;
+
+  /** One conversation with its messages (the restore after a reload). */
+  agentConversation?(projectId: string, conversationId: string): Promise<AgentConversationDetail>;
+
+  /** Rename a conversation. */
+  agentRenameConversation?(
+    projectId: string,
+    conversationId: string,
+    title: string,
+  ): Promise<AgentConversation>;
+
+  /** Delete a conversation and its messages. */
+  agentDeleteConversation?(projectId: string, conversationId: string): Promise<void>;
+
+  /**
+   * The assistant's provider settings.
+   *
+   * Only a host that owns its own provider has these — the desktop shell. The
+   * web host's key is server-side, so it implements none of the four and the
+   * settings panel stays hidden.
+   */
+  agentSettings?(): Promise<AgentSettings>;
+
+  /** Save provider/model/base URL, and optionally a new key. */
+  agentSettingsSave?(input: AgentSettingsInput): Promise<AgentSettings>;
+
+  /** Forget the stored key. */
+  agentKeyClear?(): Promise<AgentSettings>;
+
+  /** Send one tiny completion to prove the key works. Returns the reply. */
+  agentTestConnection?(): Promise<string>;
 
   /** Branches of a project. */
   versionBranches?(projectId: string): Promise<Branch[]>;

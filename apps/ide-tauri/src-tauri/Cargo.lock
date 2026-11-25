@@ -2710,6 +2710,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "nocode-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "nocode-mcp",
+ "nocode-model",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "nocode-bpmn"
 version = "0.1.0"
 dependencies = [
@@ -2790,10 +2812,13 @@ name = "nocode-ide-tauri"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
+ "nocode-agent",
  "nocode-codegen",
  "nocode-deploy",
  "nocode-ide",
+ "nocode-mcp",
  "nocode-model",
  "serde",
  "serde_json",
@@ -2817,6 +2842,25 @@ dependencies = [
  "tokio",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "nocode-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "indexmap 2.14.2",
+ "nocode-bpmn",
+ "nocode-ide",
+ "nocode-model",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

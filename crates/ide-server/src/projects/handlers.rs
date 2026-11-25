@@ -251,6 +251,16 @@ pub async fn delete(
     if !removed {
         return Err(ApiError::NotFound);
     }
+    // Conversations are user data and cascade with their project (plan
+    // §15.3.6). Done explicitly because the FK cascade needs
+    // `PRAGMA foreign_keys = ON`, which is not guaranteed on every connection —
+    // and a transcript surviving its project would outlive the retention rule
+    // that justified keeping it. A failure here must not fail the delete: the
+    // project is already gone and the orphan is invisible to the API.
+    if let Err(error) = crate::agent::delete_conversations_for_project(&state.db, &user.tenant_id, &id).await
+    {
+        tracing::warn!(%error, project_id = %id, "deleted the project but not its conversations");
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

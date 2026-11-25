@@ -9,9 +9,15 @@
  * browser fails with a clear message instead of a cryptic invoke rejection.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import type {
+  AgentCapabilities,
+  AgentChatHandle,
+  AgentChatRequest,
+  AgentEvent,
+  AgentSettings,
+  AgentSettingsInput,
   BpmnValidationReport,
   DeploymentResponse,
   DockerHubConfigRequest,
@@ -201,5 +207,89 @@ export const tauriPlatform: PlatformApi = {
     }
     const all = await invoke<DeploymentResponse[]>('list_deployments');
     return all.filter((row) => row.project_id === projectId);
+  },
+
+  // Assistant surface (Phase 32). The desktop runs the same `nocode_agent`
+  // loop the server runs, in-process, over the file the canvas has open. There
+  // is no port, no token and no CSRF: the only network call is to the model.
+  //
+  // `projectId` is accepted for signature parity with the web host and
+  // deliberately ignored — locally the project *is* the open file.
+  agentCapabilities: (): Promise<AgentCapabilities> => {
+    assertTauri();
+    return invoke<AgentCapabilities>('agent_capabilities');
+  },
+
+  agentChat: async (
+    _projectId: string,
+    request: AgentChatRequest,
+    onEvent: (event: AgentEvent) => void,
+  ): Promise<AgentChatHandle> => {
+    assertTauri();
+
+    // One ordered channel per run; Tauri closes it with the window, so there is
+    // no stream to leak if the drawer is unmounted mid-run.
+    const channel = new Channel<AgentEvent>();
+    let aborted = false;
+    channel.onmessage = (event) => {
+      // A late frame after Stop must not resurrect the timeline the store just
+      // froze. The Rust side drops its receiver too, but that is one round trip
+      // behind this flag.
+      if (!aborted) onEvent(event);
+    };
+
+    // Read the working copy *before* starting. The command prefers the saved
+    // file and falls back to this JSON for a project that was never saved, and
+    // awaiting it here means `abort()` can only ever arrive after the run
+    // exists — otherwise a cancel could be swallowed by the run's own reset.
+    const projectJson = await invoke<string | null>('get_current_project');
+
+    // Not awaited: the store needs the handle while the run is still going.
+    // `done` is what it awaits, and it rejects with the command's message.
+    const done = invoke<unknown>('agent_chat', {
+      projectJson,
+      request: { prompt: request.prompt, mode: request.mode ?? null },
+      onEvent: channel,
+    }).then(() => undefined);
+
+    return {
+      abort: () => {
+        aborted = true;
+        // Best effort: the run's next event emission is what actually stops it,
+        // and the flag already keeps the drawer quiet either way.
+        void invoke('agent_cancel').catch(() => undefined);
+      },
+      done,
+    };
+  },
+
+  // Settings for the local provider. The key never comes back out: the command
+  // returns `has_key` and nothing else, so this value can safely sit in React
+  // state.
+  agentSettings: (): Promise<AgentSettings> => {
+    assertTauri();
+    return invoke<AgentSettings>('agent_settings_get');
+  },
+
+  agentSettingsSave: (input: AgentSettingsInput): Promise<AgentSettings> => {
+    assertTauri();
+    return invoke<AgentSettings>('agent_settings_set', {
+      provider: input.provider,
+      model: input.model ?? null,
+      baseUrl: input.base_url ?? null,
+      // Absent, not empty: the command keeps the stored key when this is null,
+      // so changing the model does not force the key to be retyped.
+      apiKey: input.api_key ?? null,
+    });
+  },
+
+  agentKeyClear: (): Promise<AgentSettings> => {
+    assertTauri();
+    return invoke<AgentSettings>('agent_key_clear');
+  },
+
+  agentTestConnection: (): Promise<string> => {
+    assertTauri();
+    return invoke<string>('agent_test_connection');
   },
 };

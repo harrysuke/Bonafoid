@@ -6,15 +6,12 @@ interface UIState {
   sidebarCollapsed: boolean;
   theme: 'light' | 'dark';
   activePanel: 'dashboard' | 'forms' | 'workflows' | 'data' | 'lists' | 'preview' | 'pages' | 'theme' | 'plugins' | 'generate' | 'deploy' | 'tenants' | 'billing' | 'admin' | 'connectors' | 'version' | 'settings';
-  // Navigation sections the user has manually collapsed. All sections start open.
-  collapsedNavGroups: string[];
   notifications: Notification[];
   setSidebarOpen: (open: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
   setTheme: (theme: 'light' | 'dark') => void;
   setActivePanel: (panel: UIState['activePanel']) => void;
-  toggleNavGroup: (id: string) => void;
   addNotification: (notification: Omit<Notification, 'id' | 'timestamp'>) => void;
   removeNotification: (id: string) => void;
 }
@@ -35,7 +32,6 @@ export const useUIStore = create<UIState>()(
       sidebarCollapsed: false,
       theme: 'light',
       activePanel: 'forms',
-      collapsedNavGroups: [],
       notifications: [],
       
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -46,11 +42,6 @@ export const useUIStore = create<UIState>()(
         document.documentElement.classList.toggle('dark', theme === 'dark');
       },
       setActivePanel: (panel) => set({ activePanel: panel }),
-      toggleNavGroup: (id) => set((state) => ({
-        collapsedNavGroups: state.collapsedNavGroups.includes(id)
-          ? state.collapsedNavGroups.filter((groupId) => groupId !== id)
-          : [...state.collapsedNavGroups, id],
-      })),
       
       addNotification: (notification) => {
         const id = crypto.randomUUID();
@@ -78,7 +69,6 @@ export const useUIStore = create<UIState>()(
         sidebarCollapsed: state.sidebarCollapsed, 
         theme: state.theme,
         activePanel: state.activePanel,
-        collapsedNavGroups: state.collapsedNavGroups,
       }),
     }
   )

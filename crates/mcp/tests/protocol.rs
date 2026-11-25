@@ -36,9 +36,16 @@ fn every_tool_advertises_a_schema_with_required_fields() {
         assert!(schema.get("properties").is_some(), "{}", tool["name"]);
         if tool["name"] != "create_workflow" && tool["name"] != "load_workflow" {
             let required = schema["required"].as_array().expect("required fields");
+            // Session tools are addressed by `session_id`; project tools by
+            // `project_id`. What the rule protects is that no tool can be
+            // called without naming the object it acts on — an id the model
+            // cannot invent and the caller must already hold.
+            let identifies = required
+                .iter()
+                .any(|value| value == "session_id" || value == "project_id");
             assert!(
-                required.iter().any(|value| value == "session_id"),
-                "{} lacks session_id in required",
+                identifies,
+                "{} requires neither session_id nor project_id",
                 tool["name"]
             );
         }
@@ -53,7 +60,9 @@ fn every_resource_can_be_read_with_mime_type() {
         .as_array()
         .unwrap()
         .clone();
-    assert_eq!(resources.len(), 7);
+    // 7 BPMN resources plus 4 project schemas. Exact rather than a lower bound,
+    // so a resource that silently stops being advertised is a failure.
+    assert_eq!(resources.len(), 11);
     for resource in resources {
         let uri = resource["uri"].as_str().unwrap();
         let response = call(&server, "resources/read", Some(json!({ "uri": uri })));

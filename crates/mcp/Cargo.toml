@@ -25,6 +25,13 @@ anyhow = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 indexmap = { workspace = true }
+# The project storage seam is async; the trait itself lives in provider.rs.
+async-trait = { workspace = true }
+# `lease.rs` spawns a heartbeat task, so tokio is a real dependency, not only a
+# test one. It was dev-only while the lease lived behind `#[cfg(test)]`.
+tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+# `#[tokio::test]` for the async dispatcher and the project-session tests.
+tokio = { workspace = true }

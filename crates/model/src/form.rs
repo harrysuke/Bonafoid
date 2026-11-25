@@ -10,6 +10,15 @@ pub struct Form {
     pub id: FormId,
     pub name: String,
     pub description: Option<String>,
+    /// The entity this form submits to.
+    ///
+    /// Optional, and `serde(default)` on purpose: every project document
+    /// written before this field existed must still deserialize, and a form
+    /// that has not been bound yet is a legitimate state. Adding it is the
+    /// only model change in Milestone 5 — see
+    /// `docs/Agentic-App-Generation-Plan.md` §5.5.
+    #[serde(default)]
+    pub entity_id: Option<EntityId>,
     pub fields: Vec<FormField>,
     pub layout: FormLayout,
     pub validation: FormValidation,
@@ -26,6 +35,7 @@ impl Form {
             id: FormId::new(),
             name: name.into(),
             description: None,
+            entity_id: None,
             fields: Vec::new(),
             layout: FormLayout::default(),
             validation: FormValidation::default(),

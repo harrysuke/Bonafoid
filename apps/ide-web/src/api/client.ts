@@ -15,6 +15,11 @@ import type {
   AdminUsage,
   AdminUser,
   AdminUserUpdate,
+  AgentChatHandle,
+  AgentChatRequest,
+  AgentConversation,
+  AgentConversationDetail,
+  AgentEvent,
   AuditEntry,
   BillingSession,
   Branch,
@@ -51,6 +56,7 @@ import type {
   TenantMember,
   UsageMeter,
 } from '@nocode/ide-core';
+import { createSseDecoder } from '@nocode/ide-core';
 
 export interface ApiUser {
   id: string;
@@ -140,12 +146,22 @@ export interface WorkflowRunSummary {
 export class ApiRequestError extends Error {
   readonly status: number;
   readonly code: string;
+  /**
+   * The whole error body, when it had one.
+   *
+   * Some codes carry fields a caller must act on rather than just display — a
+   * 409 `project_locked` names the holder and the remaining lease TTL, which is
+   * what the drawer's countdown is built from. Flattening those into a message
+   * string would leave the client parsing prose.
+   */
+  readonly details?: Record<string, unknown>;
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, details?: Record<string, unknown>) {
     super(message);
     this.name = 'ApiRequestError';
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -202,14 +218,19 @@ interface RequestOptions {
 async function toError(response: Response): Promise<ApiRequestError> {
   let code = 'error';
   let message = response.statusText || `HTTP ${response.status}`;
+  let details: Record<string, unknown> | undefined;
   try {
-    const payload = (await response.json()) as { error?: string; message?: string };
+    const payload = (await response.json()) as Record<string, unknown> & {
+      error?: string;
+      message?: string;
+    };
     if (payload.error) code = payload.error;
     if (payload.message) message = payload.message;
+    details = payload;
   } catch {
     // Non-JSON error body: keep the status text.
   }
-  return new ApiRequestError(response.status, code, message);
+  return new ApiRequestError(response.status, code, message, details);
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -362,6 +383,98 @@ export const generationApi = {
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
   },
+};
+
+/* ------------------------------------------------------------------ *
+ * Assistant (agentic app generation)
+ * ------------------------------------------------------------------ */
+
+export const agentApi = {
+  /**
+   * Start an assistant run and stream its events.
+   *
+   * `request()` cannot do this: it parses JSON. This opens a POST with `fetch`,
+   * decodes the `text/event-stream` body with the shared decoder, and calls
+   * `onEvent` per frame.
+   *
+   * The promise resolves once the response headers arrive, so a 503
+   * (unconfigured), 403 (scope) or 404 (project) rejects *before* the drawer
+   * commits to a running state. Aborting the controller closes the connection,
+   * which is how the server learns to cancel the run.
+   */
+  async chat(
+    projectId: string,
+    body: AgentChatRequest,
+    onEvent: (event: AgentEvent) => void,
+  ): Promise<AgentChatHandle> {
+    const controller = new AbortController();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    };
+    const token = csrfToken();
+    if (token) headers['x-csrf-token'] = token;
+
+    const response = await fetch(`${API_BASE}/api/v1/projects/${projectId}/agent/chat`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) throw await toError(response);
+    if (!response.body) {
+      throw new ApiRequestError(0, 'stream', 'This browser cannot stream the assistant.');
+    }
+
+    const decoder = createSseDecoder(onEvent);
+    const text = new TextDecoder();
+
+    const done = (async () => {
+      const reader = response.body!.getReader();
+      try {
+        for (;;) {
+          const { done: finished, value } = await reader.read();
+          if (finished) break;
+          decoder.push(text.decode(value, { stream: true }));
+        }
+        decoder.flush();
+      } catch (error) {
+        // An abort is a user action, not a failure.
+        if (!controller.signal.aborted) throw error;
+      } finally {
+        reader.releaseLock();
+      }
+    })();
+
+    return { abort: () => controller.abort(), done };
+  },
+
+  /** The project's conversations, newest first. */
+  conversations: (projectId: string): Promise<AgentConversation[]> =>
+    request<AgentConversation[]>(`/api/v1/projects/${projectId}/agent/conversations`),
+
+  /** One conversation with its messages, for the restore after a reload. */
+  conversation: (projectId: string, conversationId: string): Promise<AgentConversationDetail> =>
+    request<AgentConversationDetail>(
+      `/api/v1/projects/${projectId}/agent/conversations/${conversationId}`,
+    ),
+
+  renameConversation: (
+    projectId: string,
+    conversationId: string,
+    title: string,
+  ): Promise<AgentConversation> =>
+    request<AgentConversation>(
+      `/api/v1/projects/${projectId}/agent/conversations/${conversationId}`,
+      { method: 'PATCH', body: { title } },
+    ),
+
+  deleteConversation: (projectId: string, conversationId: string): Promise<void> =>
+    request<void>(`/api/v1/projects/${projectId}/agent/conversations/${conversationId}`, {
+      method: 'DELETE',
+    }),
 };
 
 export const bpmnApi = {

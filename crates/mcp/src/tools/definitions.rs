@@ -12,8 +12,9 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::error::McpError;
+use crate::executor::McpToolExecutor;
 use crate::tools::{parse_args, schema_for, ToolDefinition};
-use crate::{CallerContext, McpServer};
+use crate::CallerContext;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -141,7 +142,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
 }
 
 pub fn dispatch(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     name: &str,
     arguments: Value,
@@ -166,7 +167,7 @@ pub fn dispatch(
 }
 
 fn add_variable(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: AddVariableParams,
 ) -> Result<Value, McpError> {
@@ -199,7 +200,7 @@ fn add_variable(
 }
 
 fn update_variable(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: UpdateVariableParams,
 ) -> Result<Value, McpError> {
@@ -251,7 +252,7 @@ fn update_variable(
 }
 
 fn remove_variable(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: RemoveVariableParams,
 ) -> Result<Value, McpError> {
@@ -277,7 +278,7 @@ fn remove_variable(
 }
 
 fn add_signal(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: AddSignalParams,
 ) -> Result<Value, McpError> {
@@ -312,7 +313,7 @@ fn add_signal(
 }
 
 fn add_timer(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: AddTimerParams,
 ) -> Result<Value, McpError> {
@@ -349,7 +350,7 @@ fn add_timer(
 }
 
 fn set_settings(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: SettingsParams,
 ) -> Result<Value, McpError> {

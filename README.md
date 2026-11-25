@@ -34,6 +34,10 @@ the docs describe.
 - **MCP workflow authoring** — AI clients can build, validate, simulate and
   save BPMN workflows through granular tools over stdio or `POST /mcp`
   ([guide](docs/mcp-server.md)).
+- **Agentic app generation** — describe an app and the assistant models the
+  data, processes, forms, pages and theme through those same tools, streaming
+  every change into the canvas, then validates and commits it
+  ([guide](docs/agentic-app-generation.md)).
 
 ## Repository layout
 
@@ -49,6 +53,7 @@ crates/
   ide-server/  Web IDE server (Axum + SeaORM): auth, projects, generation,
                BPMN, plugins, hosted previews, /mcp endpoint
   mcp/         MCP server: granular workflow tools, resources, layout, transports
+  agent/       In-process agent: provider clients, pipeline, SSE event contract
 packages/
   ide-core/    The IDE itself: React components, pages, zustand stores, types.
                Both frontends are thin shells around this package
@@ -285,21 +290,17 @@ The full walkthrough, including verification and troubleshooting, is in
 
 | Document | What it covers |
 | --- | --- |
-| [docs/Bonafoid-End-User-Guide.docx](docs/Bonafoid-End-User-Guide.docx) | Print-ready manual + FAQ + troubleshooting guide for non-technical users (Word) |
-| [docs/user-manual.md](docs/user-manual.md) | Onboarding, feature walkthroughs and an end-to-end tutorial for non-technical users, illustrated with screenshots from the running IDE |
-| [docs/images/](docs/images) | The UI screenshots used by the manual and troubleshooting guide |
-| [docs/faq.md](docs/faq.md) | Common questions about accounts, building, preview and deployment |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Self-service fixes organized by the message you see on screen |
+| [docs/user-manual.md](docs/user-manual.md) | Building a CRUD app from sign-in to deployment |
 | [docs/System Architecture Diagrams.md](docs/System%20Architecture%20Diagrams.md) | Crate graph, request paths, preview pipeline |
 | [docs/Software Requirements Specification.md](docs/Software%20Requirements%20Specification.md) | Functional and non-functional requirements |
 | [docs/Data Models.md](docs/Data%20Models.md) | Every model, field and wire shape |
 | [docs/UI-UX Wireframes & Mockups.md](docs/UI-UX%20Wireframes%20%26%20Mockups.md) | Screen-by-screen UI reference |
 | [docs/verify-preview.md](docs/verify-preview.md) | How to verify the hosted preview path end to end |
 | [docs/mcp-server.md](docs/mcp-server.md) | MCP tools, resources, transports, client setup |
+| [docs/agentic-app-generation.md](docs/agentic-app-generation.md) | The assistant: prompt to app, SSE contract, guardrails |
 
 **New to Bonafoid?** Start with the user manual; it walks through building a
-CRUD application from sign-in to deployment. The Word guide collects the manual,
-FAQ and troubleshooting guide into a single printable document.
+CRUD application from sign-in to deployment.
 
 ## License
 

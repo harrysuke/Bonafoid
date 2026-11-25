@@ -9,6 +9,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**Agentic app generation** (`crates/agent`, `crates/ide-server`, `packages/ide-core`, `docs/agentic-app-generation.md`)
+- In-process agent that builds a whole application — entities, workflows,
+  forms, pages and theme — from one prompt, calling the same `McpToolExecutor`
+  `POST /mcp` exposes, so the two surfaces cannot drift.
+- `POST /api/v1/projects/:id/agent/chat` streams `run_started`, `step_started`,
+  `tool_call`, `tool_result`, `model_patch`, `validation`, `project_updated`,
+  `run_finished` and `error` frames as SSE.
+- Two modes: a four-step `pipeline` (data → process → UI → verify) that rebuilds
+  a context card of real ids between steps, and `auto` for a single edit.
+- Providers: Anthropic Messages, OpenAI Chat Completions and Ollama, over the
+  workspace's existing hyper + rustls stack (no `reqwest`).
+- Guardrails enforced in code, not in the prompt: no step may call
+  `project_save`; a tool outside the step's allowlist is refused; an invalid
+  project is never saved; the model cannot see or choose a session id; turn,
+  tool-call, token and wall-clock budgets bound every run.
+- Project tools (`project_open`/`get`/`save`/`close`), domain tools
+  (`entity_*`, `form_*`, `page_*`, `theme_update`), backend tools
+  (`workflow_*`), `project://` resource templates and whole-project integrity
+  validation composed from the model and BPMN passes.
+- `project:read`/`project:write` scopes; the endpoint answers 401/403/404/400/503
+  before the stream opens and reports every later failure as an event.
+- Audit trail in `agent_runs` (migration `0010`): prompt, mode, status, saved,
+  revision, tokens, tool calls, turns, error.
+- Assistant drawer in the shared IDE: a hand-written SSE decoder, a Zustand
+  reducer, domain-slice patches applied straight to the canvas, and a one-click
+  **Build & Preview** once a run has saved.
+
+**Agentic generation, hardening pass** (plan §15, Phases 29–30)
+- Per-token streaming. `LlmProvider::stream` is now the single parse path for
+  all three providers (`complete` delegates to it with a null sink), and the
+  new `agent_delta` SSE frame carries assistant text while the model writes.
+  A `DeltaCoalescer` batches fragments at 48 characters / 40 ms, so 120 deltas
+  become three frames instead of 120 and the run's channel cannot fill.
+  `AGENT_STREAM_DELTAS` (default on) turns the frames off without a downgrade.
+- A dropped client now stops the read instead of finishing a generation nobody
+  will see: `DeltaSink::closed()` is checked per line and the provider returns
+  `Cancelled` rather than a half-read response — a truncated `tool_use` block
+  would otherwise parse to `{}` and run a tool with no arguments.
+- One writer per project. `save_project` takes a mandatory
+  `expected_revision: u64`; the "read the current row and write against it"
+  escape hatch is gone, so an unguarded write cannot be expressed. A
+  per-project lease (90 s TTL, 30 s heartbeat, released on `Drop`) refuses the
+  second tab with `409 project_locked` **before** the SSE stream opens.
+- Stale saves are merged, not lost. A three-way per-object merge (`base` vs the
+  run's result vs the current row) writes disjoint edits and reports overlaps
+  as a `conflict` event naming the objects, with `run_finished { status:
+  "conflict" }` and nothing written. The merged project is re-validated before
+  it is saved, and the retry happens at most once.
+- Tool results carry a machine-readable `code` (`stale_revision`, `not_found`,
+  …), so the orchestrator branches on the code rather than on error prose.
+- Drawer: live streaming bubble capped at 8 KB, a conflict panel with **Try
+  again** / **Use the server's version**, and a lock notice with the remaining
+  TTL — a 409 reads as a rule, not as a broken product.
+
 **Agentic workflow authoring** (`crates/mcp`, `docs/mcp-server.md`)
 - MCP server exposing 23 typed tools for creating, editing, validating,
   simulating, exporting and saving BPMN workflows; agents never emit raw XML.

@@ -8,9 +8,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::error::McpError;
+use crate::executor::McpToolExecutor;
 use crate::persistence;
 use crate::tools::{parse_args, schema_for, ToolDefinition};
-use crate::{CallerContext, McpServer};
+use crate::CallerContext;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -133,7 +134,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
 }
 
 pub fn dispatch(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     name: &str,
     arguments: Value,
@@ -157,7 +158,7 @@ pub fn dispatch(
 }
 
 fn create(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: CreateParams,
 ) -> Result<Value, McpError> {
@@ -168,7 +169,11 @@ fn create(
     Ok(json!({ "session_id": session_id, "workflow_id": workflow_id, "revision": revision }))
 }
 
-fn get(server: &McpServer, caller: &CallerContext, params: GetParams) -> Result<Value, McpError> {
+fn get(
+    server: &McpToolExecutor,
+    caller: &CallerContext,
+    params: GetParams,
+) -> Result<Value, McpError> {
     let key = caller.session_key(&params.session_id);
     server.sessions.with_read(&key, |session| {
         let workflow = match params.view.unwrap_or(WorkflowView::Summary) {
@@ -183,7 +188,11 @@ fn get(server: &McpServer, caller: &CallerContext, params: GetParams) -> Result<
     })
 }
 
-fn load(server: &McpServer, caller: &CallerContext, params: LoadParams) -> Result<Value, McpError> {
+fn load(
+    server: &McpToolExecutor,
+    caller: &CallerContext,
+    params: LoadParams,
+) -> Result<Value, McpError> {
     let workflow = match (params.workflow_json, params.xml) {
         (Some(json), None) => serde_json::from_str::<Workflow>(&json)?,
         (None, Some(xml)) => parse_bpmn(&xml, params.name.as_deref().unwrap_or("Imported Process"))
@@ -217,7 +226,11 @@ fn load(server: &McpServer, caller: &CallerContext, params: LoadParams) -> Resul
     }))
 }
 
-fn save(server: &McpServer, caller: &CallerContext, params: SaveParams) -> Result<Value, McpError> {
+fn save(
+    server: &McpToolExecutor,
+    caller: &CallerContext,
+    params: SaveParams,
+) -> Result<Value, McpError> {
     let key = caller.session_key(&params.session_id);
     let workflow = server
         .sessions
@@ -261,7 +274,7 @@ fn save(server: &McpServer, caller: &CallerContext, params: SaveParams) -> Resul
 }
 
 fn discard(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: DiscardParams,
 ) -> Result<Value, McpError> {

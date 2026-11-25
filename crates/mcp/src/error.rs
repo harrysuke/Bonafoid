@@ -27,6 +27,12 @@ pub enum McpError {
     #[error("edge not found: {0}")]
     EdgeNotFound(String),
 
+    /// A referenced project object (entity, form, page, component, theme) does
+    /// not exist. Distinct from `SessionNotFound` so the agent can tell
+    /// "your session id is wrong" from "your entity id is wrong".
+    #[error("not found: {0}")]
+    NotFound(String),
+
     #[error("stale revision: expected {expected}, current {current}")]
     StaleRevision { expected: u64, current: u64 },
 
@@ -72,6 +78,33 @@ impl McpError {
     pub fn is_client_error(&self) -> bool {
         !matches!(self, Self::Internal(_) | Self::Io(_) | Self::ProjectSave(_))
     }
+
+    /// A stable machine-readable name, for callers that must branch on the
+    /// kind of failure rather than read its message.
+    ///
+    /// The agent uses `stale_revision` to decide whether a failed save is worth
+    /// a rebase. Matching on the message text would break the moment someone
+    /// rewords it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::SessionNotFound(_) => "session_not_found",
+            Self::UnknownTool(_) => "unknown_tool",
+            Self::UnknownNodeType(_) => "unknown_node_type",
+            Self::UnknownConfigKey { .. } => "unknown_config_key",
+            Self::NodeNotFound(_) => "node_not_found",
+            Self::EdgeNotFound(_) => "edge_not_found",
+            Self::NotFound(_) => "not_found",
+            Self::StaleRevision { .. } => "stale_revision",
+            Self::NodeLimit { .. } => "node_limit",
+            Self::InvalidJson(_) => "invalid_json",
+            Self::InvalidParam { .. } => "invalid_param",
+            Self::InvalidXml(_) => "invalid_xml",
+            Self::Io(_) => "io",
+            Self::ProjectSave(_) => "project_save",
+            Self::Forbidden(_) => "forbidden",
+            Self::Internal(_) => "internal",
+        }
+    }
 }
 
 impl From<serde_json::Error> for McpError {
@@ -102,10 +135,14 @@ pub fn into_tool_result<T: serde::Serialize>(result: Result<T, McpError>) -> ser
 
 /// Error shape for `tools/call`: an MCP result with `isError: true`, not a
 /// protocol-level error, so the agent receives the message as tool feedback.
+///
+/// `code` is additive: MCP clients that only read `content` are unaffected, and
+/// an agent can branch on the failure kind without parsing prose.
 pub fn tool_error(error: &McpError) -> serde_json::Value {
     serde_json::json!({
         "content": [{ "type": "text", "text": error.to_string() }],
         "isError": true,
+        "code": error.name(),
     })
 }
 

@@ -18,6 +18,11 @@ import type {
   AdminUsage,
   AdminUser,
   AdminUserUpdate,
+  AgentChatHandle,
+  AgentChatRequest,
+  AgentConversation,
+  AgentConversationDetail,
+  AgentEvent,
   AuditEntry,
   BillingSession,
   BpmnValidationReport,
@@ -67,6 +72,7 @@ import { applyDatabaseDriver } from '@nocode/ide-core';
 import { currentUser as sessionUser, logout as endSession } from '../auth/session';
 import {
   adminApi,
+  agentApi,
   billingApi,
   bpmnApi,
   connectorApi,
@@ -416,6 +422,29 @@ export const webPlatform: PlatformApi = {
     name: string,
     fromRevisionId?: string,
   ): Promise<Branch> => versionApi.createBranch(projectId, name, fromRevisionId),
+  agentChat: (
+    projectId: string,
+    request: AgentChatRequest,
+    onEvent: (event: AgentEvent) => void,
+  ): Promise<AgentChatHandle> => agentApi.chat(projectId, request, onEvent),
+
+  // The web host has a server-side agent, so both modes are the same thing
+  // here; `local` stays false because there is no desktop key to hold.
+  agentCapabilities: () =>
+    Promise.resolve({ local: false, remote: true, providers: [], preview: true }),
+  agentConversations: (projectId: string): Promise<AgentConversation[]> =>
+    agentApi.conversations(projectId),
+  agentConversation: (projectId: string, conversationId: string): Promise<AgentConversationDetail> =>
+    agentApi.conversation(projectId, conversationId),
+  agentRenameConversation: (
+    projectId: string,
+    conversationId: string,
+    title: string,
+  ): Promise<AgentConversation> =>
+    agentApi.renameConversation(projectId, conversationId, title),
+  agentDeleteConversation: (projectId: string, conversationId: string): Promise<void> =>
+    agentApi.deleteConversation(projectId, conversationId),
+
   versionHistory: (projectId: string, branch: string): Promise<Revision[]> =>
     versionApi.history(projectId, branch),
   versionDiff: (projectId: string, from: string, to: string): Promise<DiffResult> =>

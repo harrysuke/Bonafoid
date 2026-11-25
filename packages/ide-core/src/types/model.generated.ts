@@ -1686,6 +1686,7 @@ export interface FontWeights {
 export interface Form {
   created_at: string;
   description?: string | null;
+  entity_id?: EntityId | null;
   fields: Array<FormField>;
   id: FormId;
   layout: FormLayout;

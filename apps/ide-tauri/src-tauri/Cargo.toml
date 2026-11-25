@@ -41,6 +41,12 @@ nocode-ide = { path = "../../../crates/ide" }
 # Same deploy service the web server uses: one implementation of credential
 # encryption, git pushing and CI status for both hosts.
 nocode-deploy = { path = "../../../crates/deploy" }
+# The assistant is not reimplemented for the desktop: the same loop and the
+# same tool surface run in-process, so a local run and a server run differ only
+# in who supplies the `ProjectStateProvider`.
+nocode-agent = { path = "../../../crates/agent" }
+nocode-mcp = { path = "../../../crates/mcp" }
+async-trait = "0.1"
 zeroize = "1"
 
 [dev-dependencies]

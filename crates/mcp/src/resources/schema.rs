@@ -15,6 +15,15 @@ pub fn project_schema() -> Result<String, McpError> {
     serde_json::to_string_pretty(&schema).map_err(McpError::from)
 }
 
+/// `project://schema/{entity,form,page,theme}`
+///
+/// Generic over the model type so the four domain schemas cannot drift from
+/// each other or from the Rust structs they describe.
+pub fn model_schema<T: schemars::JsonSchema>() -> Result<String, McpError> {
+    let schema = schemars::schema_for!(T);
+    serde_json::to_string_pretty(&schema).map_err(McpError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

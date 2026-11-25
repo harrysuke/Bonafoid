@@ -24,7 +24,12 @@ impl CallerContext {
             owner: "local".into(),
             user_id: "local".into(),
             tenant_id: "local".into(),
-            scopes: vec!["workflows:read".into(), "workflows:write".into()],
+            scopes: vec![
+                "workflows:read".into(),
+                "workflows:write".into(),
+                "project:read".into(),
+                "project:write".into(),
+            ],
         }
     }
 
@@ -47,14 +52,63 @@ impl CallerContext {
     }
 }
 
-/// Scope required by a tool. Read-only tools can run with `workflows:read`;
-/// everything that mutates a session, file or project needs `workflows:write`.
+/// Scope required by a tool.
+///
+/// The BPMN tools keep their Milestone 4 scopes so existing tokens keep
+/// working; the Milestone 5 tools use the project scopes from plan §9.
 pub fn required_scope(tool_name: &str) -> &'static str {
     match tool_name {
         "get_workflow" | "validate_workflow" | "simulate_workflow" | "export_bpmn_xml" => {
             "workflows:read"
         }
+        "project_open" | "project_get" => "project:read",
+        name if is_project_write(name) => "project:write",
         _ => "workflows:write",
+    }
+}
+
+/// Whether a tool mutates project state (and therefore needs `project:write`).
+pub fn is_project_write(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "project_save"
+            | "project_close"
+            | "entity_create"
+            | "entity_add_field"
+            | "entity_add_relation"
+            | "form_create"
+            | "form_add_field"
+            | "page_create"
+            | "page_add_component"
+            | "theme_update"
+            | "workflow_create"
+            | "workflow_scaffold_crud"
+            | "workflow_open"
+            | "workflow_commit"
+            | "workflow_set_start_trigger"
+            | "workflow_bind_service_task"
+    )
+}
+
+/// The scope a whole request needs, not just its tool.
+///
+/// `resources/read` of a `project://` URI exposes tenant data, so it must be
+/// gated even though it is not a tool call. Everything unknown falls back to
+/// the read scope, which is the weakest grant.
+pub fn required_scope_for_request(method: &str, params: Option<&Value>) -> &'static str {
+    match method {
+        "tools/call" => params
+            .and_then(|params| params.get("name"))
+            .and_then(Value::as_str)
+            .map(required_scope)
+            .unwrap_or("workflows:read"),
+        "resources/read" => params
+            .and_then(|params| params.get("uri"))
+            .and_then(Value::as_str)
+            .filter(|uri| uri.starts_with("project://"))
+            .map(|_| "project:read")
+            .unwrap_or("workflows:read"),
+        _ => "workflows:read",
     }
 }
 
@@ -66,8 +120,10 @@ pub struct HttpMcpResponse {
     pub body: Value,
 }
 
-/// Handle a Streamable HTTP POST body. JSON responses are permitted by the
-/// spec; SSE streaming is intentionally not implemented in this release.
+/// Handle a Streamable HTTP POST body synchronously.
+///
+/// Kept for the stdio-parity tests; the server route uses
+/// [`handle_json_async`] so project tools can reach storage.
 pub fn handle_json(server: &McpServer, caller: &CallerContext, body: &[u8]) -> HttpMcpResponse {
     let request: JsonRpcRequest = match serde_json::from_slice(body) {
         Ok(request) => request,
@@ -84,6 +140,38 @@ pub fn handle_json(server: &McpServer, caller: &CallerContext, body: &[u8]) -> H
     };
     let notification = request.id.is_none();
     match server.dispatch(caller, &request) {
+        Some(response) => HttpMcpResponse {
+            status: 200,
+            body: serde_json::to_value(response).expect("response serialises"),
+        },
+        None => HttpMcpResponse {
+            status: if notification { 202 } else { 200 },
+            body: json!({}),
+        },
+    }
+}
+
+/// Handle a Streamable HTTP POST body, awaiting project storage.
+pub async fn handle_json_async(
+    server: &McpServer,
+    caller: &CallerContext,
+    body: &[u8],
+) -> HttpMcpResponse {
+    let request: JsonRpcRequest = match serde_json::from_slice(body) {
+        Ok(request) => request,
+        Err(error) => {
+            return HttpMcpResponse {
+                status: 400,
+                body: serde_json::to_value(JsonRpcResponse::parse_error(
+                    Value::Null,
+                    &error.to_string(),
+                ))
+                .expect("error serialises"),
+            }
+        }
+    };
+    let notification = request.id.is_none();
+    match server.dispatch_async(caller, &request).await {
         Some(response) => HttpMcpResponse {
             status: 200,
             body: serde_json::to_value(response).expect("response serialises"),
@@ -115,6 +203,36 @@ mod tests {
     }
 
     #[test]
+    fn project_tools_use_project_scopes() {
+        assert_eq!(required_scope("project_get"), "project:read");
+        assert_eq!(required_scope("project_open"), "project:read");
+        assert_eq!(required_scope("project_save"), "project:write");
+        assert_eq!(required_scope("entity_create"), "project:write");
+        assert_eq!(
+            required_scope("workflow_bind_service_task"),
+            "project:write"
+        );
+    }
+
+    #[test]
+    fn project_resources_need_the_project_read_scope() {
+        assert_eq!(
+            required_scope_for_request(
+                "resources/read",
+                Some(&json!({ "uri": "project://abc/catalog" }))
+            ),
+            "project:read"
+        );
+        assert_eq!(
+            required_scope_for_request(
+                "resources/read",
+                Some(&json!({ "uri": "bpmn://guide/authoring" }))
+            ),
+            "workflows:read"
+        );
+    }
+
+    #[test]
     fn malformed_http_body_gets_a_parse_error() {
         let server = McpServer::new(Config::from_env());
         let response = handle_json(&server, &CallerContext::local(), b"{oops");
@@ -132,5 +250,13 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("session_id"));
+    }
+
+    #[tokio::test]
+    async fn async_http_dispatch_answers_notifications_with_202() {
+        let server = McpServer::new(Config::from_env());
+        let body = br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+        let response = handle_json_async(&server, &CallerContext::local(), body).await;
+        assert_eq!(response.status, 202);
     }
 }

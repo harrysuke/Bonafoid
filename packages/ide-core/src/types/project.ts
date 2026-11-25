@@ -394,6 +394,11 @@ export interface Form {
   id: FormId;
   name: string;
   description: string | null;
+  /**
+   * The entity this form submits to. Absent on projects written before
+   * Milestone 5, and on forms that have not been bound yet.
+   */
+  entity_id?: EntityId | null;
   fields: FormField[];
   layout: FormLayout;
   validation: FormValidation;

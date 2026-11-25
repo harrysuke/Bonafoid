@@ -27,7 +27,7 @@ fn call(
     if name == "load_workflow" && args.get("xml").is_some() {
         result.raw_xml_calls += 1;
     }
-    let response = tools::dispatch(server, caller, name, args)
+    let response = tools::dispatch(&server.executor, caller, name, args)
         .unwrap_or_else(|error| panic!("{}: tool {name} failed: {error}", result.name));
     let text = response["content"][0]["text"].as_str().unwrap().to_string();
     serde_json::from_str(&text).unwrap_or_else(|_| json!({ "text": text }))
@@ -400,7 +400,7 @@ fn malformed_config_is_rejected_before_mutation() {
     let server = McpServer::new(Config::from_env());
     let caller = CallerContext::local();
     let created = tools::dispatch(
-        &server,
+        &server.executor,
         &caller,
         "create_workflow",
         json!({ "name": "Bad config" }),
@@ -410,7 +410,7 @@ fn malformed_config_is_rejected_before_mutation() {
     let session: Value = serde_json::from_str(text).unwrap();
     let session_id = session["session_id"].as_str().unwrap();
     let result = tools::dispatch(
-        &server,
+        &server.executor,
         &caller,
         "add_node",
         json!({
