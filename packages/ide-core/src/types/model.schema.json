@@ -8223,6 +8223,16 @@
             "null"
           ]
         },
+        "entity_id": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/EntityId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "fields": {
           "type": "array",
           "items": {

@@ -2,6 +2,7 @@
 
 pub mod entity;
 pub mod form;
+pub mod integrity;
 pub mod page;
 pub mod project;
 pub mod retry;
@@ -10,6 +11,7 @@ pub mod workflow;
 
 pub use entity::*;
 pub use form::*;
+pub use integrity::{validate_integrity, IntegrityIssue, Severity};
 pub use page::*;
 pub use project::*;
 pub use retry::*;

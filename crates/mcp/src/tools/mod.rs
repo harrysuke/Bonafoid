@@ -1,9 +1,19 @@
 //! Tool registry. Each sub-module owns a cohesive set of tools; adding an SDK
 //! later only changes the protocol boundary, never these handlers.
+//!
+//! Two dispatch shapes:
+//!
+//! - [`dispatch`] runs the synchronous tools (the 23 shipped BPMN tools).
+//! - [`tools::project::dispatch`] is async, because project storage is.
+//!
+//! `McpToolExecutor::call` picks between them, so callers never have to know.
 
+pub mod backend;
 pub mod definitions;
 pub mod document;
+pub mod domain;
 pub mod graph;
+pub mod project;
 pub mod quality;
 
 use schemars::JsonSchema;
@@ -12,7 +22,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::error::{self, McpError};
-use crate::{CallerContext, McpServer};
+use crate::executor::McpToolExecutor;
+use crate::CallerContext;
 
 /// MCP `tools/list` entry.
 #[derive(Debug, Clone, Serialize)]
@@ -42,35 +53,47 @@ pub fn definitions() -> Vec<ToolDefinition> {
     tools.extend(graph::definitions());
     tools.extend(quality::definitions());
     tools.extend(definitions::definitions());
+    tools.extend(project::definitions());
+    tools.extend(domain::definitions());
+    tools.extend(backend::definitions());
     tools
 }
 
-type Handler = fn(&McpServer, &CallerContext, &str, Value) -> Option<Result<Value, McpError>>;
+type Handler = fn(&McpToolExecutor, &CallerContext, &str, Value) -> Option<Result<Value, McpError>>;
 
-/// Dispatch a tool call by name.
+/// Dispatch a synchronous tool call by name.
 ///
 /// On success the returned value is the MCP tool result envelope
 /// (`{ content, isError }`) ready to be placed in a `tools/call` response;
 /// domain failures are returned as `Err` so the transport can decide between a
 /// tool result and a protocol-level error.
 pub fn dispatch(
-    server: &McpServer,
+    executor: &McpToolExecutor,
     caller: &CallerContext,
     name: &str,
     arguments: Value,
 ) -> Result<Value, McpError> {
-    const HANDLERS: [Handler; 4] = [
+    const HANDLERS: [Handler; 6] = [
         document::dispatch,
         graph::dispatch,
         quality::dispatch,
         definitions::dispatch,
+        domain::dispatch,
+        backend::dispatch,
     ];
     for handler in HANDLERS {
-        if let Some(result) = handler(server, caller, name, arguments.clone()) {
+        if let Some(result) = handler(executor, caller, name, arguments.clone()) {
             // `Ok` is formatted as a tool result; `Err` stays an error so the
             // transport can classify it (client vs server) before rendering.
             return result.map(|value| error::into_tool_result(Ok::<Value, McpError>(value)));
         }
+    }
+    // Project tools exist but are async; reaching here means the caller used
+    // the sync path for one, which is a programming error worth naming.
+    if project::handles(name) {
+        return Err(McpError::Internal(format!(
+            "`{name}` needs project storage and must be called asynchronously"
+        )));
     }
     Err(McpError::UnknownTool(name.to_string()))
 }
@@ -100,10 +123,24 @@ mod tests {
 
     #[test]
     fn unknown_tool_is_reported() {
-        let server = McpServer::new(crate::Config::from_env());
+        let executor = McpToolExecutor::new(std::sync::Arc::new(crate::Config::from_env()));
         assert!(matches!(
-            dispatch(&server, &CallerContext::local(), "nope", Value::Null),
+            dispatch(&executor, &CallerContext::local(), "nope", Value::Null),
             Err(McpError::UnknownTool(_))
         ));
+    }
+
+    #[test]
+    fn a_project_tool_on_the_sync_path_says_why() {
+        let executor = McpToolExecutor::new(std::sync::Arc::new(crate::Config::from_env()));
+        let error = dispatch(
+            &executor,
+            &CallerContext::local(),
+            "project_get",
+            Value::Null,
+        )
+        .unwrap_err();
+        assert!(matches!(error, McpError::Internal(_)));
+        assert!(error.to_string().contains("asynchronously"));
     }
 }

@@ -21,6 +21,13 @@ pub enum ApiError {
     NotFound,
     #[error("conflict: {0}")]
     Conflict(String),
+    /// Another run holds the project lease. Reported before an SSE stream is
+    /// opened, so the client gets a rule rather than a stream that dies.
+    #[error("project locked by {holder}")]
+    ProjectLocked {
+        holder: String,
+        expires_in_seconds: u64,
+    },
     /// A feature is present but cannot be used because the operator has not
     /// configured it. Distinct from `Internal`: a 500 says "the server broke",
     /// while a missing `IDE_SECRET_KEY` is a setup step the operator owns.
@@ -59,6 +66,17 @@ impl ApiError {
                 "resource not found".to_string(),
             ),
             ApiError::Conflict(message) => (StatusCode::CONFLICT, "conflict", message.clone()),
+            ApiError::ProjectLocked {
+                holder,
+                expires_in_seconds,
+            } => (
+                StatusCode::CONFLICT,
+                "project_locked",
+                format!(
+                    "another run ({holder}) is generating this project; \
+                     it expires in {expires_in_seconds}s"
+                ),
+            ),
             ApiError::ServiceUnavailable(message) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "service_unavailable",
@@ -85,6 +103,24 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        // A locked project is the one error a client must act on structurally
+        // (show the holder and a countdown), so it carries extra fields.
+        if let ApiError::ProjectLocked {
+            holder,
+            expires_in_seconds,
+        } = &self
+        {
+            let body = Json(serde_json::json!({
+                "error": "project_locked",
+                "message": format!(
+                    "another run ({holder}) is generating this project; \
+                     it expires in {expires_in_seconds}s"
+                ),
+                "holder": { "run_id": holder },
+                "expires_in_seconds": expires_in_seconds,
+            }));
+            return (StatusCode::CONFLICT, body).into_response();
+        }
         let (status, code, message) = self.parts();
         let body = Json(serde_json::json!({ "error": code, "message": message }));
         (status, body).into_response()

@@ -16,6 +16,9 @@ nocode-codegen = { path = "../codegen" }
 nocode-bpmn = { path = "../bpmn" }
 # Agentic workflow authoring over MCP (stdio binary + this server's /mcp route).
 nocode-mcp = { path = "../mcp" }
+# The in-process agent behind POST /projects/:id/agent/chat. It drives the same
+# McpToolExecutor the /mcp route does, so the two cannot diverge.
+nocode-agent = { path = "../agent" }
 # The WebAssembly plugin host: the sandbox, the manifest validation and the
 # module loader.
 nocode-plugins = { path = "../plugins" }
@@ -46,6 +49,10 @@ hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 tower = { version = "0.4", features = ["util"] }
 bytes = "1"
+# The `Stream` trait for the SSE body. `futures-core` is a leaf crate that is
+# already in the tree via axum; `futures-util` would add a proc-macro crate
+# (`futures-macro`) for one `unfold`, which is not a trade worth making.
+futures-core = "0.3"
 
 # Auth
 argon2 = "0.5"

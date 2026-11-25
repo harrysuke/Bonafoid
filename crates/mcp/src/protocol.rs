@@ -1,10 +1,16 @@
 //! Minimal MCP JSON-RPC 2.0 dispatcher.
 //!
-//! This is the documented fallback from plan §4.3: a small, dependency-free
-//! transport boundary implementing `initialize`, `tools/list`,
-//! `tools/call`, `resources/list`, `resources/read` and prompts. All SDK
-//! knowledge is confined to this module and `transport/*`, so replacing it
-//! with `rmcp` later does not touch any tool handler.
+//! This is the documented fallback from the Milestone 4 plan §4.3: a small,
+//! dependency-free transport boundary implementing `initialize`, `tools/list`,
+//! `tools/call`, `resources/list`, `resources/templates/list`,
+//! `resources/read` and prompts. All SDK knowledge is confined to this module
+//! and `transport/*`, so replacing it with `rmcp` later does not touch any tool
+//! handler.
+//!
+//! Two entry points share one routing table: [`dispatch`] (sync, used by stdio
+//! and the tests) and [`dispatch_async`] (used by `POST /mcp`, because project
+//! tools await storage). The methods that touch no I/O are handled once, in
+//! [`static_result`], so the two cannot drift.
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -15,7 +21,6 @@ use std::io::Write;
 
 use crate::error;
 use crate::resources;
-use crate::tools;
 use crate::{CallerContext, McpServer};
 
 const PROTOCOL_VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -78,7 +83,10 @@ impl JsonRpcResponse {
     }
 }
 
-/// Dispatch one request. Notifications return `None`.
+/// Dispatch one request synchronously. Notifications return `None`.
+///
+/// Project-scoped tools and `project://` resources need storage and are
+/// rejected with an explanatory error here; use [`dispatch_async`] for those.
 pub fn dispatch(
     server: &McpServer,
     caller: &CallerContext,
@@ -95,14 +103,74 @@ pub fn dispatch(
         ));
     }
 
-    let outcome: Result<Value, (i64, String)> = match request.method.as_str() {
-        "initialize" => Ok(initialize(request.params.as_ref())),
+    let outcome: Result<Value, (i64, String)> =
+        match static_result(&request.method, request.params.as_ref()) {
+            Some(result) => result,
+            None => match request.method.as_str() {
+                "tools/call" => call_tool(server, caller, request.params.as_ref()),
+                "resources/read" => read_resource_sync(request.params.as_ref()),
+                other => Err((-32601, format!("method not found: {other}"))),
+            },
+        };
+
+    if is_notification {
+        return None;
+    }
+    Some(match outcome {
+        Ok(value) => JsonRpcResponse::success(id, value),
+        Err((code, message)) => JsonRpcResponse::failure(id, code, message),
+    })
+}
+
+/// Dispatch one request, awaiting project storage where needed.
+pub async fn dispatch_async(
+    server: &McpServer,
+    caller: &CallerContext,
+    request: &JsonRpcRequest,
+) -> Option<JsonRpcResponse> {
+    let id = request.id.clone().unwrap_or(Value::Null);
+    let is_notification = request.id.is_none();
+
+    if request.jsonrpc != "2.0" {
+        return Some(JsonRpcResponse::failure(
+            id,
+            -32600,
+            "jsonrpc must be \"2.0\"",
+        ));
+    }
+
+    let outcome: Result<Value, (i64, String)> =
+        match static_result(&request.method, request.params.as_ref()) {
+            Some(result) => result,
+            None => match request.method.as_str() {
+                "tools/call" => call_tool_async(server, caller, request.params.as_ref()).await,
+                "resources/read" => {
+                    read_resource_async(server, caller, request.params.as_ref()).await
+                }
+                other => Err((-32601, format!("method not found: {other}"))),
+            },
+        };
+
+    if is_notification {
+        return None;
+    }
+    Some(match outcome {
+        Ok(value) => JsonRpcResponse::success(id, value),
+        Err((code, message)) => JsonRpcResponse::failure(id, code, message),
+    })
+}
+
+/// Methods that touch no storage. Shared by both dispatchers.
+fn static_result(method: &str, params: Option<&Value>) -> Option<Result<Value, (i64, String)>> {
+    let result = match method {
+        "initialize" => Ok(initialize(params)),
         "notifications/initialized" => Ok(json!({})),
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": tools::definitions() })),
-        "tools/call" => call_tool(server, caller, request.params.as_ref()),
+        "tools/list" => Ok(json!({ "tools": crate::tools::definitions() })),
         "resources/list" => Ok(json!({ "resources": resources::list_json() })),
-        "resources/read" => read_resource(request.params.as_ref()),
+        "resources/templates/list" => {
+            Ok(json!({ "resourceTemplates": resources::project::templates_json() }))
+        }
         "prompts/list" => Ok(json!({
             "prompts": [{
                 "name": "build_workflow",
@@ -114,17 +182,10 @@ pub fn dispatch(
                 }],
             }],
         })),
-        "prompts/get" => get_prompt(request.params.as_ref()),
-        other => Err((-32601, format!("method not found: {other}"))),
+        "prompts/get" => get_prompt(params),
+        _ => return None,
     };
-
-    if is_notification {
-        return None;
-    }
-    Some(match outcome {
-        Ok(value) => JsonRpcResponse::success(id, value),
-        Err((code, message)) => JsonRpcResponse::failure(id, code, message),
-    })
+    Some(result)
 }
 
 fn initialize(params: Option<&Value>) -> Value {
@@ -145,8 +206,25 @@ fn initialize(params: Option<&Value>) -> Value {
             "name": "bonafoid-mcp",
             "version": env!("CARGO_PKG_VERSION"),
         },
-        "instructions": "Use bpmn://guide/authoring before authoring. Never generate raw BPMN XML.",
+        "instructions": "Use bpmn://guide/authoring before authoring a workflow, and \
+                         project://{project_id}/catalog to resolve real ids. Never generate raw \
+                         BPMN XML.",
     })
+}
+
+/// Split `tools/call` params into `(name, arguments)`.
+fn tool_call_params(params: Option<&Value>) -> Result<(String, Value), (i64, String)> {
+    let params = params.ok_or_else(|| (-32602, "tools/call requires params".to_string()))?;
+    let name = params
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| (-32602, "tools/call requires params.name".to_string()))?
+        .to_string();
+    let arguments = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    Ok((name, arguments))
 }
 
 fn call_tool(
@@ -154,19 +232,10 @@ fn call_tool(
     caller: &CallerContext,
     params: Option<&Value>,
 ) -> Result<Value, (i64, String)> {
-    let params = params.ok_or_else(|| (-32602, "tools/call requires params".to_string()))?;
-    let name = params
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| (-32602, "tools/call requires params.name".to_string()))?;
-    let arguments = params
-        .get("arguments")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-
-    match tools::dispatch(server, caller, name, arguments.clone()) {
+    let (name, arguments) = tool_call_params(params)?;
+    match server.executor.call_sync(caller, &name, arguments.clone()) {
         Ok(value) => {
-            audit(server, caller, name, &arguments, "ok");
+            audit(server, caller, &name, &arguments, "ok");
             Ok(value)
         }
         Err(error) => {
@@ -175,25 +244,76 @@ fn call_tool(
             } else {
                 "server_error"
             };
-            audit(server, caller, name, &arguments, status);
+            audit(server, caller, &name, &arguments, status);
             Ok(error::tool_error(&error))
         }
     }
 }
 
-fn read_resource(params: Option<&Value>) -> Result<Value, (i64, String)> {
-    let uri = params
+async fn call_tool_async(
+    server: &McpServer,
+    caller: &CallerContext,
+    params: Option<&Value>,
+) -> Result<Value, (i64, String)> {
+    let (name, arguments) = tool_call_params(params)?;
+    match server.executor.call(caller, &name, arguments.clone()).await {
+        Ok(value) => {
+            audit(server, caller, &name, &arguments, "ok");
+            Ok(value)
+        }
+        Err(error) => {
+            let status = if error.is_client_error() {
+                "client_error"
+            } else {
+                "server_error"
+            };
+            audit(server, caller, &name, &arguments, status);
+            Ok(error::tool_error(&error))
+        }
+    }
+}
+
+fn resource_uri(params: Option<&Value>) -> Result<&str, (i64, String)> {
+    params
         .and_then(|value| value.get("uri"))
         .and_then(Value::as_str)
-        .ok_or_else(|| (-32602, "resources/read requires params.uri".to_string()))?;
-    let resource = resources::read(uri).map_err(|error| (error.code(), error.to_string()))?;
-    Ok(json!({
+        .ok_or_else(|| (-32602, "resources/read requires params.uri".to_string()))
+}
+
+fn resource_contents(resource: &resources::ResourceContent) -> Value {
+    json!({
         "contents": [{
-            "uri": resource.meta.uri,
-            "mimeType": resource.meta.mime_type,
+            "uri": resource.uri,
+            "mimeType": resource.mime_type,
             "text": resource.text,
         }],
-    }))
+    })
+}
+
+fn read_resource_sync(params: Option<&Value>) -> Result<Value, (i64, String)> {
+    let uri = resource_uri(params)?;
+    if resources::project::matches(uri) && !uri.starts_with("project://schema/") {
+        return Err((
+            -32602,
+            "project resources need the HTTP transport, which has project storage".to_string(),
+        ));
+    }
+    let resource = resources::read(uri).map_err(|error| (error.code(), error.to_string()))?;
+    Ok(resource_contents(&resource.into_content()))
+}
+
+async fn read_resource_async(
+    server: &McpServer,
+    caller: &CallerContext,
+    params: Option<&Value>,
+) -> Result<Value, (i64, String)> {
+    let uri = resource_uri(params)?;
+    let resource = server
+        .executor
+        .read_resource(caller, uri)
+        .await
+        .map_err(|error| (error.code(), error.to_string()))?;
+    Ok(resource_contents(&resource))
 }
 
 fn get_prompt(params: Option<&Value>) -> Result<Value, (i64, String)> {
@@ -304,8 +424,38 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            7
+            resources::RESOURCES.len()
         );
+    }
+
+    #[test]
+    fn resource_templates_are_listed() {
+        let response = dispatch(
+            &server(),
+            &CallerContext::local(),
+            &request("resources/templates/list", None),
+        )
+        .unwrap();
+        let templates = response.result.unwrap()["resourceTemplates"].clone();
+        assert!(templates
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|template| template["uriTemplate"] == "project://{project_id}/catalog"));
+    }
+
+    #[test]
+    fn project_resources_need_the_async_transport() {
+        let response = dispatch(
+            &server(),
+            &CallerContext::local(),
+            &request(
+                "resources/read",
+                Some(json!({ "uri": "project://abc/model" })),
+            ),
+        )
+        .unwrap();
+        assert!(response.error.unwrap().message.contains("HTTP transport"));
     }
 
     #[test]
@@ -330,5 +480,23 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("approve invoices"));
+    }
+
+    #[tokio::test]
+    async fn async_dispatch_reaches_tools() {
+        let response = dispatch_async(
+            &server(),
+            &CallerContext::local(),
+            &request(
+                "tools/call",
+                Some(json!({ "name": "create_workflow", "arguments": { "name": "Async" } })),
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(response.result.unwrap()["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("session_id"));
     }
 }

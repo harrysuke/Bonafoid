@@ -1,8 +1,17 @@
 //! Read-only MCP resources that ground agent tool calls in the product's
 //! real JSON contract.
+//!
+//! Two families:
+//!
+//! - **static** (`bpmn://…`, `project://schema/…`): generated schemas, the node
+//!   catalogue, worked examples and guides. No I/O, no tenant data.
+//! - **project-scoped** (`project://{project_id}/…`): resolved through the
+//!   [`crate::provider::ProjectStateProvider`]. These are advertised as
+//!   *templates*, because the id is only known at call time.
 
 pub mod catalogue;
 pub mod examples;
+pub mod project;
 pub mod schema;
 
 use crate::error::McpError;
@@ -16,14 +25,33 @@ pub struct ResourceMeta {
     pub mime_type: &'static str,
 }
 
-/// A resource body returned by `resources/read`.
+/// A static resource body returned by `resources/read`.
 #[derive(Debug, Clone)]
 pub struct Resource {
     pub meta: ResourceMeta,
     pub text: String,
 }
 
-pub const RESOURCES: [ResourceMeta; 7] = [
+/// A resolved resource body. `uri` is owned because project resources carry a
+/// caller-supplied project id.
+#[derive(Debug, Clone)]
+pub struct ResourceContent {
+    pub uri: String,
+    pub mime_type: &'static str,
+    pub text: String,
+}
+
+impl Resource {
+    pub fn into_content(self) -> ResourceContent {
+        ResourceContent {
+            uri: self.meta.uri.to_string(),
+            mime_type: self.meta.mime_type,
+            text: self.text,
+        }
+    }
+}
+
+pub const RESOURCES: &[ResourceMeta] = &[
     ResourceMeta {
         uri: "bpmn://schema/workflow",
         name: "Workflow JSON Schema",
@@ -66,9 +94,33 @@ pub const RESOURCES: [ResourceMeta; 7] = [
         description: "Preferred tool sequence, condition syntax and coordinate rules",
         mime_type: "text/markdown",
     },
+    ResourceMeta {
+        uri: "project://schema/entity",
+        name: "Entity JSON Schema",
+        description: "Generated JSON Schema for a database entity",
+        mime_type: "application/schema+json",
+    },
+    ResourceMeta {
+        uri: "project://schema/form",
+        name: "Form JSON Schema",
+        description: "Generated JSON Schema for a form",
+        mime_type: "application/schema+json",
+    },
+    ResourceMeta {
+        uri: "project://schema/page",
+        name: "Page JSON Schema",
+        description: "Generated JSON Schema for a page and its components",
+        mime_type: "application/schema+json",
+    },
+    ResourceMeta {
+        uri: "project://schema/theme",
+        name: "Theme JSON Schema",
+        description: "Generated JSON Schema for a design-token theme",
+        mime_type: "application/schema+json",
+    },
 ];
 
-/// All resource descriptors as a JSON array for the protocol response.
+/// All static resource descriptors as a JSON array for the protocol response.
 pub fn list_json() -> serde_json::Value {
     serde_json::json!(RESOURCES
         .iter()
@@ -81,7 +133,7 @@ pub fn list_json() -> serde_json::Value {
         .collect::<Vec<_>>())
 }
 
-/// Read one resource by URI.
+/// Read one static resource by URI.
 pub fn read(uri: &str) -> Result<Resource, McpError> {
     let meta = RESOURCES
         .iter()
@@ -100,6 +152,10 @@ pub fn read(uri: &str) -> Result<Resource, McpError> {
         "bpmn://examples/json/gateway" => examples::GATEWAY_WORKFLOW_JSON.to_string(),
         "bpmn://examples/xml/minimal" => examples::MINIMAL_XML.to_string(),
         "bpmn://guide/authoring" => examples::AUTHORING_GUIDE.to_string(),
+        "project://schema/entity" => schema::model_schema::<nocode_model::Entity>()?,
+        "project://schema/form" => schema::model_schema::<nocode_model::Form>()?,
+        "project://schema/page" => schema::model_schema::<nocode_model::Page>()?,
+        "project://schema/theme" => schema::model_schema::<nocode_model::Theme>()?,
         _ => unreachable!("all resource URIs are handled above"),
     };
     Ok(Resource {
@@ -114,7 +170,7 @@ mod tests {
 
     #[test]
     fn every_resource_is_readable_and_parses() {
-        for meta in &RESOURCES {
+        for meta in RESOURCES {
             let resource = read(meta.uri).unwrap();
             assert!(!resource.text.is_empty(), "{}", meta.uri);
             match meta.mime_type {
@@ -132,5 +188,15 @@ mod tests {
     #[test]
     fn unknown_resource_is_an_invalid_param() {
         assert!(read("bpmn://nope").is_err());
+    }
+
+    #[test]
+    fn project_templates_are_advertised() {
+        let templates = project::templates_json();
+        let array = templates.as_array().unwrap();
+        assert_eq!(array.len(), project::TEMPLATES.len());
+        assert!(array
+            .iter()
+            .any(|template| template["uriTemplate"] == "project://{project_id}/catalog"));
     }
 }

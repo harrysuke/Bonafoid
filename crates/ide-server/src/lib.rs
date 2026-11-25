@@ -4,6 +4,7 @@
 //! web IDE static assets, and persists IDE state in SQLite via SeaORM.
 
 pub mod admin;
+pub mod agent;
 pub mod auth;
 pub mod billing;
 pub mod bpmn;

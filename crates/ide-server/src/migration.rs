@@ -28,6 +28,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0009_versioning",
         crate::versioning::schema::VERSIONING_SCHEMA,
     ),
+    ("0010_agent_runs", crate::agent::schema::AGENT_SCHEMA),
 ];
 
 const INITIAL_SCHEMA: &str = r#"

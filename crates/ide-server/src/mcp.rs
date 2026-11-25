@@ -16,7 +16,7 @@ use axum::{
 use bytes::Bytes;
 use nocode_mcp::protocol::JsonRpcRequest;
 use nocode_mcp::transport::http::{self, CallerContext};
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::auth::AuthUser;
 use crate::server::AppState;
@@ -26,16 +26,37 @@ pub fn mcp_router() -> Router<AppState> {
     Router::new().route("/mcp", post(handle))
 }
 
-/// Map signed claims to the two tool scopes from plan §7.2.
-fn scopes_for(user: &AuthUser) -> Vec<String> {
-    let mut scopes = vec!["workflows:read".to_string()];
+/// Map signed claims to the scopes this server honours.
+///
+/// Every authenticated user may read their own projects and drive the BPMN
+/// tools. Writing needs `workflows:write`, which is granted to tenant
+/// admins/owners, platform super admins, and tokens that carry the role
+/// explicitly — the same rule as Milestone 4, extended to the project scopes
+/// from plan §9. A member with no write role can still ask the assistant to
+/// read, and is refused before the stream starts if it would have to write.
+pub fn scopes_for(user: &AuthUser) -> Vec<String> {
+    let mut scopes = vec!["workflows:read".to_string(), "project:read".to_string()];
     if user.is_tenant_admin()
         || user.is_super_admin()
         || user.roles.iter().any(|role| role == "workflows:write")
     {
         scopes.push("workflows:write".to_string());
     }
+    if user.is_tenant_admin()
+        || user.is_super_admin()
+        || user.roles.iter().any(|role| role == "project:write")
+    {
+        scopes.push("project:write".to_string());
+    }
     scopes
+}
+
+/// The caller identity every MCP entry point uses.
+///
+/// `owner` is `tenant:user`, so two users in the same tenant cannot see each
+/// other's sessions even with a guessed session id.
+pub fn caller_for(user: &AuthUser) -> CallerContext {
+    CallerContext::authenticated(&user.id, &user.tenant_id, scopes_for(user))
 }
 
 async fn handle(
@@ -55,31 +76,22 @@ async fn handle(
         }
     };
 
-    let tool_name = if request.method == "tools/call" {
-        request
-            .params
-            .as_ref()
-            .and_then(|params| params.get("name"))
-            .and_then(Value::as_str)
-    } else {
-        None
-    };
-    let required = tool_name
-        .map(http::required_scope)
-        .unwrap_or("workflows:read");
-    let caller = CallerContext::authenticated(&user.id, &user.tenant_id, scopes_for(&user));
+    // Scope on the whole request, not just the tool name: reading a
+    // `project://` resource exposes tenant data and has no tool to gate on.
+    let required = http::required_scope_for_request(&request.method, request.params.as_ref());
+    let caller = caller_for(&user);
     if !caller.has_scope(required) {
         return (
             StatusCode::FORBIDDEN,
             Json(json!({
                 "error": "forbidden",
-                "message": format!("{required} scope required for MCP tool"),
+                "message": format!("{required} scope required for this MCP request"),
             })),
         )
             .into_response();
     }
 
-    let response = http::handle_json(&state.mcp, &caller, &body);
+    let response = http::handle_json_async(&state.mcp, &caller, &body).await;
     let status = StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     let mut result = (status, Json(response.body)).into_response();
     result.headers_mut().insert(
@@ -106,6 +118,7 @@ mod tests {
     use crate::db::connect_sqlite_memory;
     use axum::body::Body;
     use axum::http::Request;
+    use serde_json::Value;
     use std::sync::{Arc, OnceLock};
     use tower::ServiceExt;
 

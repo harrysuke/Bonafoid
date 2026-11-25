@@ -18,6 +18,9 @@ import type {
   AdminUsage,
   AdminUser,
   AdminUserUpdate,
+  AgentChatHandle,
+  AgentChatRequest,
+  AgentEvent,
   AuditEntry,
   BillingSession,
   BpmnValidationReport,
@@ -67,6 +70,7 @@ import { applyDatabaseDriver } from '@nocode/ide-core';
 import { currentUser as sessionUser, logout as endSession } from '../auth/session';
 import {
   adminApi,
+  agentApi,
   billingApi,
   bpmnApi,
   connectorApi,
@@ -416,6 +420,12 @@ export const webPlatform: PlatformApi = {
     name: string,
     fromRevisionId?: string,
   ): Promise<Branch> => versionApi.createBranch(projectId, name, fromRevisionId),
+  agentChat: (
+    projectId: string,
+    request: AgentChatRequest,
+    onEvent: (event: AgentEvent) => void,
+  ): Promise<AgentChatHandle> => agentApi.chat(projectId, request, onEvent),
+
   versionHistory: (projectId: string, branch: string): Promise<Revision[]> =>
     versionApi.history(projectId, branch),
   versionDiff: (projectId: string, from: string, to: string): Promise<DiffResult> =>

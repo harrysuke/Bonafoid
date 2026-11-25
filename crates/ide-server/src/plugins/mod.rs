@@ -263,6 +263,8 @@ mod tests {
             plugins: Arc::new(PluginRegistry::with_root(root)),
             deploy: None,
             mcp: Arc::new(nocode_mcp::McpServer::new(nocode_mcp::Config::from_env())),
+            agent: Arc::new(crate::agent::AgentRuntime::from_env()),
+            leases: Arc::new(nocode_mcp::MemoryLeaseStore::new()),
         };
         crate::server::build_router(state, "apps/ide-web/dist")
     }

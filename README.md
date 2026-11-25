@@ -34,6 +34,10 @@ the docs describe.
 - **MCP workflow authoring** — AI clients can build, validate, simulate and
   save BPMN workflows through granular tools over stdio or `POST /mcp`
   ([guide](docs/mcp-server.md)).
+- **Agentic app generation** — describe an app and the assistant models the
+  data, processes, forms, pages and theme through those same tools, streaming
+  every change into the canvas, then validates and commits it
+  ([guide](docs/agentic-app-generation.md)).
 
 ## Repository layout
 
@@ -49,6 +53,7 @@ crates/
   ide-server/  Web IDE server (Axum + SeaORM): auth, projects, generation,
                BPMN, plugins, hosted previews, /mcp endpoint
   mcp/         MCP server: granular workflow tools, resources, layout, transports
+  agent/       In-process agent: provider clients, pipeline, SSE event contract
 packages/
   ide-core/    The IDE itself: React components, pages, zustand stores, types.
                Both frontends are thin shells around this package
@@ -292,6 +297,7 @@ The full walkthrough, including verification and troubleshooting, is in
 | [docs/UI-UX Wireframes & Mockups.md](docs/UI-UX%20Wireframes%20%26%20Mockups.md) | Screen-by-screen UI reference |
 | [docs/verify-preview.md](docs/verify-preview.md) | How to verify the hosted preview path end to end |
 | [docs/mcp-server.md](docs/mcp-server.md) | MCP tools, resources, transports, client setup |
+| [docs/agentic-app-generation.md](docs/agentic-app-generation.md) | The assistant: prompt to app, SSE contract, guardrails |
 
 **New to Bonafoid?** Start with the user manual; it walks through building a
 CRUD application from sign-in to deployment.

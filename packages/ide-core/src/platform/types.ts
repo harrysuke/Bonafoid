@@ -10,6 +10,7 @@
  */
 
 import type { GenerationReport } from '../types/project';
+import type { AgentChatHandle, AgentChatRequest, AgentEvent } from '../types/agent';
 
 /** One validation finding returned by the BPMN engine. */
 export interface BpmnValidationIssue {
@@ -809,6 +810,20 @@ export interface PlatformApi {
   connectorTest?(id: string): Promise<ConnectorTestResult>;
   /** Proxy one JSON request through an http_rest/webhook connector. */
   connectorInvoke?(id: string, body: ConnectorInvokeRequest): Promise<ConnectorInvokeResult>;
+
+  /**
+   * Start an assistant run and stream its progress.
+   *
+   * Optional: the desktop host has no server-side agent, so the drawer hides
+   * itself when this is absent. The promise resolves once the stream is open
+   * (so an authentication or configuration failure arrives as a rejection
+   * before any UI state is committed); events then arrive through `onEvent`.
+   */
+  agentChat?(
+    projectId: string,
+    request: AgentChatRequest,
+    onEvent: (event: AgentEvent) => void,
+  ): Promise<AgentChatHandle>;
 
   /** Branches of a project. */
   versionBranches?(projectId: string): Promise<Branch[]>;

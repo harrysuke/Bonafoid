@@ -25,6 +25,10 @@ anyhow = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 indexmap = { workspace = true }
+# The project storage seam is async; the trait itself lives in provider.rs.
+async-trait = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+# `#[tokio::test]` for the async dispatcher and the project-session tests.
+tokio = { workspace = true }

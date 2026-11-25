@@ -9,8 +9,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::error::McpError;
+use crate::executor::McpToolExecutor;
 use crate::tools::{parse_args, schema_for, ToolDefinition};
-use crate::{CallerContext, McpServer};
+use crate::CallerContext;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -58,7 +59,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
 }
 
 pub fn dispatch(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     name: &str,
     arguments: Value,
@@ -82,7 +83,7 @@ pub fn dispatch(
 }
 
 fn validate(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: SessionParams,
 ) -> Result<Value, McpError> {
@@ -97,7 +98,7 @@ fn validate(
 }
 
 fn simulate(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: SimulateParams,
 ) -> Result<Value, McpError> {
@@ -121,7 +122,7 @@ fn simulate(
 }
 
 fn export(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: SessionParams,
 ) -> Result<Value, McpError> {
@@ -134,7 +135,7 @@ fn export(
 }
 
 fn history(
-    server: &McpServer,
+    server: &McpToolExecutor,
     caller: &CallerContext,
     params: SessionParams,
     undo: bool,

@@ -13,6 +13,7 @@ import { useProjectStore } from '../stores/projectStore';
 import { confirmLeave, useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import { Toaster } from './Toaster';
 import { SidebarUserDropdown } from './SidebarUserDropdown';
+import { AssistantDrawer } from './Agent/AssistantDrawer';
 import brandLogo from '../assets/brand/android-chrome-512x512.png';
 
 const navigation = [
@@ -325,6 +326,7 @@ export function Layout() {
         </main>
       </div>
 
+      <AssistantDrawer />
       <Toaster />
     </div>
   );

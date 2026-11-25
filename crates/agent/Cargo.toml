@@ -1,0 +1,37 @@
+[package]
+name = "nocode-agent"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "In-process agent that builds whole Bonafoid apps through MCP tools"
+
+[dependencies]
+nocode-model = { path = "../model" }
+nocode-mcp = { path = "../mcp" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+
+# HTTPS for the provider APIs. This is the same stack `crates/deploy` already
+# uses for the GitHub client, so the agent adds no new dependency tree — in
+# particular no `reqwest`, which would pull a second TLS/provider stack into
+# the workspace for one HTTP POST per turn.
+http = "1.0"
+http-body-util = "0.1"
+hyper = { version = "1.0", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client", "http1", "tokio"] }
+hyper-rustls = { version = "0.27", default-features = false, features = [
+    "http1",
+    "ring",
+    "tls12",
+    "webpki-tokio",
+] }
+bytes = "1"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }

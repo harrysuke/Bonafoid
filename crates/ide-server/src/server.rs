@@ -58,6 +58,12 @@ pub struct AppState {
     pub deploy: Option<Arc<DeployService>>,
     /// Shared MCP tool/resource dispatcher used by the `/mcp` route.
     pub mcp: Arc<nocode_mcp::McpServer>,
+    /// The assistant's provider and limits. Off unless the operator configured
+    /// a model; the endpoint answers 503 and the drawer stays hidden.
+    pub agent: Arc<crate::agent::AgentRuntime>,
+    /// One writer per project. In memory today; a database-backed
+    /// implementation only has to satisfy the same trait (plan §15.2.2).
+    pub leases: Arc<dyn nocode_mcp::LeaseStore>,
 }
 
 /// Build the deploy service from the environment, or report why it is off.
@@ -86,14 +92,29 @@ fn deploy_from_env() -> Option<Arc<DeployService>> {
 impl AppState {
     pub fn new(db: DatabaseConnection, keys: Arc<JwtKeys>) -> Self {
         Self {
+            mcp: mcp_with_provider(&db),
+            agent: Arc::new(crate::agent::AgentRuntime::from_env()),
+            leases: Arc::new(nocode_mcp::MemoryLeaseStore::new()),
             db,
             keys,
             preview: Arc::new(BuildManager::new(PreviewConfig::from_env())),
             runs: Arc::new(RunManager::new(RunConfig::from_env())),
             plugins: Arc::new(PluginRegistry::default()),
             deploy: deploy_from_env(),
-            mcp: mcp_from_env(),
         }
+    }
+
+    /// Replace the lease store (tests, or a multi-instance deployment).
+    pub fn with_leases(mut self, leases: Arc<dyn nocode_mcp::LeaseStore>) -> Self {
+        self.leases = leases;
+        self
+    }
+
+    /// Replace the assistant runtime (tests, or a host that builds its own
+    /// provider).
+    pub fn with_agent(mut self, agent: Arc<crate::agent::AgentRuntime>) -> Self {
+        self.agent = agent;
+        self
     }
 
     /// Inject a deploy service (tests) or explicitly disable deployments.
@@ -118,19 +139,32 @@ impl AppState {
         runs: RunConfig,
     ) -> Self {
         Self {
+            mcp: mcp_with_provider(&db),
+            agent: Arc::new(crate::agent::AgentRuntime::from_env()),
+            leases: Arc::new(nocode_mcp::MemoryLeaseStore::new()),
             db,
             keys,
             preview: Arc::new(BuildManager::new(config)),
             runs: Arc::new(RunManager::new(runs)),
             plugins: Arc::new(PluginRegistry::default()),
             deploy: deploy_from_env(),
-            mcp: mcp_from_env(),
         }
     }
 }
 
-fn mcp_from_env() -> Arc<nocode_mcp::McpServer> {
-    Arc::new(nocode_mcp::McpServer::new(nocode_mcp::Config::from_env()))
+/// The MCP dispatcher, backed by this server's project tables.
+///
+/// The `/mcp` route and the agent endpoint share one executor, so a project
+/// opened by an MCP client is the same session the agent edits. Without the
+/// provider, every `project_*` tool would answer "requires an IDE server
+/// connection" — which is the correct answer for the stdio binary, and the
+/// wrong one here.
+fn mcp_with_provider(db: &DatabaseConnection) -> Arc<nocode_mcp::McpServer> {
+    let provider = Arc::new(crate::agent::SeaOrmProjectProvider::new(db.clone()));
+    Arc::new(nocode_mcp::McpServer::with_provider(
+        nocode_mcp::Config::from_env(),
+        provider,
+    ))
 }
 
 #[derive(Debug, Serialize)]
@@ -170,6 +204,7 @@ pub fn build_router(state: AppState, web_dist: &str) -> Router {
         .merge(crate::generation::generation_router())
         .merge(crate::bpmn::bpmn_router())
         .merge(crate::mcp::mcp_router())
+        .merge(crate::agent::agent_router())
         .merge(crate::plugins::plugins_router())
         .merge(crate::integrations::integrations_router())
         .merge(crate::preview::preview_router())

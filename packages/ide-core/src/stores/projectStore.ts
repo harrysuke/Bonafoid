@@ -78,6 +78,7 @@ import type {
   PreviewCapabilities,
   PreviewRun,
 } from '../platform/types';
+import type { AgentDomain } from '../types/agent';
 
 const AUTOSAVE_DELAY = 1500;
 
@@ -206,6 +207,10 @@ interface ProjectState {
 
   markDirty: () => void;
   autosave: () => Promise<void>;
+
+  /* Assistant-driven edits (Milestone 5). */
+  applyModelPatch: (domain: AgentDomain, value: unknown) => void;
+  applyServerProject: (snapshot: Project) => void;
 
   /* Hosted preview (build -> run -> iframe). */
   previewBuild: PreviewBuild | null;
@@ -1415,6 +1420,28 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       } catch {
         // History is advisory; a failure here must not break the panel.
       }
+    },
+
+    /*
+     * Assistant-driven edits.
+     *
+     * Both actions bypass `commit()` on purpose. `commit` marks the project
+     * dirty and schedules an autosave; the server has already saved these
+     * changes, so an autosave would either be rejected as a stale revision or
+     * write a model the server never validated.
+     */
+
+    applyModelPatch: (domain, value) => {
+      const { project } = get();
+      if (!project) return;
+      // A domain patch is a whole-slice replacement, not a JSON Patch: the
+      // server sends the complete `entities`/`forms`/... map it now holds.
+      set({ project: { ...project, [domain]: value } as Project, isDirty: false });
+    },
+
+    applyServerProject: (snapshot) => {
+      if (!snapshot || typeof snapshot !== 'object') return;
+      set({ project: snapshot, isDirty: false });
     },
 
     autosave: async () => {
