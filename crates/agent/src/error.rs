@@ -12,8 +12,17 @@ pub enum AgentError {
     #[error("no LLM provider is configured; set AGENT_PROVIDER and AGENT_API_KEY")]
     NotConfigured,
 
-    #[error("unknown provider `{0}`; expected anthropic, openai or ollama")]
+    #[error("unknown provider `{0}`; see the provider catalog for the accepted platforms")]
     UnknownProvider(String),
+
+    #[error("provider `{0}` needs a base URL; set AGENT_BASE_URL or a base_url on its key row")]
+    MissingBaseUrl(String),
+
+    #[error("provider `{0}` needs an API key")]
+    MissingKey(String),
+
+    #[error("the credential for a provider is malformed: {0}")]
+    BadCredential(String),
 
     #[error("{provider} request failed: {message}")]
     Provider {
@@ -63,6 +72,9 @@ impl AgentError {
         match self {
             AgentError::NotConfigured => "not_configured",
             AgentError::UnknownProvider(_) => "unknown_provider",
+            AgentError::MissingBaseUrl(_) => "missing_base_url",
+            AgentError::MissingKey(_) => "missing_key",
+            AgentError::BadCredential(_) => "bad_credential",
             AgentError::Provider { .. } => "provider_error",
             AgentError::BadResponse { .. } => "bad_response",
             AgentError::Timeout(_) => "timeout",

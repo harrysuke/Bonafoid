@@ -23,6 +23,11 @@ import type {
   AgentConversation,
   AgentConversationDetail,
   AgentEvent,
+  AgentKeyDraft,
+  AgentKeyPatch,
+  AgentPlatform,
+  AgentProbeResult,
+  AgentProvider,
   AgentProviderList,
   AuditEntry,
   BillingSession,
@@ -436,6 +441,17 @@ export const webPlatform: PlatformApi = {
   // The picker's data. A server with no keys answers with an empty list and a
   // reason, which the drawer shows in place of the composer.
   agentProviders: (): Promise<AgentProviderList> => agentApi.providers(),
+  // What the build supports, configured or not: the drawer offers a provider
+  // that has no key row yet from this list.
+  agentPlatforms: (): Promise<AgentPlatform[]> => agentApi.platforms(),
+  // Server-side key management. The web host has no local app-data store, so
+  // the drawer's settings panel edits `agent_api_keys` through these.
+  agentAddProvider: (draft: AgentKeyDraft): Promise<AgentProvider> =>
+    agentApi.addProvider(draft),
+  agentUpdateProvider: (id: string, patch: AgentKeyPatch): Promise<AgentProvider> =>
+    agentApi.updateProvider(id, patch),
+  agentRemoveProvider: (id: string): Promise<void> => agentApi.removeProvider(id),
+  agentTestProvider: (id: string): Promise<AgentProbeResult> => agentApi.testProvider(id),
   agentConversations: (projectId: string): Promise<AgentConversation[]> =>
     agentApi.conversations(projectId),
   agentConversation: (projectId: string, conversationId: string): Promise<AgentConversationDetail> =>

@@ -49,6 +49,7 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
 
+use nocode_agent::llm::catalog;
 use nocode_agent::llm::LlmProvider;
 use nocode_agent::{
     AgentConfig, ChatOptions, Limits, Mode, ProviderKind, RunContext, RunRequest,
@@ -77,6 +78,22 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // than propagating: the worst case is a stale in-memory copy, and the file
     // guard catches that on the next save.
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Resolve a settings string to a catalog platform id.
+///
+/// The catalog is tried first, so `groq`, `google`, `openrouter` and the rest
+/// are all valid. The three legacy aliases (`claude`, `gpt`, `local`) still
+/// resolve through `ProviderKind::parse`, which falls back to them — an install
+/// that stored one keeps working. Anything else is refused with the same
+/// message the agent crate would give.
+fn platform_id(value: &str) -> Result<&'static str, String> {
+    if let Some(spec) = catalog::spec(value.trim()) {
+        return Ok(spec.platform);
+    }
+    ProviderKind::parse(value)
+        .map(|kind| kind.as_str())
+        .map_err(|error| error.to_string())
 }
 
 /// A hashed file body, for the "did it change under us" guard.
@@ -122,8 +139,22 @@ pub struct AgentCapabilities {
     /// connection flow yet, so claiming it would show a drawer that cannot run.
     pub remote: bool,
     pub providers: Vec<String>,
+    /// Display and key metadata for `providers`, from the same catalog.
+    ///
+    /// Additive: an older UI reads `providers` and ignores this, while the
+    /// settings form uses it to show a platform's real name and to stop
+    /// claiming a keyless platform needs a key.
+    pub provider_details: Vec<PlatformOption>,
     /// The desktop host has no preview service.
     pub preview: bool,
+}
+
+/// One entry in [`AgentCapabilities::provider_details`].
+#[derive(Debug, Clone, Serialize)]
+pub struct PlatformOption {
+    pub platform: String,
+    pub label: String,
+    pub keyless: bool,
 }
 
 /// The outcome of one run, for the drawer's footer.
@@ -207,7 +238,10 @@ impl AgentState {
         base_url: Option<String>,
         api_key: Option<String>,
     ) -> Result<AgentSettingsView, String> {
-        let kind = ProviderKind::parse(provider).map_err(|error| error.to_string())?;
+        // Stored as a *platform* id, not a wire format: that is what decides
+        // the endpoint, the headers and whether a key is needed, so `groq` and
+        // `google` are reachable from this form without a second table here.
+        let platform = platform_id(provider)?;
         let mut settings = lock(&self.settings);
 
         if let Some(key) = api_key {
@@ -225,7 +259,7 @@ impl AgentState {
             );
         }
 
-        settings.provider = Some(kind.as_str().to_string());
+        settings.provider = Some(platform.to_string());
         settings.model = model.filter(|value| !value.trim().is_empty());
         settings.base_url = base_url.filter(|value| !value.trim().is_empty());
         let stored = StoredSettings {
@@ -248,27 +282,28 @@ impl AgentState {
     /// Whether a run can start right now.
     fn is_ready(&self) -> bool {
         let settings = lock(&self.settings);
-        let Some(kind) = settings
+        let Some(platform) = settings
             .provider
             .as_deref()
-            .and_then(|value| ProviderKind::parse(value).ok())
+            .filter(|value| catalog::spec(value).is_some())
         else {
             return false;
         };
-        // Ollama is local and needs no key; the hosted APIs do.
-        kind == ProviderKind::Ollama || settings.sealed_key.is_some()
+        // A keyless platform (Ollama, and the free gateways) needs no key;
+        // every other one does.
+        !catalog::requires_key(platform) || settings.sealed_key.is_some()
     }
 
     /// Build a provider for one run. The plaintext key lives in this value only.
     fn config(&self) -> Result<AgentConfig, String> {
         let settings = lock(&self.settings);
-        let kind = settings
+        let platform = settings
             .provider
             .as_deref()
-            .ok_or_else(|| "Choose a provider in Settings → AI".to_string())
-            .and_then(|value| {
-                ProviderKind::parse(value).map_err(|_| format!("unknown provider `{value}`"))
-            })?;
+            .ok_or_else(|| "Choose a provider in Settings → AI".to_string())?
+            .to_string();
+        let spec = catalog::spec(&platform)
+            .ok_or_else(|| format!("unknown provider `{platform}`"))?;
         let api_key = match &settings.sealed_key {
             Some(sealed) => Some(
                 self.vault
@@ -277,28 +312,29 @@ impl AgentState {
             ),
             None => None,
         };
-        if api_key.is_none() && kind != ProviderKind::Ollama {
+        if api_key.is_none() && !spec.keyless {
             return Err("Enter an API key in Settings → AI".into());
         }
-        Ok(AgentConfig {
-            kind,
-            model: settings
-                .model
-                .clone()
-                .unwrap_or_else(|| kind.default_model().to_string()),
-            base_url: settings
-                .base_url
-                .clone()
-                .unwrap_or_else(|| kind.default_base_url().to_string())
-                .trim_end_matches('/')
-                .to_string(),
-            api_key,
-            max_tokens: 4096,
-            temperature: 0.2,
-            stream_deltas: true,
-            request_timeout: Duration::from_secs(120),
-            limits: Limits::default(),
-        })
+        // Built through `for_platform` rather than a struct literal so the
+        // endpoint, headers, account-scoped credential and default model all
+        // come from the catalog — a new field on `AgentConfig` cannot silently
+        // leave the desktop shell behind.
+        let model = settings
+            .model
+            .clone()
+            .unwrap_or_else(|| spec.default_model.to_string());
+        let base_url = settings
+            .base_url
+            .clone()
+            .or_else(|| Some(spec.base_url.to_string()).filter(|url| !url.is_empty()));
+        let mut config = AgentConfig::for_platform(&platform, model, base_url, api_key)
+            .map_err(|error| error.to_string())?;
+        config.max_tokens = 4096;
+        config.temperature = 0.2;
+        config.stream_deltas = true;
+        config.request_timeout = Duration::from_secs(120);
+        config.limits = Limits::default();
+        Ok(config)
     }
 }
 
@@ -461,11 +497,21 @@ pub async fn agent_capabilities(state: State<'_, AgentState>) -> Result<AgentCap
     Ok(AgentCapabilities {
         local: state.is_ready(),
         remote: false,
-        providers: vec![
-            ProviderKind::Anthropic.as_str().to_string(),
-            ProviderKind::OpenAi.as_str().to_string(),
-            ProviderKind::Ollama.as_str().to_string(),
-        ],
+        // Every platform the build can reach, not just the three wire formats:
+        // the settings form offers this list, so `groq` or `google` is one
+        // selection away instead of an `AGENT_PROVIDER` env var.
+        providers: catalog::CATALOG
+            .iter()
+            .map(|spec| spec.platform.to_string())
+            .collect(),
+        provider_details: catalog::CATALOG
+            .iter()
+            .map(|spec| PlatformOption {
+                platform: spec.platform.to_string(),
+                label: spec.label.to_string(),
+                keyless: spec.keyless,
+            })
+            .collect(),
         preview: false,
     })
 }
@@ -850,6 +896,55 @@ mod tests {
         assert!(state.is_ready(), "a local model has no credential to check");
         assert!(!state.view().has_key);
         assert!(state.config().is_ok());
+    }
+
+    /// The point of storing a platform rather than a wire format: `groq` is
+    /// selectable here, and the endpoint, default model and key requirement all
+    /// follow from the catalog instead of a table in this file.
+    #[test]
+    fn a_catalog_platform_is_usable_from_the_settings_form() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AgentState::init(dir.path());
+        store(&state, "groq", None, Some("gsk-test"));
+
+        assert_eq!(state.view().provider.as_deref(), Some("groq"));
+        let config = state.config().expect("a configured platform");
+        assert_eq!(config.platform, "groq");
+        // Not api.openai.com: the endpoint came from the catalog.
+        assert!(
+            config.base_url.contains("groq.com"),
+            "{}",
+            config.base_url
+        );
+        assert_eq!(
+            config.model,
+            catalog::spec("groq").unwrap().default_model
+        );
+    }
+
+    /// A legacy alias still resolves, so an install that stored `claude` is not
+    /// asked to choose again after the upgrade.
+    #[test]
+    fn a_legacy_alias_still_resolves_to_a_platform() {
+        assert_eq!(platform_id("Claude").unwrap(), "anthropic");
+        assert_eq!(platform_id(" gpt ").unwrap(), "openai");
+        assert_eq!(platform_id("groq").unwrap(), "groq");
+        assert!(platform_id("nope").is_err());
+    }
+
+    /// A keyless gateway is ready without a key; a keyed one is not.
+    #[test]
+    fn readiness_follows_the_catalog_not_a_hard_coded_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AgentState::init(dir.path());
+
+        store(&state, "kilo", None, None);
+        assert!(state.is_ready(), "kilo is keyless");
+        assert!(state.config().is_ok());
+
+        store(&state, "mistral", None, None);
+        assert!(!state.is_ready(), "mistral needs a key");
+        assert!(state.config().is_err());
     }
 
     #[test]

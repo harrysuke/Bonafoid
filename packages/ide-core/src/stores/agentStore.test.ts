@@ -14,7 +14,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { configurePlatform } from '../platform/registry';
 import type { PlatformApi } from '../platform/types';
-import type { AgentChatHandle, AgentChatRequest, AgentEvent } from '../types/agent';
+import type { AgentChatHandle, AgentChatRequest, AgentEvent, AgentProvider } from '../types/agent';
 import type { Project } from '../types/project';
 import {
   useAgentStore,
@@ -757,5 +757,123 @@ describe('agentStore', () => {
     await useAgentStore.getState().loadProviders();
     expect(useAgentStore.getState().providers).toEqual([]);
     expect(useAgentStore.getState().providerId).toBeNull();
+  });
+
+  /** A provider row as the server sends it, with the fields a test cares about. */
+  function row(overrides: Partial<AgentProvider> = {}): AgentProvider {
+    return {
+      id: '7',
+      platform: 'kilo',
+      label: 'Kilo',
+      kind: 'openai',
+      model: 'kilo/auto',
+      models: [],
+      status: 'unknown',
+      enabled: true,
+      base_url: null,
+      keyless: true,
+      unavailable: null,
+      ...overrides,
+    };
+  }
+
+  it('adds a provider through the host and re-reads the catalog', async () => {
+    let rows: AgentProvider[] = [];
+    const agentProviders = vi.fn(async () => ({ providers: rows, default: null, reason: null }));
+    const agentAddProvider = vi.fn(async () => {
+      rows = [row()];
+      return rows[0];
+    });
+    configurePlatform(
+      stubPlatform({
+        agentChat: vi.fn() as never,
+        agentProviders: agentProviders as never,
+        agentAddProvider: agentAddProvider as never,
+      }),
+    );
+
+    await useAgentStore.getState().addProvider({ platform: 'kilo' });
+
+    expect(agentAddProvider).toHaveBeenCalledWith({ platform: 'kilo' });
+    // The list is re-read rather than patched: `unavailable` and the default
+    // selection are the server's answers, and the client cannot derive them.
+    expect(agentProviders).toHaveBeenCalledTimes(1);
+    expect(useAgentStore.getState().providers).toHaveLength(1);
+    expect(useAgentStore.getState().providerId).toBe('7');
+  });
+
+  it('re-reads the catalog after a removal, so the selection falls back', async () => {
+    let rows: AgentProvider[] = [row()];
+    const agentProviders = vi.fn(async () => ({ providers: rows, default: null, reason: null }));
+    const agentRemoveProvider = vi.fn(async () => {
+      rows = [];
+    });
+    configurePlatform(
+      stubPlatform({
+        agentChat: vi.fn() as never,
+        agentProviders: agentProviders as never,
+        agentRemoveProvider: agentRemoveProvider as never,
+      }),
+    );
+
+    await useAgentStore.getState().loadProviders();
+    expect(useAgentStore.getState().providerId).toBe('7');
+
+    await useAgentStore.getState().removeProvider('7');
+    expect(agentRemoveProvider).toHaveBeenCalledWith('7');
+    expect(useAgentStore.getState().providers).toEqual([]);
+    expect(useAgentStore.getState().providerId).toBeNull();
+  });
+
+  it('returns a failed health check instead of throwing', async () => {
+    const agentTestProvider = vi.fn(async () => ({
+      ok: false,
+      status: 'invalid',
+      detail: 'HTTP 401: invalid api key',
+      latency_ms: 42,
+    }));
+    configurePlatform(
+      stubPlatform({
+        agentChat: vi.fn() as never,
+        agentProviders: (async () => ({
+          providers: [],
+          default: null,
+          reason: null,
+        })) as never,
+        agentTestProvider: agentTestProvider as never,
+      }),
+    );
+
+    // A wrong key is an answer, not an error: the panel renders it inline.
+    const outcome = await useAgentStore.getState().testProvider('3');
+    expect(outcome.ok).toBe(false);
+    expect(outcome.status).toBe('invalid');
+    expect(outcome.detail).toContain('401');
+  });
+
+  it('surfaces the server message when a draft is refused', async () => {
+    const agentProviders = vi.fn(async () => ({ providers: [], default: null, reason: null }));
+    configurePlatform(
+      stubPlatform({
+        agentChat: vi.fn() as never,
+        agentProviders: agentProviders as never,
+        agentAddProvider: (async () => {
+          throw new Error('Groq needs an API key');
+        }) as never,
+      }),
+    );
+
+    await expect(
+      useAgentStore.getState().addProvider({ platform: 'groq' }),
+    ).rejects.toThrow('Groq needs an API key');
+    // A refused draft must not trigger a reload that would hide the message.
+    expect(agentProviders).not.toHaveBeenCalled();
+  });
+
+  it('says so when the host cannot manage providers', async () => {
+    configurePlatform(stubPlatform({ agentChat: vi.fn() as never }));
+    await expect(
+      useAgentStore.getState().addProvider({ platform: 'kilo' }),
+    ).rejects.toThrow(/cannot add a provider/);
   });
 });

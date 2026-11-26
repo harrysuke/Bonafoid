@@ -1,9 +1,12 @@
 //! Provider abstraction. The orchestrator only ever sees [`ChatResponse`].
 //!
 //! Three wire formats, one shape. All provider-specific code lives in this
-//! module tree, so an API change is a one-file edit.
+//! module tree, so an API change is a one-file edit. Which platform needs which
+//! format, endpoint and headers is not decided here — [`catalog`] owns that,
+//! and both this module and the IDE server read it.
 
 pub mod anthropic;
+pub mod catalog;
 pub mod http;
 pub mod ollama;
 pub mod openai;

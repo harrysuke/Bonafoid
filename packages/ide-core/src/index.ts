@@ -89,6 +89,10 @@ export type {
   AgentConversationMessage,
   AgentProvider,
   AgentProviderList,
+  AgentPlatform,
+  AgentKeyDraft,
+  AgentKeyPatch,
+  AgentProbeResult,
 } from './types/agent';
 export type { AgentCapabilities, AgentSettings, AgentSettingsInput } from './platform/types';
 

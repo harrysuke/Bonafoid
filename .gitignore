@@ -1,6 +1,7 @@
 # Rust
 /target/
 /target-verify/
+/target-agent-verify/
 apps/*/target/
 apps/ide-tauri/src-tauri/target/
 **/*.rs.bk

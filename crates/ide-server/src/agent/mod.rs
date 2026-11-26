@@ -29,10 +29,10 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderMap, HeaderValue};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -110,7 +110,19 @@ pub fn agent_router() -> Router<AppState> {
         )
         // The provider picker. Not project-scoped: a key belongs to the
         // deployment, not to a project, and the drawer asks once per session.
-        .route("/api/v1/agent/providers", get(list_providers))
+        .route(
+            "/api/v1/agent/providers",
+            get(list_providers).post(create_provider),
+        )
+        // What this build *could* run, whether or not a key row exists yet.
+        // The picker needs it to offer a provider that was never configured.
+        .route("/api/v1/agent/providers/catalog", get(list_platforms))
+        .route(
+            "/api/v1/agent/providers/:id",
+            patch(update_provider).delete(delete_provider),
+        )
+        // A stored key is a claim. This turns it into a fact.
+        .route("/api/v1/agent/providers/:id/test", post(probe_provider))
 }
 
 /// `GET /api/v1/agent/providers` — what the assistant can run, and with which
@@ -125,6 +137,124 @@ async fn list_providers(
 ) -> Result<Json<CatalogView>, ApiError> {
     access::require_owner(&state.db, &user).await?;
     Ok(Json(state.agent.catalog_view().await))
+}
+
+/// `GET /api/v1/agent/providers/catalog` — every platform this build supports.
+///
+/// Same table the request builder uses, so the list cannot claim support the
+/// adapter does not have. Keyless platforms appear here too: they are usable
+/// without a key row, which is exactly what the picker should show.
+async fn list_platforms(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<Vec<keys::PlatformInfo>>, ApiError> {
+    access::require_owner(&state.db, &user).await?;
+    Ok(Json(keys::supported_platforms()))
+}
+
+/// A row id from the path. Non-numeric ids cannot name a key row, so they are
+/// a bad request rather than a 404: the caller has the wrong *shape*, not a
+/// stale reference.
+fn row_id(raw: &str) -> Result<i64, ApiError> {
+    raw.trim()
+        .parse::<i64>()
+        .map_err(|_| ApiError::BadRequest(format!("`{raw}` is not a provider row id")))
+}
+
+/// The picker's entry for one row, after a write.
+///
+/// The write routes answer with the row rather than a bare 204 because the
+/// client cannot compute `unavailable` or the resolved default model: those
+/// come from the catalog, and a second round trip just to re-read one row
+/// would let the two answers disagree.
+async fn row_view(state: &AppState, id: i64) -> Result<keys::ProviderInfo, ApiError> {
+    state
+        .agent
+        .catalog_view()
+        .await
+        .providers
+        .into_iter()
+        .find(|provider| provider.id == id.to_string())
+        .ok_or(ApiError::Internal)
+}
+
+/// `POST /api/v1/agent/providers` — add a provider key.
+///
+/// Validation happens before anything is sealed or stored, so a rejected draft
+/// leaves no row behind. The credential is sealed with this server's vault;
+/// the plaintext never reaches the database, a log line or the response.
+async fn create_provider(
+    State(state): State<AppState>,
+    user: AuthUser,
+    headers: HeaderMap,
+    Json(body): Json<keys::KeyDraft>,
+) -> Result<(StatusCode, Json<keys::ProviderInfo>), ApiError> {
+    require_csrf(&headers)?;
+    access::require_owner(&state.db, &user).await?;
+
+    let id = keys::insert_key(&state.db, &user.id, &body).await?;
+    // Without this the picker would keep serving the list it built before the
+    // row existed, and the operator would see their new key vanish.
+    state.agent.invalidate_catalog().await;
+    Ok((StatusCode::CREATED, Json(row_view(&state, id).await?)))
+}
+
+/// `PATCH /api/v1/agent/providers/:id` — change one row.
+///
+/// `api_key: ""` clears the credential and `base_url: ""` drops an override;
+/// omitting a field leaves it as it was. That distinction is why this is a
+/// patch and not a put: a caller that only wants to disable a row must not
+/// have to resend the key it cannot see.
+async fn update_provider(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<keys::KeyPatch>,
+) -> Result<Json<keys::ProviderInfo>, ApiError> {
+    require_csrf(&headers)?;
+    access::require_owner(&state.db, &user).await?;
+
+    let id = row_id(&id)?;
+    keys::update_key(&state.db, id, &body).await?;
+    state.agent.invalidate_catalog().await;
+    Ok(Json(row_view(&state, id).await?))
+}
+
+/// `DELETE /api/v1/agent/providers/:id` — remove a row and its sealed key.
+async fn delete_provider(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    require_csrf(&headers)?;
+    access::require_owner(&state.db, &user).await?;
+
+    keys::delete_key(&state.db, row_id(&id)?).await?;
+    state.agent.invalidate_catalog().await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /api/v1/agent/providers/:id/test` — spend one tiny completion to find
+/// out whether the stored credential actually works.
+///
+/// A 200 with `ok: false` is the normal failure shape: the provider answered,
+/// and the answer was "no". Only a row that cannot even be built (no vault, no
+/// base URL) is a 503.
+async fn probe_provider(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<keys::ProbeOutcome>, ApiError> {
+    require_csrf(&headers)?;
+    access::require_owner(&state.db, &user).await?;
+
+    let outcome = keys::probe_key(&state.db, row_id(&id)?).await?;
+    // The check wrote a new `status`, so the cached list is now stale.
+    state.agent.invalidate_catalog().await;
+    Ok(Json(outcome))
 }
 
 /// Body of the chat request.
@@ -770,9 +900,8 @@ mod tests {
     /// The id the project row and the project document agree on.
     const PROJECT_ID: &str = "11111111-1111-4111-8111-111111111111";
 
-    /// A database with one user, one tenant and one project, plus a router
-    /// whose assistant is `runtime`.
-    async fn app(runtime: AgentRuntime) -> (axum::Router, sea_orm::DatabaseConnection) {
+    /// A database with one user, one tenant and one project.
+    async fn seeded_db() -> sea_orm::DatabaseConnection {
         let db = crate::db::connect_sqlite_memory().await.expect("db");
         // The tenancy and project tables carry foreign keys, so the rows have
         // to exist before the project does.
@@ -817,8 +946,33 @@ mod tests {
         .await
         .expect("insert project");
 
-        let state = crate::server::AppState::new(db.clone(), keys()).with_agent(Arc::new(runtime));
-        (crate::server::build_router(state, "apps/ide-web/dist"), db)
+        db
+    }
+
+    /// A router over an already-seeded database.
+    ///
+    /// Separate from [`app`] so a test can build a runtime that reads the same
+    /// rows — the key-management routes need the database *and* the runtime
+    /// pointed at it.
+    fn router_over(db: sea_orm::DatabaseConnection, runtime: AgentRuntime) -> axum::Router {
+        let state = crate::server::AppState::new(db, keys()).with_agent(Arc::new(runtime));
+        crate::server::build_router(state, "apps/ide-web/dist")
+    }
+
+    /// The common case: a fresh database and a router whose assistant is
+    /// `runtime`.
+    async fn app(runtime: AgentRuntime) -> (axum::Router, sea_orm::DatabaseConnection) {
+        let db = seeded_db().await;
+        let router = router_over(db.clone(), runtime);
+        (router, db)
+    }
+
+    /// A router whose assistant reads `agent_api_keys`, sharing the database.
+    async fn app_with_keys() -> (axum::Router, sea_orm::DatabaseConnection) {
+        let db = seeded_db().await;
+        let runtime = AgentRuntime::from_env_and_db(db.clone());
+        let router = router_over(db.clone(), runtime);
+        (router, db)
     }
 
     fn chat_request(body: &str, token: Option<String>) -> Request<Body> {
@@ -943,6 +1097,35 @@ mod tests {
         let text = String::from_utf8_lossy(&body);
         assert!(!text.contains("api_key"), "{text}");
         assert!(!text.contains("ciphertext"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn the_platform_catalog_lists_every_supported_provider() {
+        let (app, _db) = app(AgentRuntime::disabled("test".into())).await;
+        let request = Request::builder()
+            .uri("/api/v1/agent/providers/catalog")
+            .header("authorization", bearer(vec!["owner".into()]))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("json body");
+        let platforms: Vec<serde_json::Value> = serde_json::from_slice(&body).expect("valid JSON");
+        // Every platform the request builder can reach is advertised here, so
+        // the picker cannot be narrower than the adapter.
+        for expected in ["google", "cohere", "kilo", "opencode", "cloudflare", "custom"] {
+            assert!(
+                platforms
+                    .iter()
+                    .any(|platform| platform["platform"] == expected),
+                "{expected} is missing from the catalog"
+            );
+        }
+        let text = String::from_utf8_lossy(&body);
+        assert!(!text.contains("api_key"), "{text}");
     }
 
     #[tokio::test]
@@ -1196,5 +1379,255 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(detail.status(), StatusCode::NOT_FOUND);
+    }
+
+    /* -------------------------------------------------------------- *
+     * Key management
+     * -------------------------------------------------------------- */
+
+    fn provider_request(
+        method: &str,
+        uri: &str,
+        body: Option<&str>,
+        token: String,
+    ) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("authorization", token);
+        let builder = match body {
+            Some(body) => builder
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string())),
+            None => builder.body(Body::empty()),
+        };
+        builder.unwrap()
+    }
+
+    /// The picker's write path end to end, on a platform that needs no
+    /// credential so the test does not depend on a vault key being present.
+    #[tokio::test]
+    async fn a_provider_can_be_added_disabled_and_removed() {
+        let (app, _db) = app_with_keys().await;
+        let token = bearer(vec!["owner".into()]);
+
+        let created = app
+            .clone()
+            .oneshot(provider_request(
+                "POST",
+                "/api/v1/agent/providers",
+                Some(r#"{"platform":"kilo"}"#),
+                token.clone(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let body = body_text(created).await;
+        let value: serde_json::Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(value["platform"], "kilo");
+        assert_eq!(value["keyless"], true);
+        assert_eq!(value["status"], "unknown", "a new row has not been checked");
+        assert!(value["unavailable"].is_null(), "{value}");
+        // The row is answered from the catalog, so the drawer does not have to
+        // guess the default model.
+        assert!(!value["model"].as_str().unwrap_or_default().is_empty());
+        // Nothing in the response could carry a credential.
+        assert!(!body.contains("api_key"), "{body}");
+        assert!(!body.contains("ciphertext"), "{body}");
+
+        let id = value["id"].as_str().expect("id").to_string();
+        let uri = format!("/api/v1/agent/providers/{id}");
+
+        let disabled = app
+            .clone()
+            .oneshot(provider_request(
+                "PATCH",
+                &uri,
+                Some(r#"{"enabled":false}"#),
+                token.clone(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(disabled.status(), StatusCode::OK);
+        let value: serde_json::Value =
+            serde_json::from_str(&body_text(disabled).await).expect("json");
+        assert_eq!(value["enabled"], false);
+        assert_eq!(value["unavailable"], "disabled");
+
+        let removed = app
+            .clone()
+            .oneshot(provider_request("DELETE", &uri, None, token.clone()))
+            .await
+            .unwrap();
+        assert_eq!(removed.status(), StatusCode::NO_CONTENT);
+
+        let listed = app
+            .oneshot(get_request("/api/v1/agent/providers", token))
+            .await
+            .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&body_text(listed).await).expect("json");
+        // Counted by platform rather than by length: a deployment that also
+        // sets `AGENT_PROVIDER` legitimately lists an `env` row first.
+        let rows = value["providers"].as_array().expect("providers");
+        assert!(
+            rows.iter().all(|row| row["platform"] != "kilo"),
+            "the removed row is still listed: {value}"
+        );
+    }
+
+    /// The regression the `RwLock` in `AgentRuntime` exists for: the catalog is
+    /// cached, so a write that did not invalidate it would leave the operator
+    /// staring at a list without the key they just added.
+    #[tokio::test]
+    async fn a_new_provider_is_visible_without_a_restart() {
+        let (app, _db) = app_with_keys().await;
+        let token = bearer(vec!["owner".into()]);
+
+        // First read fills the cache with an empty catalog.
+        let empty = app
+            .clone()
+            .oneshot(get_request("/api/v1/agent/providers", token.clone()))
+            .await
+            .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&body_text(empty).await).expect("json");
+        assert!(
+            value["providers"]
+                .as_array()
+                .expect("providers")
+                .iter()
+                .all(|row| row["platform"] != "kilo"),
+            "{value}"
+        );
+
+        let created = app
+            .clone()
+            .oneshot(provider_request(
+                "POST",
+                "/api/v1/agent/providers",
+                Some(r#"{"platform":"kilo"}"#),
+                token.clone(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+
+        let listed = app
+            .oneshot(get_request("/api/v1/agent/providers", token))
+            .await
+            .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&body_text(listed).await).expect("json");
+        let added = value["providers"]
+            .as_array()
+            .expect("providers")
+            .iter()
+            .find(|row| row["platform"] == "kilo")
+            .unwrap_or_else(|| {
+                panic!("the picker still serves the list it built before the write: {value}")
+            });
+        // A usable row is the default choice when the environment sets none.
+        assert!(added["unavailable"].is_null(), "{added}");
+        assert!(!value["default"].is_null(), "{value}");
+    }
+
+    /// Validation runs before anything is sealed or stored, so a rejected
+    /// draft is a 400 and leaves the table untouched.
+    #[tokio::test]
+    async fn a_draft_that_needs_a_key_is_refused() {
+        let (app, db) = app_with_keys().await;
+        let response = app
+            .oneshot(provider_request(
+                "POST",
+                "/api/v1/agent/providers",
+                Some(r#"{"platform":"groq"}"#),
+                bearer(vec!["owner".into()]),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = body_text(response).await;
+        assert!(body.contains("API key"), "{body}");
+
+        let rows = db
+            .query_one(sea_orm::Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Sqlite,
+                "SELECT COUNT(*) AS n FROM agent_api_keys",
+                vec![],
+            ))
+            .await
+            .unwrap()
+            .and_then(|row| row.try_get::<i64>("", "n").ok())
+            .unwrap_or(-1);
+        assert_eq!(rows, 0, "a rejected draft must not store a row");
+    }
+
+    #[tokio::test]
+    async fn key_management_is_owner_only() {
+        let (app, _db) = app_with_keys().await;
+        let response = app
+            .oneshot(provider_request(
+                "POST",
+                "/api/v1/agent/providers",
+                Some(r#"{"platform":"kilo"}"#),
+                bearer_for(
+                    "user-2",
+                    "someone-else@example.com",
+                    vec!["owner".into()],
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// A key row is deployment-wide storage, so the write routes are behind
+    /// the same authentication as everything else.
+    #[tokio::test]
+    async fn adding_a_provider_requires_authentication() {
+        let (app, _db) = app_with_keys().await;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/agent/providers")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"platform":"kilo"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_provider_id_that_is_not_a_number_is_a_bad_request() {
+        let (app, _db) = app_with_keys().await;
+        let response = app
+            .oneshot(provider_request(
+                "DELETE",
+                "/api/v1/agent/providers/not-a-row",
+                None,
+                bearer(vec!["owner".into()]),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_missing_provider_is_a_404() {
+        let (app, _db) = app_with_keys().await;
+        let response = app
+            .oneshot(provider_request(
+                "DELETE",
+                "/api/v1/agent/providers/999",
+                None,
+                bearer(vec!["owner".into()]),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }

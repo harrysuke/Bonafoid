@@ -90,8 +90,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.hadolint.yaml` sets the threshold to `error` and documents why apt package
   versions are not pinned.
 
+**Provider keys, managed from the drawer** (`crates/ide-server`, `packages/ide-core`)
+- `POST /api/v1/agent/providers`, `PATCH`/`DELETE
+  /api/v1/agent/providers/:id` and `POST /api/v1/agent/providers/:id/test`.
+  A platform with no row yet — `google`, a private gateway — is now a form
+  instead of a migration script.
+- Validation runs against the same catalog the request builder uses, so a
+  refused draft is a 400 naming the fix (`Groq needs an API key`, `Cloudflare
+  credentials are account_id:api_token`) and leaves no row behind. Cloudflare's
+  account-scoped credential is checked here rather than at the first completion.
+- `PATCH` distinguishes *absent* from *empty*: a caller that only wants to
+  disable a row never resends a key it cannot see, while `api_key: ""` is the
+  explicit way to clear one.
+- `POST …/test` spends one 8-token completion and records the verdict in
+  `status`, so `healthy` / `invalid` / `error` stops being a guess. A provider
+  saying no is `200` with `ok: false`, not a failed request.
+- The runtime's provider catalog is now a `RwLock` instead of a `OnceCell`, so a
+  write invalidates it: a new key is selectable immediately, with no restart and
+  no stale list.
+- `ServerProviderPanel` in the shared IDE: the settings panel renders a key list
+  with per-row test, enable/disable and delete for a server host, and keeps the
+  existing single-provider form for the desktop shell.
+- `Validated` implements `Debug` by hand, redacting the credential — a
+  validation failure can be logged without printing a key.
+- **The desktop shell now stores a platform, not a wire format.** Its settings
+  form previously offered `anthropic` / `openai` / `ollama` and derived the
+  endpoint from the format, so `groq` or `google` were reachable only through
+  `AGENT_PROVIDER`. It now validates against the catalog, builds through
+  `AgentConfig::for_platform`, and reports `provider_details` so the form shows
+  each platform's real name and stops claiming a keyless one needs a key. A
+  stored `claude` / `gpt` / `local` alias still resolves.
+
 ### Fixed
 
+- **Cohere rejected every assistant request with HTTP 422** (`invalid type:
+  parameter 'parameters' is of type bool but should be of type Object`).
+  `schemars` renders a `serde_json::Value` field as the boolean schema `true`,
+  so six tools (`add_node`, `update_node`, `update_edge`, `simulate_workflow`,
+  `add_variable`, `update_variable`) advertised `"config": true` and friends.
+  That is legal draft-07 and several gateways accept it, but Cohere validates
+  deeply and fails the whole tool list over one such property. `schema_for` now
+  normalises every boolean subschema to its object form (`true` → `{}`,
+  `false` → `{"not": {}}`), which means the same thing and is accepted
+  everywhere (`crates/mcp/src/tools/mod.rs`).
 - **`Dockerfile` did not build at all.** Its manifest list was hand-maintained
   and had missed `crates/mcp` and `crates/deploy`, so cargo refused to load the
   workspace. Both Dockerfiles now copy `crates/*/Cargo.toml` with

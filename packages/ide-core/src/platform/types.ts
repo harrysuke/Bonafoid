@@ -16,6 +16,11 @@ import type {
   AgentConversation,
   AgentConversationDetail,
   AgentEvent,
+  AgentKeyDraft,
+  AgentKeyPatch,
+  AgentPlatform,
+  AgentProbeResult,
+  AgentProvider,
   AgentProviderList,
 } from '../types/agent';
 
@@ -32,10 +37,32 @@ export interface AgentCapabilities {
   local: boolean;
   /** Web, or a desktop connected to a server. */
   remote: boolean;
-  /** Provider kinds this host can drive, for the settings screen. */
+  /**
+   * Platform ids this host can drive, for the settings screen.
+   *
+   * Platform ids, not wire formats: `groq` and `google` share the `openai`
+   * format but have their own endpoint, default model and key rule.
+   */
   providers: string[];
+  /**
+   * Display and key metadata for `providers`, when the host can supply it.
+   *
+   * Optional and additive: a host that predates it still lists `providers`,
+   * and the settings form falls back to the raw id and to "the platform
+   * decides" for the key hint rather than duplicating the catalog here.
+   * Snake-case like the rest of this wire shape (`has_key`, `base_url`).
+   */
+  provider_details?: AgentPlatformOption[];
   /** Whether this host can build and preview a generated app. */
   preview: boolean;
+}
+
+/** One entry in `AgentCapabilities.provider_details`. */
+export interface AgentPlatformOption {
+  platform: string;
+  label: string;
+  /** True when the platform serves requests with no credential. */
+  keyless: boolean;
 }
 
 /**
@@ -889,6 +916,38 @@ export interface PlatformApi {
    * lives in its own settings panel) omits it, and the drawer shows no picker.
    */
   agentProviders?(): Promise<AgentProviderList>;
+
+  /**
+   * Every provider the server supports, configured or not.
+   *
+   * Optional for the same reason as `agentProviders`: a host with one fixed
+   * provider has nothing to offer here. The drawer uses it to show a provider
+   * that has no key row yet, with the model ids it accepts.
+   */
+  agentPlatforms?(): Promise<AgentPlatform[]>;
+
+  /**
+   * Add a provider key on the host.
+   *
+   * Optional, and separate from `agentSettingsSave` on purpose: the desktop
+   * shell owns exactly one provider and stores it in its own app-data file,
+   * while a server deployment stores many rows in `agent_api_keys`. A host
+   * implements the shape it actually has.
+   */
+  agentAddProvider?(draft: AgentKeyDraft): Promise<AgentProvider>;
+
+  /** Change one provider row. Omitted fields are left alone; `''` clears. */
+  agentUpdateProvider?(id: string, patch: AgentKeyPatch): Promise<AgentProvider>;
+
+  /** Remove a provider row and its sealed credential. */
+  agentRemoveProvider?(id: string): Promise<void>;
+
+  /**
+   * Spend one tiny completion to find out whether a stored key works.
+   *
+   * `ok: false` is a normal result, not a rejected promise.
+   */
+  agentTestProvider?(id: string): Promise<AgentProbeResult>;
 
   /** This project's conversations, newest first (the history menu). */
   agentConversations?(projectId: string): Promise<AgentConversation[]>;

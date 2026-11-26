@@ -27,7 +27,10 @@ use super::keys::{KeyCatalog, ProviderInfo, Resolved};
 /// The provider chosen by the environment, if one is.
 struct EnvProvider {
     provider: Arc<dyn LlmProvider>,
+    /// The platform id (`groq`, `anthropic`, …).
     platform: String,
+    /// The wire format, which several platforms share.
+    kind: String,
     model: String,
 }
 
@@ -38,7 +41,12 @@ pub struct AgentRuntime {
     db: Option<DatabaseConnection>,
     /// Loaded on first use: a server whose operator never opens the assistant
     /// should not pay for the query, and the table may not exist yet at boot.
-    catalog: tokio::sync::OnceCell<Arc<KeyCatalog>>,
+    ///
+    /// A `RwLock` rather than a `OnceCell` because the key-management routes
+    /// write rows: adding a provider must not require a restart, so the slot
+    /// has to be droppable. The read path is unchanged — one query per process
+    /// until something is written.
+    catalog: tokio::sync::RwLock<Option<Arc<KeyCatalog>>>,
     chat: ChatOptions,
     limits: Limits,
     /// Why the assistant is off, for the 503 body. `None` when it is on.
@@ -72,7 +80,7 @@ impl AgentRuntime {
                 return Self {
                     env: None,
                     db,
-                    catalog: tokio::sync::OnceCell::new(),
+                    catalog: tokio::sync::RwLock::new(None),
                     chat: ChatOptions {
                         max_tokens: defaults.max_tokens,
                         temperature: defaults.temperature,
@@ -93,7 +101,7 @@ impl AgentRuntime {
                 return Self {
                     env: None,
                     db,
-                    catalog: tokio::sync::OnceCell::new(),
+                    catalog: tokio::sync::RwLock::new(None),
                     chat: ChatOptions {
                         max_tokens: config.max_tokens,
                         temperature: config.temperature,
@@ -107,11 +115,14 @@ impl AgentRuntime {
         Self {
             env: Some(EnvProvider {
                 provider,
-                platform: config.kind.as_str().to_string(),
+                // The catalog platform, not the wire format: a deployment that
+                // sets `AGENT_PROVIDER=groq` must report `groq`, not `openai`.
+                platform: config.platform.clone(),
+                kind: config.kind.as_str().to_string(),
                 model: config.model.clone(),
             }),
             db,
-            catalog: tokio::sync::OnceCell::new(),
+            catalog: tokio::sync::RwLock::new(None),
             chat: ChatOptions {
                 max_tokens: config.max_tokens,
                 temperature: config.temperature,
@@ -127,11 +138,12 @@ impl AgentRuntime {
         Self {
             env: Some(EnvProvider {
                 platform: provider.name().to_string(),
+                kind: provider.name().to_string(),
                 model: provider.model().to_string(),
                 provider,
             }),
             db: None,
-            catalog: tokio::sync::OnceCell::new(),
+            catalog: tokio::sync::RwLock::new(None),
             chat: ChatOptions::default(),
             limits,
             disabled_reason: None,
@@ -144,7 +156,7 @@ impl AgentRuntime {
         Self {
             env: None,
             db: None,
-            catalog: tokio::sync::OnceCell::new(),
+            catalog: tokio::sync::RwLock::new(None),
             chat: ChatOptions::default(),
             limits: Limits::default(),
             disabled_reason: Some(reason),
@@ -153,16 +165,23 @@ impl AgentRuntime {
 
     /// The key catalog, loaded once. `None` when this host has no database.
     async fn catalog(&self) -> Option<Arc<KeyCatalog>> {
-        if let Some(catalog) = self.catalog.get() {
-            return Some(catalog.clone());
+        // Fast path: a clone of the `Arc`, so a picker open costs no lock
+        // contention and no query.
+        if let Some(catalog) = self.catalog.read().await.clone() {
+            return Some(catalog);
         }
         let db = self.db.as_ref()?;
+
+        // Slow path, under the write lock: a burst of picker opens must not
+        // each run the same query.
+        let mut slot = self.catalog.write().await;
+        if let Some(catalog) = slot.clone() {
+            return Some(catalog);
+        }
         match KeyCatalog::load(db).await {
             Ok(catalog) => {
                 let catalog = Arc::new(catalog);
-                // A concurrent first call may have won the race; either value
-                // is equivalent, so the loser is dropped.
-                let _ = self.catalog.set(catalog.clone());
+                *slot = Some(catalog.clone());
                 Some(catalog)
             }
             Err(error) => {
@@ -170,6 +189,16 @@ impl AgentRuntime {
                 None
             }
         }
+    }
+
+    /// Forget the cached catalog so the next read sees a key that was just
+    /// written.
+    ///
+    /// The reload is deferred to the next reader on purpose: a create/update/
+    /// delete only has to make the *next* answer correct, and doing the query
+    /// here would make the write wait for a read nobody asked for.
+    pub async fn invalidate_catalog(&self) {
+        *self.catalog.write().await = None;
     }
 
     /// What the drawer's picker shows, plus which entry a bare run uses.
@@ -181,12 +210,15 @@ impl AgentRuntime {
                 id: "env".to_string(),
                 platform: env.platform.clone(),
                 label: "Server default".to_string(),
-                kind: env.platform.clone(),
+                kind: env.kind.clone(),
                 model: env.model.clone(),
                 models: vec![env.model.clone()],
                 status: "healthy".to_string(),
                 enabled: true,
                 base_url: None,
+                // A key configured through the environment is by definition
+                // already satisfied.
+                keyless: false,
                 unavailable: None,
             });
         }

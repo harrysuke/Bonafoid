@@ -25,11 +25,20 @@ impl ProviderKind {
         }
     }
 
+    /// Parse a provider id into its wire format.
+    ///
+    /// Every platform in [`crate::llm::catalog`] is accepted: `groq`, `zhipu`
+    /// and the rest all resolve to [`ProviderKind::OpenAi`], because that is
+    /// the dialect they speak. The old aliases still work.
     pub fn parse(value: &str) -> Result<Self, AgentError> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "anthropic" | "claude" => Ok(ProviderKind::Anthropic),
-            "openai" | "gpt" => Ok(ProviderKind::OpenAi),
-            "ollama" | "local" => Ok(ProviderKind::Ollama),
+        let normalized = value.trim().to_ascii_lowercase();
+        if let Some(spec) = crate::llm::catalog::spec(&normalized) {
+            return Ok(spec.kind);
+        }
+        match normalized.as_str() {
+            "claude" => Ok(ProviderKind::Anthropic),
+            "gpt" => Ok(ProviderKind::OpenAi),
+            "local" => Ok(ProviderKind::Ollama),
             other => Err(AgentError::UnknownProvider(other.to_string())),
         }
     }
@@ -90,10 +99,16 @@ impl Limits {
 /// Provider settings for one process.
 #[derive(Clone)]
 pub struct AgentConfig {
+    /// The platform id (`groq`, `zhipu`, …), for reporting. `kind` is the wire
+    /// format, which several platforms share.
+    pub platform: String,
     pub kind: ProviderKind,
     pub model: String,
     pub base_url: String,
     pub api_key: Option<String>,
+    /// Extra request headers the platform needs (OpenRouter's attribution
+    /// headers, for instance). Static per platform, never secret.
+    pub headers: Vec<(String, String)>,
     pub max_tokens: u32,
     pub temperature: f32,
     /// Whether runs stream `agent_delta` frames while the model writes.
@@ -109,11 +124,15 @@ pub struct AgentConfig {
 impl std::fmt::Debug for AgentConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AgentConfig")
+            .field("platform", &self.platform)
             .field("kind", &self.kind)
             .field("model", &self.model)
             .field("base_url", &self.base_url)
             // Never print the key, not even a prefix.
             .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            // Header *names* are static and safe; a value could carry a token
+            // on a future platform, so only the count is printed.
+            .field("headers", &self.headers.len())
             .field("max_tokens", &self.max_tokens)
             .field("temperature", &self.temperature)
             .field("stream_deltas", &self.stream_deltas)
@@ -126,27 +145,47 @@ impl AgentConfig {
     /// Read the environment. Returns `NotConfigured` when no provider is
     /// selected, which is the normal state of a deployment that has not set an
     /// LLM key — the IDE still works, the assistant drawer is hidden.
+    ///
+    /// `AGENT_PROVIDER` may name any platform in the catalog. A platform the
+    /// catalog knows brings its own endpoint, headers and key requirement; the
+    /// old `anthropic` / `openai` / `ollama` names keep working through the
+    /// legacy path below.
     pub fn from_env() -> Result<Self, AgentError> {
-        let kind = match std::env::var("AGENT_PROVIDER") {
-            Ok(value) if !value.trim().is_empty() => ProviderKind::parse(&value)?,
+        let platform = match std::env::var("AGENT_PROVIDER") {
+            Ok(value) if !value.trim().is_empty() => value.trim().to_ascii_lowercase(),
             _ => return Err(AgentError::NotConfigured),
         };
         let api_key = std::env::var("AGENT_API_KEY")
             .ok()
             .filter(|value| !value.trim().is_empty());
-        // Ollama runs locally and needs no key; the hosted APIs do.
+        let model = std::env::var("AGENT_MODEL")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
+        let base_url = std::env::var("AGENT_BASE_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
+
+        if let Some(spec) = crate::llm::catalog::spec(&platform) {
+            // Ollama runs locally and the keyless gateways accept anonymous
+            // calls; the rest cannot run without a credential.
+            if api_key.is_none() && !spec.keyless {
+                return Err(AgentError::NotConfigured);
+            }
+            return Self::for_platform(
+                spec.platform,
+                model.unwrap_or_default(),
+                base_url,
+                api_key,
+            );
+        }
+
+        // Legacy aliases: `claude`, `gpt`, `local`.
+        let kind = ProviderKind::parse(&platform)?;
         if api_key.is_none() && kind != ProviderKind::Ollama {
             return Err(AgentError::NotConfigured);
         }
-        let model = std::env::var("AGENT_MODEL")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| kind.default_model().to_string());
-        let base_url = std::env::var("AGENT_BASE_URL")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| kind.default_base_url().to_string());
-
+        let model = model.unwrap_or_else(|| kind.default_model().to_string());
+        let base_url = base_url.unwrap_or_else(|| kind.default_base_url().to_string());
         Ok(Self::for_provider(kind, model, base_url, api_key))
     }
 
@@ -157,10 +196,12 @@ impl AgentConfig {
     /// same for all of them, so they are read once here and copied.
     pub fn defaults() -> Self {
         Self {
+            platform: ProviderKind::Anthropic.as_str().to_string(),
             kind: ProviderKind::Anthropic,
             model: ProviderKind::Anthropic.default_model().to_string(),
             base_url: ProviderKind::Anthropic.default_base_url().to_string(),
             api_key: None,
+            headers: Vec::new(),
             max_tokens: env_u64("AGENT_MAX_OUTPUT_TOKENS", 4096) as u32,
             temperature: env_f32("AGENT_TEMPERATURE", 0.2),
             // On by default: streaming is the improvement, not the risk.
@@ -171,6 +212,9 @@ impl AgentConfig {
     }
 
     /// One provider on top of [`Self::defaults`].
+    ///
+    /// Takes a wire format and an explicit endpoint, for a caller that already
+    /// resolved both (a legacy `AGENT_*` environment, or a test).
     pub fn for_provider(
         kind: ProviderKind,
         model: impl Into<String>,
@@ -178,6 +222,7 @@ impl AgentConfig {
         api_key: Option<String>,
     ) -> Self {
         let mut config = Self::defaults();
+        config.platform = kind.as_str().to_string();
         config.kind = kind;
         config.model = model.into();
         // A trailing slash would produce `//v1/chat/completions`, which some
@@ -185,6 +230,42 @@ impl AgentConfig {
         config.base_url = base_url.into().trim_end_matches('/').to_string();
         config.api_key = api_key;
         config
+    }
+
+    /// One provider by catalog platform, resolving the endpoint, the headers
+    /// and the key requirement from [`crate::llm::catalog`].
+    ///
+    /// `base_url_override` is what an operator stored on the key row, and it
+    /// wins over the catalog default. An empty `model` takes the platform's
+    /// default, which is what makes a fresh key row runnable without the user
+    /// having to know a model id.
+    pub fn for_platform(
+        platform: &str,
+        model: impl Into<String>,
+        base_url_override: Option<String>,
+        api_key: Option<String>,
+    ) -> Result<Self, AgentError> {
+        let spec = crate::llm::catalog::spec(platform)
+            .ok_or_else(|| AgentError::UnknownProvider(platform.to_string()))?;
+        let endpoint = crate::llm::catalog::resolve(
+            spec,
+            api_key.as_deref(),
+            base_url_override.as_deref(),
+        )?;
+
+        let mut config = Self::defaults();
+        config.platform = spec.platform.to_string();
+        config.kind = spec.kind;
+        config.base_url = endpoint.base_url;
+        config.api_key = endpoint.api_key;
+        config.headers = endpoint.headers;
+
+        let requested = model.into();
+        config.model = match requested.trim() {
+            "" => spec.default_model.to_string(),
+            named => named.to_string(),
+        };
+        Ok(config)
     }
 
     /// Whether the deployment can run an agent at all.
@@ -242,6 +323,38 @@ mod tests {
     }
 
     #[test]
+    fn catalog_platforms_parse_to_their_wire_format() {
+        // A gateway is OpenAI-shaped, but its id is still a valid platform.
+        assert_eq!(ProviderKind::parse("Groq").unwrap(), ProviderKind::OpenAi);
+        assert_eq!(ProviderKind::parse("zhipu").unwrap(), ProviderKind::OpenAi);
+        assert_eq!(ProviderKind::parse("google").unwrap(), ProviderKind::OpenAi);
+        // Ollama Cloud is hosted and speaks OpenAI, unlike a local Ollama.
+        assert_eq!(
+            ProviderKind::parse("ollama-cloud").unwrap(),
+            ProviderKind::OpenAi
+        );
+    }
+
+    #[test]
+    fn for_platform_takes_the_catalog_endpoint_and_headers() {
+        let config = AgentConfig::for_platform("openrouter", "", None, Some("sk-or".into()))
+            .expect("openrouter has a catalog endpoint");
+        assert_eq!(config.platform, "openrouter");
+        assert_eq!(config.kind, ProviderKind::OpenAi);
+        assert_eq!(config.base_url, "https://openrouter.ai/api/v1");
+        assert_eq!(config.model, "openai/gpt-4o-mini");
+        assert_eq!(config.headers.len(), 2);
+    }
+
+    #[test]
+    fn for_platform_refuses_an_unknown_platform() {
+        assert!(matches!(
+            AgentConfig::for_platform("nope", "m", None, Some("sk".into())),
+            Err(AgentError::UnknownProvider(_))
+        ));
+    }
+
+    #[test]
     fn limits_have_safe_defaults() {
         let limits = Limits::default();
         assert!(limits.max_turns >= 1);
@@ -252,10 +365,12 @@ mod tests {
     #[test]
     fn debug_never_prints_the_key() {
         let config = AgentConfig {
+            platform: "anthropic".into(),
             kind: ProviderKind::Anthropic,
             model: "m".into(),
             base_url: "https://example.test".into(),
             api_key: Some("sk-secret-value".into()),
+            headers: Vec::new(),
             max_tokens: 10,
             temperature: 0.0,
             stream_deltas: true,

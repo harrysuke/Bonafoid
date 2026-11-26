@@ -20,6 +20,11 @@ import type {
   AgentConversation,
   AgentConversationDetail,
   AgentEvent,
+  AgentKeyDraft,
+  AgentKeyPatch,
+  AgentPlatform,
+  AgentProbeResult,
+  AgentProvider,
   AgentProviderList,
   AuditEntry,
   BillingSession,
@@ -455,6 +460,42 @@ export const agentApi = {
   /** The provider catalog the picker shows. Never contains a key. */
   providers: (): Promise<AgentProviderList> =>
     request<AgentProviderList>('/api/v1/agent/providers'),
+
+  /** Every provider the build supports, configured or not. */
+  platforms: (): Promise<AgentPlatform[]> =>
+    request<AgentPlatform[]>('/api/v1/agent/providers/catalog'),
+
+  /**
+   * Add a provider. The credential is sealed by the server and never echoed
+   * back, so the response is the row the picker will show, not the request.
+   */
+  addProvider: (draft: AgentKeyDraft): Promise<AgentProvider> =>
+    request<AgentProvider>('/api/v1/agent/providers', {
+      method: 'POST',
+      body: draft,
+    }),
+
+  /** Change one row. Omitted fields are left alone; `''` clears a field. */
+  updateProvider: (id: string, patch: AgentKeyPatch): Promise<AgentProvider> =>
+    request<AgentProvider>(`/api/v1/agent/providers/${id}`, {
+      method: 'PATCH',
+      body: patch,
+    }),
+
+  /** Remove a row and its sealed credential. */
+  removeProvider: (id: string): Promise<void> =>
+    request<void>(`/api/v1/agent/providers/${id}`, { method: 'DELETE' }),
+
+  /**
+   * Spend one tiny completion to find out whether the stored credential works.
+   *
+   * A `ok: false` result is a successful request: the provider answered, and
+   * the answer was "no". Only a row that cannot be built is an HTTP error.
+   */
+  testProvider: (id: string): Promise<AgentProbeResult> =>
+    request<AgentProbeResult>(`/api/v1/agent/providers/${id}/test`, {
+      method: 'POST',
+    }),
 
   /** The project's conversations, newest first. */
   conversations: (projectId: string): Promise<AgentConversation[]> =>

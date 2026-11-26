@@ -31,7 +31,10 @@ import type {
   AgentConversation,
   AgentDomain,
   AgentEvent,
+  AgentKeyDraft,
+  AgentKeyPatch,
   AgentMode,
+  AgentProbeResult,
   AgentProvider,
   AgentRunStatus,
   AgentUsage,
@@ -214,6 +217,27 @@ export interface AgentState {
   selectProvider: (id: string) => void;
   /** Set a model override for the selected provider. */
   setSelectedModel: (model: string | null) => void;
+
+  /**
+   * Add a provider key on a host that stores them server-side.
+   *
+   * The promise rejects with the server's message when the draft is refused,
+   * so the panel can show "Groq needs an API key" rather than a generic
+   * failure. On success the catalog is re-read, because `unavailable` and the
+   * default selection are server-side facts the client cannot derive.
+   */
+  addProvider: (draft: AgentKeyDraft) => Promise<void>;
+  /** Change one provider row. Omitted fields are left alone; `''` clears. */
+  updateProvider: (id: string, patch: AgentKeyPatch) => Promise<void>;
+  /** Remove a provider row and its sealed credential. */
+  removeProvider: (id: string) => Promise<void>;
+  /**
+   * Ask the host to spend one tiny completion on a stored key.
+   *
+   * Returns the verdict rather than throwing: a wrong key is an answer, not an
+   * error, and the panel shows it inline.
+   */
+  testProvider: (id: string) => Promise<AgentProbeResult>;
 }
 
 /** The server id of the open project, or null when it is a local file. */
@@ -801,6 +825,48 @@ export const useAgentStore = create<AgentState>((set, get) => {
     setSelectedModel: (model) => {
       set({ selectedModel: model });
       writeStored(MODEL_KEY, model);
+    },
+
+    addProvider: async (draft) => {
+      const platform = getPlatform();
+      if (typeof platform.agentAddProvider !== 'function') {
+        throw new Error('This host cannot add a provider.');
+      }
+      await platform.agentAddProvider(draft);
+      // The picker's rows come from the server, so re-read rather than patch:
+      // the new row's `unavailable` and the new default are its answers.
+      await get().loadProviders();
+    },
+
+    updateProvider: async (id, patch) => {
+      const platform = getPlatform();
+      if (typeof platform.agentUpdateProvider !== 'function') {
+        throw new Error('This host cannot change a provider.');
+      }
+      await platform.agentUpdateProvider(id, patch);
+      await get().loadProviders();
+    },
+
+    removeProvider: async (id) => {
+      const platform = getPlatform();
+      if (typeof platform.agentRemoveProvider !== 'function') {
+        throw new Error('This host cannot remove a provider.');
+      }
+      await platform.agentRemoveProvider(id);
+      // A removed row may have been the selection; `loadProviders` falls back
+      // to the server default, then to the first usable row.
+      await get().loadProviders();
+    },
+
+    testProvider: async (id) => {
+      const platform = getPlatform();
+      if (typeof platform.agentTestProvider !== 'function') {
+        throw new Error('This host cannot test a provider.');
+      }
+      const outcome = await platform.agentTestProvider(id);
+      // The check wrote a new `status`, so the list the picker shows is stale.
+      await get().loadProviders();
+      return outcome;
     },
   };
 });

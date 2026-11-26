@@ -1,11 +1,13 @@
 /**
  * Settings → AI, inside the drawer.
  *
- * The desktop shell is the only host that owns a provider, so this panel only
- * renders where `platform.agentSettings` exists. The web host keeps its key
- * server-side and shows nothing here.
+ * Two hosts, two shapes. The desktop shell owns a single provider in its own
+ * app-data file, so it renders the form below (`platform.agentSettings`). A
+ * server deployment stores many rows in `agent_api_keys`, so it renders
+ * [`ServerProviderPanel`] instead (`platform.agentAddProvider`). A host with
+ * neither says so.
  *
- * Two rules this component keeps:
+ * Two rules the desktop form keeps:
  *
  * 1. **The key is write-only.** It is typed into local state, sent once, and
  *    cleared from state immediately after. Nothing renders `settings.has_key`
@@ -24,6 +26,7 @@ import { AlertTriangle, Check, ChevronLeft, KeyRound, Loader2, Trash2 } from 'lu
 import { getPlatform } from '../../platform/registry';
 import { useAgentStore } from '../../stores/agentStore';
 import type { AgentSettings } from '../../platform/types';
+import { ServerProviderPanel } from './ServerProviderPanel';
 
 /** Fallback when a host reports no provider list. */
 const FALLBACK_PROVIDERS = ['anthropic', 'openai', 'ollama'];
@@ -68,6 +71,12 @@ export function AgentSettingsPanel({
   }, [platform]);
 
   if (typeof platform.agentSettings !== 'function') {
+    // A server host keeps many keys in `agent_api_keys`, so it gets the list
+    // panel rather than the single-provider form below. A host with neither
+    // capability has nothing to configure.
+    if (typeof platform.agentAddProvider === 'function') {
+      return <ServerProviderPanel onBack={onBack} onSaved={onSaved} />;
+    }
     return (
       <>
         <PanelHeader onBack={onBack} />
@@ -79,8 +88,11 @@ export function AgentSettingsPanel({
   }
 
   const providers = capabilities?.providers?.length ? capabilities.providers : FALLBACK_PROVIDERS;
-  // Ollama runs on this machine and needs no credential; every hosted API does.
-  const needsKey = provider !== 'ollama';
+  // The host may know which platforms need no credential; a host that predates
+  // `providerDetails` gets a hint that does not claim to know.
+  const details = capabilities?.provider_details ?? [];
+  const selected = details.find((row) => row.platform === provider) ?? null;
+  const needsKey = selected ? !selected.keyless : true;
 
   const run = async (
     kind: 'save' | 'test' | 'clear',
@@ -150,9 +162,9 @@ export function AgentSettingsPanel({
           onChange={(event) => setProvider(event.target.value)}
           className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:border-primary-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-white"
         >
-          {providers.map((kind) => (
-            <option key={kind} value={kind}>
-              {kind}
+          {providers.map((id) => (
+            <option key={id} value={id}>
+              {details.find((row) => row.platform === id)?.label ?? id}
             </option>
           ))}
         </select>
@@ -199,7 +211,7 @@ export function AgentSettingsPanel({
           onChange={(event) => setApiKey(event.target.value)}
           // Never echoes the stored value: the host cannot return it.
           placeholder={
-            settings?.has_key ? 'Stored — leave blank to keep it' : needsKey ? 'Required' : 'Not needed for Ollama'
+            settings?.has_key ? 'Stored — leave blank to keep it' : needsKey ? 'Required' : 'Not needed for this platform'
           }
           className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm text-gray-900 focus:border-primary-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-white"
         />

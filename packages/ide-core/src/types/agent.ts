@@ -169,6 +169,8 @@ export interface AgentProvider {
   status: string;
   enabled: boolean;
   base_url: string | null;
+  /** True when the platform needs no credential, so a missing key is fine. */
+  keyless: boolean;
   /** Why this provider cannot run. `null` means usable. */
   unavailable: string | null;
 }
@@ -180,6 +182,79 @@ export interface AgentProviderList {
   default: string | null;
   /** Why nothing can run, when nothing can. */
   reason: string | null;
+}
+
+/**
+ * One platform the build supports, whether or not it is configured.
+ *
+ * `GET /api/v1/agent/providers/catalog`. The drawer uses this to offer a
+ * provider that has no key row yet; `AgentProviderList` only describes what is
+ * already configured.
+ */
+export interface AgentPlatform {
+  platform: string;
+  label: string;
+  /** Wire format: `openai`, `anthropic` or `ollama`. */
+  kind: string;
+  /** Default endpoint. Empty when the key row must supply one. */
+  base_url: string;
+  keyless: boolean;
+  /** True when the credential is `account_id:api_token` (Cloudflare). */
+  account_scoped: boolean;
+  default_model: string;
+  models: string[];
+  /** Setup caveat, e.g. "needs a base URL on its key row". */
+  note: string | null;
+}
+
+/**
+ * `POST /api/v1/agent/providers` — add a provider.
+ *
+ * The server validates the draft against the same catalog it would use to send
+ * a request, so a rejected draft comes back as a 400 whose message names the
+ * fix. Nothing is stored until it passes.
+ */
+export interface AgentKeyDraft {
+  /** Catalog platform id (`groq`, `google`, `custom`, …). Case-insensitive. */
+  platform: string;
+  /** Required unless the platform is keyless. */
+  api_key?: string;
+  /** Display name. Defaults to the platform's label. */
+  label?: string;
+  /** Endpoint override. Required only by `custom` and unknown platforms. */
+  base_url?: string;
+  /** Defaults to enabled. */
+  enabled?: boolean;
+}
+
+/**
+ * `PATCH /api/v1/agent/providers/{id}` — change one row.
+ *
+ * Omitting a field leaves it alone. An **empty string** clears it: `api_key: ''`
+ * removes the stored credential and `base_url: ''` drops the override. That is
+ * why a caller that only wants to disable a row never has to resend a key it
+ * cannot see.
+ */
+export interface AgentKeyPatch {
+  api_key?: string;
+  label?: string;
+  base_url?: string;
+  enabled?: boolean;
+}
+
+/**
+ * `POST /api/v1/agent/providers/{id}/test` — the verdict of a live check.
+ *
+ * `ok: false` is a normal answer, not a failed request: the provider replied,
+ * and the reply was "no". Only a row that cannot even be built is an error.
+ */
+export interface AgentProbeResult {
+  ok: boolean;
+  /** What was recorded on the row: `healthy`, `invalid` or `error`. */
+  status: string;
+  /** The provider's own words, bounded to 300 characters. */
+  detail: string;
+  latency_ms: number;
 }
 
 /** One conversation in the drawer's history menu. */

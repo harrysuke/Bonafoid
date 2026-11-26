@@ -1,7 +1,10 @@
 //! OpenAI Chat Completions (`POST /v1/chat/completions`).
 //!
-//! Also speaks to any OpenAI-compatible gateway (vLLM, LiteLLM, Azure
-//! OpenAI's compatible path) when `AGENT_BASE_URL` points at it.
+//! This one adapter drives every OpenAI-shaped platform in
+//! [`crate::llm::catalog`] — Groq, Cerebras, Zhipu, OpenRouter, Cloudflare and
+//! the rest. What differs between them is the base URL, whether a credential is
+//! sent at all, and a few extra headers; all three come from the catalog, so a
+//! new gateway is a table entry and never a new provider.
 
 use std::collections::BTreeMap;
 
@@ -22,7 +25,12 @@ pub struct OpenAiProvider {
     client: HttpClient,
     model: String,
     base_url: String,
-    api_key: String,
+    /// `None` for a keyless gateway: no `Authorization` header is sent, because
+    /// a placeholder value would be worse than none at all.
+    api_key: Option<String>,
+    /// Static per-platform headers from the catalog (OpenRouter's attribution
+    /// headers, for instance).
+    extra_headers: Vec<(String, String)>,
     timeout: std::time::Duration,
 }
 
@@ -32,7 +40,11 @@ impl OpenAiProvider {
             client,
             model: config.model.clone(),
             base_url: config.base_url.clone(),
-            api_key: config.api_key.clone().unwrap_or_default(),
+            api_key: config
+                .api_key
+                .clone()
+                .filter(|key| !key.trim().is_empty()),
+            extra_headers: config.headers.clone(),
             timeout: config.request_timeout,
         }
     }
@@ -40,15 +52,32 @@ impl OpenAiProvider {
     fn endpoint(&self) -> String {
         chat_endpoint(&self.base_url)
     }
+
+    /// `Authorization` first, then the platform's own headers.
+    ///
+    /// Built per request because `HttpClient` takes borrowed pairs, and the
+    /// owned strings have to outlive the call. Cheap: three or four entries.
+    fn headers(&self) -> Vec<(&str, String)> {
+        let mut headers: Vec<(&str, String)> = Vec::with_capacity(self.extra_headers.len() + 1);
+        if let Some(key) = self.api_key.as_deref() {
+            headers.push(("authorization", format!("Bearer {key}")));
+        }
+        for (name, value) in &self.extra_headers {
+            headers.push((name.as_str(), value.clone()));
+        }
+        headers
+    }
 }
 
 /// Where an OpenAI-compatible gateway's chat route lives.
 ///
 /// Most gateways are `{base}/v1/chat/completions`, but not all of them:
 /// OpenRouter is `/api/v1/...`, Zhipu is `/api/paas/v4/chat/completions`, and
-/// some (GitHub Models) publish a base URL that already *is* the path. A key
-/// stored in `agent_api_keys` carries a base URL the operator typed, so the
-/// rule has to be forgiving rather than assume one shape.
+/// some (GitHub Models, Gemini's compatibility layer) publish a path that no
+/// suffix rule can guess. The catalog therefore stores a *complete* endpoint
+/// for those, and the first branch below leaves it alone. A base URL an
+/// operator typed on a key row gets the forgiving treatment, because there is
+/// no way to know which shape they meant.
 fn chat_endpoint(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     if base.ends_with("/chat/completions") {
@@ -120,7 +149,7 @@ impl LlmProvider for OpenAiProvider {
             .post_stream(
                 PROVIDER,
                 &self.endpoint(),
-                &[("authorization", format!("Bearer {}", self.api_key))],
+                &self.headers(),
                 &body,
                 self.timeout,
             )
@@ -475,6 +504,60 @@ mod tests {
             chat_endpoint("https://models.github.ai/inference/chat/completions"),
             "https://models.github.ai/inference/chat/completions"
         );
+    }
+
+    #[test]
+    fn every_openai_shaped_platform_produces_a_usable_endpoint() {
+        use crate::config::ProviderKind;
+        use crate::llm::catalog;
+        for spec in catalog::CATALOG {
+            // Anthropic and a local Ollama have their own adapters, Cloudflare
+            // and `custom` get their endpoint from the caller, not from here.
+            if spec.kind != ProviderKind::OpenAi
+                || spec.account_scoped
+                || spec.base_url.is_empty()
+            {
+                continue;
+            }
+            let endpoint = chat_endpoint(spec.base_url);
+            assert!(
+                endpoint.ends_with("/chat/completions"),
+                "{} produced {endpoint}",
+                spec.platform
+            );
+            // No doubled version segment: the bug that makes Google and GitHub
+            // 404 when a base is treated as a bare host.
+            assert!(
+                !endpoint.contains("/v1/v1/") && !endpoint.contains("/v4/v1/"),
+                "{} produced {endpoint}",
+                spec.platform
+            );
+        }
+    }
+
+    #[test]
+    fn a_keyless_platform_sends_no_authorization_header() {
+        let config = crate::config::AgentConfig::for_platform("kilo", "", None, None)
+            .expect("kilo is keyless");
+        let provider = OpenAiProvider::new(&config, HttpClient::new());
+        let headers = provider.headers();
+        assert!(
+            !headers.iter().any(|(name, _)| *name == "authorization"),
+            "{headers:?}"
+        );
+    }
+
+    #[test]
+    fn catalog_headers_ride_along_with_the_bearer_token() {
+        let config =
+            crate::config::AgentConfig::for_platform("openrouter", "", None, Some("sk-or".into()))
+                .unwrap();
+        let provider = OpenAiProvider::new(&config, HttpClient::new());
+        let headers = provider.headers();
+        assert_eq!(headers[0].0, "authorization");
+        assert_eq!(headers[0].1, "Bearer sk-or");
+        assert!(headers.iter().any(|(name, _)| *name == "http-referer"));
+        assert!(headers.iter().any(|(name, _)| *name == "x-title"));
     }
 
     #[test]

@@ -39,8 +39,8 @@ number of providers, chosen per run from the drawer's picker).
 
 | Variable | Meaning | Default |
 |----------|---------|---------|
-| `AGENT_PROVIDER` | `anthropic`, `openai` or `ollama` | unset |
-| `AGENT_API_KEY` | Provider key. Not needed for `ollama` | unset |
+| `AGENT_PROVIDER` | Any platform id from the catalog (`anthropic`, `openai`, `ollama`, `google`, `groq`, `cerebras`, `sambanova`, `nvidia`, `mistral`, `openrouter`, `github`, `cohere`, `cloudflare`, `zhipu`, `ollama-cloud`, `kilo`, `pollinations`, `llm7`, `huggingface`, `opencode`, `custom`) | unset |
+| `AGENT_API_KEY` | Provider key. Not needed for `ollama` or a keyless gateway | unset |
 | `AGENT_MODEL` | Model id | provider default |
 | `AGENT_BASE_URL` | API base, for a gateway or a local Ollama | provider default |
 | `AGENT_MAX_TURNS` | Turns per pipeline step | 12 |
@@ -53,11 +53,36 @@ number of providers, chosen per run from the drawer's picker).
 
 ```bash
 AGENT_PROVIDER=anthropic AGENT_API_KEY=sk-ant-… npm run dev:web
+AGENT_PROVIDER=groq AGENT_API_KEY=gsk_… npm run dev:web
 ```
 
 An environment provider appears in the picker as **Server default** and is what
 a request that names no provider uses. Its model is fixed by `AGENT_MODEL`:
 changing it means restarting the server, which is why the key table exists.
+
+### The provider catalog
+
+`crates/agent/src/llm/catalog.rs` is the single table that says, per platform:
+the wire format, the default endpoint, any extra headers, whether a credential
+is required, and whether the credential embeds an account id. Everything else
+reads it — the request builder, the picker, and the launcher script — so a new
+provider is one entry there and no second edit.
+
+Two consequences worth knowing:
+
+- Eighteen platforms speak the OpenAI dialect, so they share one adapter. Only
+  Anthropic and a local Ollama have their own.
+- A platform the table does not know is still usable if its key row carries a
+  `base_url`: it is treated as an OpenAI-compatible gateway.
+
+`GET /api/v1/agent/providers/catalog` returns the same table (no keys), which is
+what the drawer uses to offer a provider that has no row yet.
+
+The desktop shell reads the same table: its settings form stores a **platform
+id**, so `groq` is one selection away rather than an `AGENT_PROVIDER` env var,
+and `agent_capabilities` reports each platform's label and whether it needs a
+key. A stored `claude` / `gpt` / `local` alias still resolves, so an install
+that predates the catalog is not asked to choose again.
 
 ### Many providers, from `agent_api_keys`
 
@@ -65,10 +90,10 @@ Migration `0012_agent_api_keys` creates the table. One row per provider:
 
 | Column | Meaning |
 |--------|---------|
-| `platform` | `openai`, `anthropic`, `groq`, `cerebras`, `mistral`, `openrouter`, `nvidia`, `sambanova`, `zhipu`, `github`, `huggingface`, `pollinations`, `llm7`, `ollama`, … |
+| `platform` | A platform id from the catalog (see above). An unknown id is accepted when `base_url` is set |
 | `label` | Shown in the picker. Falls back to the platform's name |
 | `sealed_nonce`, `sealed_ciphertext` | The key, sealed with `CredentialVault` (ChaCha20-Poly1305, hex) |
-| `base_url` | Optional override. Required for a platform this build has no default for (`kilo`, `opencode`, `cloudflare`) |
+| `base_url` | Optional override. Only required for `custom`, or for a gateway this build does not know |
 | `status` | `healthy` / `invalid` / `error` / `unknown`. Informational: an `invalid` row is still selectable |
 | `enabled` | `0` hides the provider from the picker's usable set |
 
@@ -97,6 +122,48 @@ of letting the first prompt answer 503.
 The key is opened once per `(row, model)` pair, inside the server, and never
 leaves it: it is not in any response, not in the audit row, and `AgentConfig`'s
 `Debug` prints `<redacted>` so a stray log line cannot leak it.
+
+### Adding a key without touching the database
+
+The drawer can also write rows, so a platform with no row yet (`google`, a
+private gateway) is a form, not a migration script:
+
+| Route | What it does |
+|-------|--------------|
+| `POST /api/v1/agent/providers` | Add a row. Body: `platform`, plus `api_key`, `label`, `base_url`, `enabled` as needed |
+| `PATCH /api/v1/agent/providers/:id` | Change one row. Omitted fields are left alone; `""` clears a field |
+| `DELETE /api/v1/agent/providers/:id` | Remove the row and its sealed credential |
+| `POST /api/v1/agent/providers/:id/test` | Spend one 8-token completion to find out whether the key works |
+
+```bash
+curl -X POST localhost:8080/api/v1/agent/providers -b cookies.txt \
+  -H 'content-type: application/json' -H "x-csrf-token: $TOKEN" \
+  -d '{"platform":"google","api_key":"AIza…"}'
+```
+
+Validation runs **before** anything is sealed or stored, against the same
+catalog the request builder uses, so a rejected draft is a 400 whose message
+names the fix and leaves no row behind:
+
+- a platform that needs a key, sent without one → `Groq needs an API key`
+- `cloudflare` without the `account_id:api_token` shape → the message says so,
+  because a bare token addresses no account
+- `custom`, or a platform this build does not know, without `base_url` → the
+  platform's own setup note
+- a key that needs sealing on a host with no vault key → 503 naming
+  `IDE_SECRET_KEY`, and still no row
+
+`PATCH` distinguishes *absent* from *empty* on purpose: a caller that only wants
+to disable a row must not have to resend a credential it cannot see, while
+`api_key: ""` is the explicit way to clear one.
+
+`POST …/test` answers **200 with `ok: false`** when the provider says no — that
+is a successful check, not a failed request. Only a row that cannot even be
+built (no vault, no endpoint) is a 503. The verdict is written back to `status`,
+so the picker shows `healthy` or `invalid` next to the row afterwards.
+
+Writes invalidate the runtime's cached catalog, so a new key is selectable
+immediately; there is no restart and no stale list.
 
 ### Who may use the keys
 
