@@ -1775,6 +1775,26 @@ open the same project.
 | 32 | **Landed.** In-process `agent_chat` over `tauri::ipc::Channel`, `LocalProjectProvider` (write-then-rename, hash-guarded), `agent_capabilities` probe, `hasAgent()`, settings panel with provider/model/base URL/key/Test connection, key sealed in the existing `CredentialVault` | `apps/ide-tauri/src-tauri/src/agent.rs`, `apps/ide-tauri/src/platform/tauri.ts`, `packages/ide-core/src/components/Agent/AgentSettingsPanel.tsx` |
 | 33 | Optional; unchanged | — |
 
+**Provider picker (added after Phase 32).** The assistant used to take exactly
+one provider, from `AGENT_PROVIDER` / `AGENT_API_KEY`, chosen at boot. It now
+also reads `agent_api_keys` (migration 0012) through `KeyCatalog`, and exposes
+`GET /api/v1/agent/providers`; the drawer renders a provider + model picker
+above its composer, and the chat request carries `provider` / `model`. Three
+properties the design keeps:
+
+- **No key leaves the server.** `ProviderInfo` has no field for one, and the
+  plaintext lives only in the provider built for a run. The environment stays
+  first in the priority order, so a container deployment is unchanged and an
+  empty table is not an error.
+- **A provider that cannot run is listed with its reason** (`disabled`, no base
+  URL, a vault the server cannot open) rather than hidden, so the drawer can
+  explain the empty state instead of letting the first prompt answer 503.
+- **The table is operator-scoped, not per-user.** It replaces a process-wide
+  environment variable; `user_id` is provenance only, because the migration
+  wrote the *legacy* application's user id into it.
+
+`docs/agentic-app-generation.md` documents the columns and the sealing format.
+
 Four deliberate deviations, all narrower than the plan:
 
 1. **Conflict resolution is per-run, not per-object, in the drawer.** §15.2.3

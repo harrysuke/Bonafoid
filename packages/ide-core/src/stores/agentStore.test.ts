@@ -654,4 +654,108 @@ describe('agentStore', () => {
     await useAgentStore.getState().reprobe();
     expect(useAgentStore.getState().capabilities?.local).toBe(true);
   });
+
+  it('offers the provider catalog and sends the chosen agent with the run', async () => {
+    const stream = fakeStream();
+    const providers = vi.fn(async () => ({
+      providers: [
+        {
+          id: '1',
+          platform: 'groq',
+          label: 'Groq',
+          kind: 'openai',
+          model: 'llama-3.3-70b-versatile',
+          models: ['llama-3.1-8b-instant'],
+          status: 'healthy',
+          enabled: true,
+          base_url: null,
+          unavailable: null,
+        },
+        {
+          id: '2',
+          platform: 'mistral',
+          label: 'Mistral',
+          kind: 'openai',
+          model: 'mistral-small-latest',
+          models: [],
+          status: 'healthy',
+          enabled: true,
+          base_url: null,
+          unavailable: null,
+        },
+      ],
+      default: '2',
+      reason: null,
+    }));
+    configurePlatform(
+      stubPlatform({
+        agentChat: stream.chat as never,
+        agentProviders: providers as never,
+      }),
+    );
+
+    // The server's default wins when nothing has been chosen yet.
+    await useAgentStore.getState().loadProviders();
+    expect(useAgentStore.getState().providerId).toBe('2');
+
+    // Choosing another agent clears the model override, which belonged to the
+    // previous one.
+    useAgentStore.getState().setSelectedModel('llama-3.1-8b-instant');
+    useAgentStore.getState().selectProvider('1');
+    expect(useAgentStore.getState().selectedModel).toBeNull();
+
+    useAgentStore.getState().setSelectedModel('llama-3.1-8b-instant');
+    useAgentStore.setState({ prompt: 'build an expense tracker' });
+    void useAgentStore.getState().send('pipeline');
+    await tick();
+
+    expect(stream.chat.mock.calls[0][1]).toMatchObject({
+      prompt: 'build an expense tracker',
+      provider: '1',
+      model: 'llama-3.1-8b-instant',
+    });
+    stream.finish();
+    await tick();
+  });
+
+  it('keeps the reason when no provider can run, so the drawer can explain it', async () => {
+    configurePlatform(
+      stubPlatform({
+        agentChat: vi.fn() as never,
+        agentProviders: (async () => ({
+          providers: [
+            {
+              id: '1',
+              platform: 'groq',
+              label: 'Groq',
+              kind: 'openai',
+              model: 'llama-3.3-70b-versatile',
+              models: [],
+              status: 'healthy',
+              enabled: false,
+              base_url: null,
+              unavailable: 'disabled',
+            },
+          ],
+          default: null,
+          reason: 'no provider keys are configured: add a row to agent_api_keys',
+        })) as never,
+      }),
+    );
+
+    await useAgentStore.getState().loadProviders();
+    const state = useAgentStore.getState();
+    expect(state.providerId).toBeNull();
+    expect(state.providerReason).toContain('agent_api_keys');
+    expect(state.providers[0].unavailable).toBe('disabled');
+  });
+
+  it('survives a host with no provider catalog', async () => {
+    // The desktop shell has one provider and its own settings panel, so it
+    // implements no catalog. An empty list means "no picker", not an error.
+    configurePlatform(stubPlatform({ agentChat: vi.fn() as never }));
+    await useAgentStore.getState().loadProviders();
+    expect(useAgentStore.getState().providers).toEqual([]);
+    expect(useAgentStore.getState().providerId).toBeNull();
+  });
 });

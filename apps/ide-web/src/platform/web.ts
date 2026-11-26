@@ -23,6 +23,7 @@ import type {
   AgentConversation,
   AgentConversationDetail,
   AgentEvent,
+  AgentProviderList,
   AuditEntry,
   BillingSession,
   BpmnValidationReport,
@@ -432,6 +433,9 @@ export const webPlatform: PlatformApi = {
   // here; `local` stays false because there is no desktop key to hold.
   agentCapabilities: () =>
     Promise.resolve({ local: false, remote: true, providers: [], preview: true }),
+  // The picker's data. A server with no keys answers with an empty list and a
+  // reason, which the drawer shows in place of the composer.
+  agentProviders: (): Promise<AgentProviderList> => agentApi.providers(),
   agentConversations: (projectId: string): Promise<AgentConversation[]> =>
     agentApi.conversations(projectId),
   agentConversation: (projectId: string, conversationId: string): Promise<AgentConversationDetail> =>

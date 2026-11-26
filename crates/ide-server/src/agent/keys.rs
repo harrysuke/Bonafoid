@@ -182,7 +182,9 @@ const PLATFORMS: &[PlatformSpec] = &[
         platform: "github",
         label: "GitHub Models",
         kind: Some(ProviderKind::OpenAi),
-        base_url: Some("https://models.github.ai/inference"),
+        // A full endpoint, not a base: GitHub's path is `/inference/chat/...`
+        // with no version segment, so the `{base}/v1/...` rule does not fit.
+        base_url: Some("https://models.github.ai/inference/chat/completions"),
         default_model: "openai/gpt-4o-mini",
         models: &["openai/gpt-4o-mini", "openai/gpt-4o"],
         note: None,
@@ -221,7 +223,7 @@ const PLATFORMS: &[PlatformSpec] = &[
         platform: "pollinations",
         label: "Pollinations",
         kind: Some(ProviderKind::OpenAi),
-        base_url: Some("https://text.pollinations.ai/openai"),
+        base_url: Some("https://gen.pollinations.ai/v1"),
         default_model: "openai",
         models: &["openai", "mistral"],
         note: None,
@@ -548,6 +550,15 @@ impl KeyCatalog {
                 spec.map(|spec| spec.default_model.to_string())
                     .unwrap_or_default()
             });
+        if model.is_empty() {
+            // An unknown platform has no default model to fall back to, and a
+            // completion with an empty model name is a provider error the user
+            // cannot act on.
+            return Err(ApiError::BadRequest(format!(
+                "choose a model for {}: this platform has no default",
+                entry.platform
+            )));
+        }
 
         let cache_key = (entry.id, model.clone());
         if let Some(provider) = self
@@ -680,6 +691,20 @@ mod tests {
         let info = catalog(vec![row]).info();
         assert_eq!(info[0].kind, "openai");
         assert!(info[0].unavailable.is_none());
+    }
+
+    #[test]
+    fn a_gateway_with_no_default_model_asks_for_one() {
+        let vault = CredentialVault::from_key(&[7u8; 32]).unwrap();
+        let mut row = entry("acme", true);
+        row.base_url = Some("https://acme.test".into());
+        row.sealed = Some(vault.seal("sk-acme").unwrap());
+        let catalog = catalog(vec![row]);
+        assert!(matches!(
+            catalog.provider("acme", None),
+            Err(ApiError::BadRequest(_))
+        ));
+        assert!(catalog.provider("acme", Some("acme-1")).is_ok());
     }
 
     #[test]

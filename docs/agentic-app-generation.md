@@ -31,12 +31,15 @@ POST /api/v1/projects/:id/agent/chat        (SSE)
 
 ## Enabling it
 
-The assistant is off unless a model is configured. The IDE works normally
-without it; the drawer simply does not appear.
+The assistant needs a model. There are two ways to give it one, and they can be
+mixed: the environment (one provider, set at boot) and `agent_api_keys` (any
+number of providers, chosen per run from the drawer's picker).
+
+### One provider, from the environment
 
 | Variable | Meaning | Default |
 |----------|---------|---------|
-| `AGENT_PROVIDER` | `anthropic`, `openai` or `ollama` | unset (assistant off) |
+| `AGENT_PROVIDER` | `anthropic`, `openai` or `ollama` | unset |
 | `AGENT_API_KEY` | Provider key. Not needed for `ollama` | unset |
 | `AGENT_MODEL` | Model id | provider default |
 | `AGENT_BASE_URL` | API base, for a gateway or a local Ollama | provider default |
@@ -48,13 +51,68 @@ without it; the drawer simply does not appear.
 | `AGENT_MAX_OUTPUT_TOKENS` | Per-completion output cap | 4096 |
 | `AGENT_REQUEST_TIMEOUT` | Per-request timeout, seconds | 120 |
 
-The key is read once at startup and never leaves the server: it is not in any
-response, not in the audit row, and `AgentConfig`'s `Debug` prints
-`<redacted>` so a stray log line cannot leak it.
-
 ```bash
 AGENT_PROVIDER=anthropic AGENT_API_KEY=sk-ant-… npm run dev:web
 ```
+
+An environment provider appears in the picker as **Server default** and is what
+a request that names no provider uses. Its model is fixed by `AGENT_MODEL`:
+changing it means restarting the server, which is why the key table exists.
+
+### Many providers, from `agent_api_keys`
+
+Migration `0012_agent_api_keys` creates the table. One row per provider:
+
+| Column | Meaning |
+|--------|---------|
+| `platform` | `openai`, `anthropic`, `groq`, `cerebras`, `mistral`, `openrouter`, `nvidia`, `sambanova`, `zhipu`, `github`, `huggingface`, `pollinations`, `llm7`, `ollama`, … |
+| `label` | Shown in the picker. Falls back to the platform's name |
+| `sealed_nonce`, `sealed_ciphertext` | The key, sealed with `CredentialVault` (ChaCha20-Poly1305, hex) |
+| `base_url` | Optional override. Required for a platform this build has no default for (`kilo`, `opencode`, `cloudflare`) |
+| `status` | `healthy` / `invalid` / `error` / `unknown`. Informational: an `invalid` row is still selectable |
+| `enabled` | `0` hides the provider from the picker's usable set |
+
+**Plaintext never goes in the table.** Seal a key with the same vault the deploy
+service uses — the `CredentialVault` key comes from `IDE_SECRET_KEY`, or from
+`IDE_VAULT_KEY_FILE` (default `data/vault.key`) for a local install.
+
+```bash
+# one-off: seal a key into a row (node, same format as CredentialVault)
+node data/migrate_api_keys.mjs     # bulk import from a legacy database
+```
+
+The drawer's picker lists every row with `GET /api/v1/agent/providers`, and
+sends the chosen id as `provider` on the chat request:
+
+```json
+{ "prompt": "An expense tracker", "mode": "pipeline", "provider": "6", "model": "llama-3.3-70b-versatile" }
+```
+
+`provider` is a row id (`"6"`), `#6`, or a platform name (`"groq"`); `model`
+overrides the platform's default for that run. A provider that cannot run is
+still listed, with `unavailable` explaining why — a disabled key, a missing
+base URL, a vault the server cannot open. The drawer shows that reason instead
+of letting the first prompt answer 503.
+
+The key is opened once per `(row, model)` pair, inside the server, and never
+leaves it: it is not in any response, not in the audit row, and `AgentConfig`'s
+`Debug` prints `<redacted>` so a stray log line cannot leak it.
+
+### Who may use the keys
+
+A sealed key is still spendable, so spending one is gated: the chat route, the
+provider catalog and the conversation routes answer **403** unless the
+signed-in user's id has an enabled row in `agent_key_access` (migration 0013).
+The allowlist is keyed by id, never by email — an email is a claim that can be
+changed, and `AuthUser.email` is only a convenience.
+
+```bash
+node data/protect_agent_keys.mjs   # stamp owner_user_id and allow one account
+```
+
+An operator who adds a second user to that table grants them the assistant (and
+the keys behind it). That is the whole permission model: the table is written
+by the operator, never by a public endpoint.
 
 ## The two modes
 

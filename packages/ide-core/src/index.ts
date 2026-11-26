@@ -87,6 +87,8 @@ export type {
   AgentConversation,
   AgentConversationDetail,
   AgentConversationMessage,
+  AgentProvider,
+  AgentProviderList,
 } from './types/agent';
 export type { AgentCapabilities, AgentSettings, AgentSettingsInput } from './platform/types';
 

@@ -135,6 +135,51 @@ export interface AgentChatRequest {
   mode?: AgentMode;
   /** Continue an existing conversation. Absent means "start a new one". */
   conversation_id?: string;
+  /**
+   * Which provider to run, from `GET /api/v1/agent/providers`.
+   *
+   * Absent means "the deployment's default". The picker always sends one; a
+   * client that predates it sends none and gets the old behaviour.
+   */
+  provider?: string;
+  /** Model override for this run. Absent means the provider's default. */
+  model?: string;
+}
+
+/**
+ * One provider the assistant can run.
+ *
+ * Never carries a key: the server opens the sealed credential itself, and this
+ * shape is what the drawer is allowed to see (plan §12 decision 5). A provider
+ * that cannot run says why in `unavailable`, so the picker can disable it with
+ * a reason instead of hiding it.
+ */
+export interface AgentProvider {
+  /** Selection token: a key row id, or `env` for the server's own provider. */
+  id: string;
+  platform: string;
+  label: string;
+  /** Wire format: `openai`, `anthropic`, `ollama` or `unsupported`. */
+  kind: string;
+  /** Model used when the request names none. */
+  model: string;
+  /** Suggestions for the model field. */
+  models: string[];
+  /** Last recorded health: `healthy`, `invalid`, `error`, `unknown`. */
+  status: string;
+  enabled: boolean;
+  base_url: string | null;
+  /** Why this provider cannot run. `null` means usable. */
+  unavailable: string | null;
+}
+
+/** `GET /api/v1/agent/providers`. */
+export interface AgentProviderList {
+  providers: AgentProvider[];
+  /** Selection a request that names none will use. */
+  default: string | null;
+  /** Why nothing can run, when nothing can. */
+  reason: string | null;
 }
 
 /** One conversation in the drawer's history menu. */

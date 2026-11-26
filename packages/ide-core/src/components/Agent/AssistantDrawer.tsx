@@ -22,6 +22,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
+  Bot,
   Check,
   ChevronRight,
   Database,
@@ -253,6 +254,13 @@ export function AssistantDrawer() {
   const newConversation = useAgentStore((s) => s.newConversation);
   const openConversation = useAgentStore((s) => s.openConversation);
   const deleteConversation = useAgentStore((s) => s.deleteConversation);
+  const providers = useAgentStore((s) => s.providers);
+  const providerId = useAgentStore((s) => s.providerId);
+  const providerReason = useAgentStore((s) => s.providerReason);
+  const selectedModel = useAgentStore((s) => s.selectedModel);
+  const loadProviders = useAgentStore((s) => s.loadProviders);
+  const selectProvider = useAgentStore((s) => s.selectProvider);
+  const setSelectedModel = useAgentStore((s) => s.setSelectedModel);
   const openProject = useProjectStore((s) => s.openProject);
   const startPreviewBuild = useProjectStore((s) => s.startPreviewBuild);
 
@@ -271,6 +279,12 @@ export function AssistantDrawer() {
   useEffect(() => {
     if (open) void restore();
   }, [open, restore]);
+
+  // The provider catalog is read when the drawer opens, not on mount: a user
+  // who never opens the assistant should not cost the server a request.
+  useEffect(() => {
+    if (open) void loadProviders();
+  }, [open, loadProviders]);
 
   const now = useNow(lock !== null);
 
@@ -295,8 +309,29 @@ export function AssistantDrawer() {
 
   const running = status === 'running';
 
+  // The picker's current row, and whether anything can run at all. `blocked`
+  // is deliberately strict: it needs the server to have *said* why nothing can
+  // run, so a catalog that failed to load leaves the composer usable against
+  // the deployment's default.
+  const currentProvider = providers.find((row) => row.id === providerId) ?? null;
+  const blocked = providerReason !== null && !providers.some((row) => !row.unavailable);
+
+  // `run_started` reports the wire format (`openai/…`), which is accurate but
+  // not what the user picked: Groq is `openai` on the wire. Prefer the picker's
+  // label when the run's provider is the one that was selected, and fall back
+  // to the raw `provider/model` when the server used something else.
+  const runLabel = (() => {
+    if (!model) return null;
+    const slash = model.indexOf('/');
+    if (slash < 0 || !currentProvider) return model;
+    const wire = model.slice(0, slash);
+    const matches = wire === currentProvider.kind || wire === currentProvider.platform;
+    return matches ? `${currentProvider.label} · ${model.slice(slash + 1)}` : model;
+  })();
+
   const submit = () => {
-    if (!running) void send(mode);
+    // Enter goes through here too, so the disabled button is not the only guard.
+    if (!running && !blocked) void send(mode);
   };
 
   const buildAndPreview = () => {
@@ -350,7 +385,10 @@ export function AssistantDrawer() {
             Assistant
           </h3>
           <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-            {model ?? 'Describe the app you want'}
+            {runLabel ??
+              (currentProvider
+                ? `${currentProvider.label} · ${selectedModel || currentProvider.model}`
+                : 'Describe the app you want')}
             {revision !== null && <span className="ml-2">rev {revision}</span>}
           </p>
         </div>
@@ -464,7 +502,28 @@ export function AssistantDrawer() {
       )}
 
       <div ref={timelineRef} className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
-        {entries.length === 0 && !error && !streaming && (
+        {entries.length === 0 && !error && !streaming && blocked && (
+          // The server has a catalog but nothing in it can run. Say what is
+          // missing here rather than letting the first prompt answer 503.
+          <div className="rounded border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/20">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="w-3.5 h-3.5" /> No AI agent is configured
+            </p>
+            <p className="mt-1 text-[11px] text-amber-800 dark:text-amber-200">{providerReason}</p>
+            {providers.length > 0 && (
+              <ul className="mt-2 space-y-0.5">
+                {providers.slice(0, 8).map((row) => (
+                  <li key={row.id} className="text-[11px] text-amber-700 dark:text-amber-300">
+                    <span className="font-medium">{row.label}</span>
+                    {row.unavailable ? `: ${row.unavailable}` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {entries.length === 0 && !error && !streaming && !blocked && (
           <div className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
             <p>Tell me what to build, for example:</p>
             <button
@@ -587,6 +646,50 @@ export function AssistantDrawer() {
             {usage.tokens_in + usage.tokens_out} tokens
           </p>
         )}
+
+        {/*
+          The agent picker. Two controls, not a settings screen: the provider is
+          the thing a user changes most often ("this key is rate limited"), and
+          the model is the thing they change next. Both are persisted per
+          browser by the store.
+        */}
+        {providers.length > 0 && (
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <Bot className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
+            <select
+              value={providerId ?? ''}
+              onChange={(event) => selectProvider(event.target.value)}
+              disabled={running}
+              aria-label="AI agent"
+              title={currentProvider?.base_url ?? currentProvider?.platform ?? 'AI agent'}
+              className="min-w-0 flex-1 truncate rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-700 focus:border-primary-500 focus:outline-none disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-gray-200"
+            >
+              {providerId === null && <option value="">Select an agent…</option>}
+              {providers.map((row) => (
+                <option key={row.id} value={row.id} disabled={row.unavailable !== null}>
+                  {row.label}
+                  {row.unavailable ? ` — ${row.unavailable}` : ''}
+                </option>
+              ))}
+            </select>
+            <input
+              value={selectedModel ?? ''}
+              onChange={(event) => setSelectedModel(event.target.value || null)}
+              list="agent-model-suggestions"
+              placeholder={currentProvider?.model || 'model'}
+              disabled={running}
+              spellCheck={false}
+              aria-label="Model"
+              className="w-[42%] rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-700 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-gray-200"
+            />
+            <datalist id="agent-model-suggestions">
+              {(currentProvider?.models ?? []).map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
           <textarea
             value={prompt}
@@ -614,7 +717,8 @@ export function AssistantDrawer() {
             <button
               type="button"
               onClick={submit}
-              disabled={prompt.trim().length === 0}
+              disabled={prompt.trim().length === 0 || blocked}
+              title={blocked ? (providerReason ?? undefined) : undefined}
               className="flex items-center gap-1 rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Send className="w-3.5 h-3.5" /> Send

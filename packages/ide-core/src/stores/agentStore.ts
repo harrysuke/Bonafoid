@@ -32,6 +32,7 @@ import type {
   AgentDomain,
   AgentEvent,
   AgentMode,
+  AgentProvider,
   AgentRunStatus,
   AgentUsage,
   AgentValidationIssue,
@@ -145,6 +146,19 @@ export interface AgentState {
    * button it may have to take away.
    */
   capabilities: AgentCapabilities | null;
+  /**
+   * Providers the host offers, from `GET /agent/providers`.
+   *
+   * Empty on a host with no catalog (the desktop shell) and on a server whose
+   * catalog could not be read. `providerReason` is what distinguishes the two.
+   */
+  providers: AgentProvider[];
+  /** The provider a run will use. Persisted per browser. */
+  providerId: string | null;
+  /** Why nothing can run, when the catalog has no usable entry. */
+  providerReason: string | null;
+  /** Model override for the next run. `null` means the provider's default. */
+  selectedModel: string | null;
 
   toggle: () => void;
   setOpen: (open: boolean) => void;
@@ -188,6 +202,18 @@ export interface AgentState {
   openConversation: (conversationId: string) => Promise<void>;
   /** Delete a conversation. */
   deleteConversation: (conversationId: string) => Promise<void>;
+  /**
+   * Load the provider catalog and settle on a selection.
+   *
+   * Called when the drawer opens. A failure leaves `providers` empty, which
+   * reads as "this host has no picker" — the composer still works against the
+   * deployment's default, so a catalog outage costs the choice, not the feature.
+   */
+  loadProviders: () => Promise<void>;
+  /** Pick a provider. Clears the model override, which was the old provider's. */
+  selectProvider: (id: string) => void;
+  /** Set a model override for the selected provider. */
+  setSelectedModel: (model: string | null) => void;
 }
 
 /** The server id of the open project, or null when it is a local file. */
@@ -220,6 +246,33 @@ function restoredEntries(
 let lastPrompt: string | null = null;
 /** The mode of the last send, for the same reason. */
 let lastMode: AgentMode = 'pipeline';
+
+/**
+ * Where the picker remembers the choice.
+ *
+ * Per browser, not per project: a user who picked a provider picked it for
+ * themselves. Wrapped because storage throws in a private window and in a
+ * server-side render, and a preference is never worth an exception.
+ */
+const PROVIDER_KEY = 'nocode.agent.provider';
+const MODEL_KEY = 'nocode.agent.model';
+
+function readStored(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(key: string, value: string | null): void {
+  try {
+    if (value) window.localStorage.setItem(key, value);
+    else window.localStorage.removeItem(key);
+  } catch {
+    // A lost preference is not an error.
+  }
+}
 
 /** Keep the timeline bounded without dropping the newest entry. */
 function cap(entries: AgentEntry[]): AgentEntry[] {
@@ -366,7 +419,15 @@ export const useAgentStore = create<AgentState>((set, get) => {
       // working copy, and the desktop command ignores the argument.
       const handle = await platform.agentChat(
         projectId ?? '',
-        { prompt, mode, conversation_id: conversationId },
+        {
+          prompt,
+          mode,
+          conversation_id: conversationId,
+          // The picker's choice. Absent when the host has no catalog, which is
+          // the old behaviour: the deployment's default provider.
+          provider: get().providerId ?? undefined,
+          model: get().selectedModel ?? undefined,
+        },
         (event) => get().applyEvent(event),
       );
       activeRun = handle;
@@ -419,6 +480,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
     conversationId: null,
     conversations: [],
     capabilities: null,
+    providers: [],
+    providerId: null,
+    providerReason: null,
+    selectedModel: null,
 
     toggle: () => set({ open: !get().open }),
     setOpen: (open) => set({ open }),
@@ -698,6 +763,45 @@ export const useAgentStore = create<AgentState>((set, get) => {
       // whose id no longer exists on the server.
       if (get().conversationId === conversationId) get().newConversation();
     },
+
+    loadProviders: async () => {
+      const platform = getPlatform();
+      if (typeof platform.agentProviders !== 'function') return;
+      try {
+        const list = await platform.agentProviders();
+        // Keep what the user picked, even across a reload. Fall back to the
+        // server's default, then to the first provider that can actually run:
+        // a remembered key that has since been disabled must not wedge the
+        // composer on a dead selection.
+        const remembered = get().providerId ?? readStored(PROVIDER_KEY);
+        const chosen =
+          list.providers.find((row) => row.id === remembered && !row.unavailable) ??
+          list.providers.find((row) => row.id === list.default && !row.unavailable) ??
+          list.providers.find((row) => !row.unavailable) ??
+          null;
+        set({
+          providers: list.providers,
+          providerReason: list.reason,
+          providerId: chosen?.id ?? null,
+          selectedModel: get().selectedModel ?? readStored(MODEL_KEY),
+        });
+      } catch {
+        // A catalog outage costs the choice, not the feature: a run with no
+        // selection still uses the deployment default.
+      }
+    },
+
+    selectProvider: (id) => {
+      set({ providerId: id, selectedModel: null });
+      writeStored(PROVIDER_KEY, id);
+      // The old model belonged to the old provider.
+      writeStored(MODEL_KEY, null);
+    },
+
+    setSelectedModel: (model) => {
+      set({ selectedModel: model });
+      writeStored(MODEL_KEY, model);
+    },
   };
 });
 
@@ -755,6 +859,12 @@ export function resetAgentStore(): void {
   lastMode = 'pipeline';
   useAgentStore.getState().reset();
   // The probe depends on the session (a desktop key, a server connection), so
-  // it must be re-read after a logout.
-  useAgentStore.setState({ capabilities: null });
+  // it must be re-read after a logout. The catalog does too: it is a property
+  // of the server the next session talks to. The *choice* survives in storage.
+  useAgentStore.setState({
+    capabilities: null,
+    providers: [],
+    providerId: null,
+    providerReason: null,
+  });
 }

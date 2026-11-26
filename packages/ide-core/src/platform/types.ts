@@ -16,6 +16,7 @@ import type {
   AgentConversation,
   AgentConversationDetail,
   AgentEvent,
+  AgentProviderList,
 } from '../types/agent';
 
 /**
@@ -880,6 +881,14 @@ export interface PlatformApi {
    * back to probing `agentChat` when it is absent.
    */
   agentCapabilities?(): Promise<AgentCapabilities>;
+
+  /**
+   * The assistant's provider catalog.
+   *
+   * Optional: a host that owns a single provider (the desktop shell, whose key
+   * lives in its own settings panel) omits it, and the drawer shows no picker.
+   */
+  agentProviders?(): Promise<AgentProviderList>;
 
   /** This project's conversations, newest first (the history menu). */
   agentConversations?(projectId: string): Promise<AgentConversation[]>;

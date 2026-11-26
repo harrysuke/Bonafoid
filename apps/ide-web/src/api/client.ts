@@ -20,6 +20,7 @@ import type {
   AgentConversation,
   AgentConversationDetail,
   AgentEvent,
+  AgentProviderList,
   AuditEntry,
   BillingSession,
   Branch,
@@ -450,6 +451,10 @@ export const agentApi = {
 
     return { abort: () => controller.abort(), done };
   },
+
+  /** The provider catalog the picker shows. Never contains a key. */
+  providers: (): Promise<AgentProviderList> =>
+    request<AgentProviderList>('/api/v1/agent/providers'),
 
   /** The project's conversations, newest first. */
   conversations: (projectId: string): Promise<AgentConversation[]> =>
