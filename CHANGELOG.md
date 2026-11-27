@@ -121,6 +121,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each platform's real name and stops claiming a keyless one needs a key. A
   stored `claude` / `gpt` / `local` alias still resolves.
 
+**Agentic workflow builder — Phase 34, graph model** (`crates/model`,
+`crates/bpmn`, `crates/mcp`, `packages/ide-core`,
+`docs/Local-First-Agentic-Workflow-Builder-Plan.md`)
+- `WorkflowNodeType::AgentTask`: one new variant, no payload of its own. Its
+  settings live in the new `NodeConfig.agent`, so the node type stays a cheap
+  discriminant and the inspector reads one place.
+- `AgentNodeConfig`, adjacently tagged (`{"kind":"llm","config":{…}}`), with
+  nine typed payloads: `llm`, `shell`, `file`, `git`, `http`, `sqlite`,
+  `memory`, `approval`, `subflow`. Every field has a serde default, so a node
+  dropped from the palette is valid before anyone edits it.
+- `AgentNodeKind` plus `idempotent_by_default()`, which answers `None` where the
+  answer depends on the config (a `GET` is idempotent, a `POST` is not) instead
+  of guessing.
+- The `node_type` / `config.agent` pairing is enforced in the model
+  (`WorkflowNode::check_agent_invariant`) and reported by the BPMN validator as
+  an error, so a file, an MCP client and the canvas are held to one rule.
+- `WorkflowEdge.mapping` carries port bindings; empty mappings are omitted, so
+  an untouched project still serialises byte-identically.
+- `Project.workspace` (`WorkspaceBinding`): root, include/exclude globs and the
+  shell allowlist. Absent on a CRUD project, ignored by a server host.
+- BPMN 2.0 round-trip: an agent node exports as a `serviceTask` with a
+  `bonafoid:agentNode` extension (base64 config, namespaced). A foreign
+  `serviceTask` stays a service task; a *corrupt* extension is an error rather
+  than a silent no-op.
+- The simulator records `agent_task_not_simulated` when it reaches one, instead
+  of pretending a shell command or a model call happened.
+- MCP: `AgentTask` is the 17th node type; `bpmn://catalog/node-types` now also
+  publishes the nine agent kinds with their default payloads, and `add_node` /
+  `update_node` take an `agent` argument — an `AgentTask` without one is refused
+  at the call that caused it, not on the next validation.
+- Canvas: nine palette entries under an `agent` category, `buildAgentConfig`
+  defaults, and `paletteItemForNode` so a stored node matches its entry by kind.
+
+**Agentic workflow builder — Phase 35, runtime core** (`crates/runtime`,
+`crates/cli`, `crates/model`, `docs/Local-First-Agentic-Workflow-Builder-Plan.md`)
+- New `crates/runtime`: an async token scheduler over the same graph the canvas
+  draws and the BPMN simulator previews, so a preview and a real run cannot
+  disagree about what a condition means.
+- **Journal before effect.** Every node writes an intent (fsynced) before its
+  side effect and an outcome after it. A crash between the two leaves an intent
+  with no outcome, which is the only honest way to say "this may have run". §7.4
+  then decides: re-run an idempotent node, stop and ask a human about one that
+  is not. Recording the outcome first would be cheaper and would let the
+  runtime lie.
+- **Suspension writes nothing.** There is no `run_suspended` record: a run is
+  resumable exactly when it has no `run_finished`, so "not done" has one
+  spelling and a process that dies mid-flight is handled by the same path as an
+  approval. The crash path is therefore exercised every time an approval is.
+- **Resume is a per-node queue of states**, not a map. A cyclic graph's second
+  visit consumes the second record, not the first, so replaying a loop does not
+  reuse an earlier iteration's output.
+- Interpolation (`${input.x}`, `${vars.y}`, `${nodes.<id>.<path>}`, `${env.N}`
+  allowlisted, `${secret:NAME}`, `${now}`, `${run_id}`, `${workspace}`): no
+  arithmetic, no calls, no conditionals. A missing value is an error, never an
+  empty string. Secrets named by a node's own config are scrubbed from anything
+  it reports, at any depth.
+- `WorkflowEdge.mapping` is applied: a port binding is resolved against the
+  scope *at the moment the edge is followed* and carried **on the token**, not
+  in the shared scope, because two branches of a fork can bind the same port
+  name to different values.
+- Budgets (§7.5): steps, wall clock, parallelism, tokens, cost, tool calls —
+  plus `max_attempts`. Every limit is checked before work is dispatched, so a
+  run cannot exceed one by a node. A step ceiling is what makes a cyclic graph
+  safe to open.
+- One cancellation token tree per run; cancelling journals
+  `run_finished{cancelled}` and leaves the journal well-formed.
+- Executors for the control-only kinds: `approval` (non-blocking gate, card
+  re-presented on resume, deadline measured from the first presentation so a
+  resume cannot restart the clock, rejection is a non-retryable `rejected`
+  error rather than an output a run could walk past) and `subflow` (nested run
+  on the same registry and limits, `input_mapping` / `output_mapping`, depth
+  ceiling so two workflows that call each other stop instead of recursing).
+- `RunSession` / `RunPaths` / `RunReport`: the host-shaped seam. Starts or
+  resumes, refuses to overwrite an existing run id, refuses to discard a
+  resumable journal, and reports in terms a UI can render without knowing what
+  a journal is.
+- New `bonafoid` binary: `run`, `resume`, `runs`; exit `0` completed, `1`
+  failed, `2` suspended — a suspension is not success, or a CI step would ship
+  without the approval it was waiting for.
+- `ApprovalNode::title`'s default is now `DEFAULT_APPROVAL_TITLE`, and an
+  approval card falls back to the node's own name when the author left the
+  title alone. A card that says "Ship it" beats one that says "Approval
+  required", and the canvas already forces every node to have a name.
+- Gate, in `crates/runtime/tests/gate.rs`: a parallel diamond with an approval
+  suspends and resumes across three processes with one dispatch per node; a
+  killed process resumes without re-running `ok` nodes and its successors still
+  see the recorded output; an `Unknown` node with `idempotent: false` stops the
+  run with `NeedsAttention`, while the same journal with `idempotent: true`
+  re-runs it as attempt 2.
+- A malformed gateway condition is an `InvalidGraph` error naming the edge and
+  the expression, not a silent `false`. The simulator already propagated it and
+  so did the start-event path; swallowing it in the edge path would have sent a
+  run down a branch nobody chose and journalled an ordinary success.
+- A failure report counts the steps that did happen, read back from the journal.
+  A run that failed on its fifth node did five steps, and a report that says
+  `0` is worse than no number at all.
+
 ### Fixed
 
 - **Cohere rejected every assistant request with HTTP 422** (`invalid type:

@@ -8,6 +8,32 @@
 **Roadmap slot:** Milestone 6 — Agentic Workflow Builder, Phases 34–43
 **Working name:** AWB (Agentic Workflow Builder). Branding is an open decision (§19).
 
+## Progress
+
+| Phase | State | Notes |
+|---|---|---|
+| 34 — Graph model and validation | **Done** | `AgentTask` + `AgentNodeConfig` (nine kinds), `NodeConfig.agent`, `WorkflowEdge.mapping`, `Project.workspace`, model-level invariant, BPMN round-trip, MCP catalogue + `agent` argument, palette. |
+| 35 — Runtime core | **Done** | `crates/runtime` (scheduler, tokens, joins, cancellation, budgets, journal, interpolation, capabilities), `approval` + `subflow` executors, `RunSession` host seam, `bonafoid` CLI. Gate proved in `crates/runtime/tests/gate.rs`. |
+| 36–43 | Not started | |
+
+Four deviations from the text below, all additive and recorded here rather than
+silently:
+
+- `NodeConfig` gained **two** fields, not one: `agent` and `idempotent`. §7.4
+  needs a per-node idempotency override, and putting it on each of the nine
+  payloads would have duplicated the same field nine times.
+- The palette groups the nine agent kinds under a single `agent` category
+  rather than the five §11.1 anticipates. Splitting them is a canvas
+  presentation decision that Phase 40 owns; the model does not care.
+- `RunLimits` gained `max_attempts` (default `1`, so no silent retries). §7.4's
+  resume table says "error, retries left → re-run", which needs a number to
+  compare against; a node's own `RetryConfig` belongs with the executors that
+  can honour it (Phase 36).
+- Phase 35 added `crates/cli` (`bonafoid run` / `resume` / `runs`) as the
+  reference host. The plan's §7 names `bonafoid run` without saying where it
+  lives; a crate of its own keeps the runtime free of file paths and exit
+  codes, and gives the IDE a second, independent consumer of the same seam.
+
 ---
 
 ## 1. Summary

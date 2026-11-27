@@ -26,6 +26,103 @@ pub struct Project {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub published_at: Option<DateTime<Utc>>,
+
+    /// The directory the agent operates on, when this project is one.
+    ///
+    /// On `Project` rather than in a sidecar because a graph without its
+    /// workspace is unrunnable and the canvas needs the root to show file
+    /// pickers and diffs. `root` is machine-specific and must never be synced:
+    /// a server-side path is a lie, so a server host ignores it and disables
+    /// the file and shell nodes instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceBinding>,
+}
+
+/// Where a workflow's agent is allowed to act, and with what.
+///
+/// The policy half (`include`/`exclude`/`allowed_programs`) is what the runtime
+/// enforces; it is deliberately part of the project document so that "it ran in
+/// the IDE" and "it runs from the compiled binary" mean the same thing.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct WorkspaceBinding {
+    /// Absolute path on the authoring machine. Never synced to a server.
+    #[serde(default)]
+    pub root: String,
+    /// Globs the runtime may touch. Empty means "the whole root".
+    #[serde(default)]
+    pub include: Vec<String>,
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// Programs runnable without a fresh per-node approval. Resolved through
+    /// PATH and compared by canonical path, never by bare name.
+    #[serde(default)]
+    pub allowed_programs: Vec<String>,
+}
+
+impl WorkspaceBinding {
+    /// Whether a path is inside the binding's include/exclude policy.
+    ///
+    /// This is the *declarative* half — it answers "is this path in scope",
+    /// not "may this process touch it". The runtime canonicalises the path
+    /// first, so a symlink cannot be used to step outside the root.
+    pub fn permits(&self, path: &str) -> bool {
+        let normalized = path.replace('\\', "/");
+        let included = self.include.is_empty()
+            || self
+                .include
+                .iter()
+                .any(|glob| glob_matches(glob, &normalized));
+        included
+            && !self
+                .exclude
+                .iter()
+                .any(|glob| glob_matches(glob, &normalized))
+    }
+}
+
+/// Minimal glob match: `**` spans separators, `*` and `?` do not.
+///
+/// Deliberately not a full glob engine — the plan's policy needs exactly these
+/// three wildcards, and a hand-written matcher has no dependency and no
+/// surprising `{a,b}` semantics to document.
+fn glob_matches(pattern: &str, path: &str) -> bool {
+    fn walk(pattern: &[u8], path: &[u8]) -> bool {
+        if pattern.is_empty() {
+            return path.is_empty();
+        }
+        match pattern[0] {
+            b'*' => {
+                // `**` spans separators; a single `*` stops at one.
+                let (double, rest) = if pattern.len() > 1 && pattern[1] == b'*' {
+                    (true, &pattern[2..])
+                } else {
+                    (false, &pattern[1..])
+                };
+                // Collapse the `/**/` form to `**` so `src/**/*.rs` also
+                // matches `src/main.rs`, which is what authors expect.
+                let rest = if double && rest.first() == Some(&b'/') {
+                    &rest[1..]
+                } else {
+                    rest
+                };
+                if walk(rest, path) {
+                    return true;
+                }
+                for i in 0..path.len() {
+                    if !double && path[i] == b'/' {
+                        break;
+                    }
+                    if walk(rest, &path[i + 1..]) {
+                        return true;
+                    }
+                }
+                false
+            }
+            b'?' => !path.is_empty() && path[0] != b'/' && walk(&pattern[1..], &path[1..]),
+            c => !path.is_empty() && path[0] == c && walk(&pattern[1..], &path[1..]),
+        }
+    }
+    walk(pattern.as_bytes(), path.as_bytes())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
@@ -824,6 +921,9 @@ impl Project {
             created_at: now,
             updated_at: now,
             published_at: None,
+            // A project starts unbound: a new CRUD app has no repo to act on,
+            // and inventing one would make every project look like an agent.
+            workspace: None,
         }
     }
 }
@@ -1022,5 +1122,61 @@ mod tests {
             "start_t_l_s",
             "s_s_l__t_l_s"
         );
+    }
+
+    fn binding(include: &[&str], exclude: &[&str]) -> WorkspaceBinding {
+        WorkspaceBinding {
+            root: "/repo".into(),
+            include: include.iter().map(|s| s.to_string()).collect(),
+            exclude: exclude.iter().map(|s| s.to_string()).collect(),
+            allowed_programs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn an_unbound_workspace_permits_nothing_but_an_empty_binding_permits_the_root() {
+        // `include` empty means "the whole root", which is why an unbound
+        // project is a separate state: it has no root to be inside of.
+        let open = binding(&[], &[]);
+        assert!(open.permits("src/main.rs"));
+        assert!(open.permits("deep/nested/file.txt"));
+    }
+
+    #[test]
+    fn include_and_exclude_are_both_honoured() {
+        let scoped = binding(&["src/**"], &["src/generated/**"]);
+        assert!(scoped.permits("src/main.rs"));
+        assert!(scoped.permits("src/a/b/c.rs"));
+        assert!(!scoped.permits("src/generated/api.rs"));
+        assert!(!scoped.permits("tests/it.rs"));
+    }
+
+    #[test]
+    fn a_double_star_matches_at_the_root_of_its_prefix() {
+        // `src/**/*.rs` has to match `src/main.rs`; authors write it that way.
+        let scoped = binding(&["src/**/*.rs"], &[]);
+        assert!(scoped.permits("src/main.rs"));
+        assert!(scoped.permits("src/a/b.rs"));
+        assert!(!scoped.permits("src/a/b.txt"));
+    }
+
+    #[test]
+    fn windows_separators_are_normalised_before_matching() {
+        let scoped = binding(&["src/**"], &[]);
+        assert!(scoped.permits("src\\main.rs"));
+    }
+
+    #[test]
+    fn a_single_star_does_not_cross_a_separator() {
+        let scoped = binding(&["src/*.rs"], &[]);
+        assert!(scoped.permits("src/main.rs"));
+        assert!(!scoped.permits("src/a/b.rs"));
+    }
+
+    #[test]
+    fn an_unbound_project_omits_the_workspace_key() {
+        let project = Project::new("Acme");
+        let value = serde_json::to_value(&project).expect("serialises");
+        assert!(value.get("workspace").is_none());
     }
 }

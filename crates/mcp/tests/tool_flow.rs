@@ -370,3 +370,185 @@ fn removing_a_node_removes_incident_edges() {
     );
     assert_eq!(summary["workflow"]["edge_count"], json!(1));
 }
+
+/// An agent node is authorable from MCP, which is what makes the catalogue
+/// entry more than documentation.
+#[test]
+fn an_agent_node_is_created_with_its_payload() {
+    let server = server();
+    let caller = CallerContext::local();
+    let created = tool(
+        &server,
+        &caller,
+        "create_workflow",
+        json!({ "name": "Sentinel" }),
+    );
+    let session_id = created["session_id"].as_str().unwrap().to_string();
+
+    let node = tool(
+        &server,
+        &caller,
+        "add_node",
+        json!({
+            "session_id": session_id,
+            "node_type": "AgentTask",
+            "name": "Diff",
+            "agent": {
+                "kind": "shell",
+                "config": { "program": "git", "args": ["diff", "--name-only"] }
+            },
+        }),
+    );
+    assert!(node["node_id"].is_string(), "{node}");
+
+    let full = tool(
+        &server,
+        &caller,
+        "get_workflow",
+        json!({ "session_id": session_id, "view": "full" }),
+    );
+    let stored = full["workflow"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["name"] == "Diff")
+        .expect("the node was stored");
+    assert_eq!(stored["node_type"]["type"], "AgentTask");
+    assert_eq!(stored["config"]["agent"]["kind"], "shell");
+    assert_eq!(
+        stored["config"]["agent"]["config"]["program"], "git",
+        "the payload must survive the write, not just the call"
+    );
+}
+
+#[test]
+fn an_agent_task_without_a_payload_is_refused_at_creation() {
+    let server = server();
+    let caller = CallerContext::local();
+    let created = tool(
+        &server,
+        &caller,
+        "create_workflow",
+        json!({ "name": "Sentinel" }),
+    );
+    let session_id = created["session_id"].as_str().unwrap().to_string();
+
+    let error = tool_error(
+        &server,
+        &caller,
+        "add_node",
+        json!({ "session_id": session_id, "node_type": "AgentTask" }),
+    );
+    assert!(
+        matches!(error, McpError::InvalidParam { name: "agent", .. }),
+        "{error:?}"
+    );
+
+    // Nothing was written, so the workflow is still empty.
+    let summary = tool(
+        &server,
+        &caller,
+        "get_workflow",
+        json!({ "session_id": session_id }),
+    );
+    assert_eq!(summary["workflow"]["node_count"], json!(0));
+}
+
+#[test]
+fn a_bpmn_node_refuses_an_agent_payload() {
+    let server = server();
+    let caller = CallerContext::local();
+    let created = tool(
+        &server,
+        &caller,
+        "create_workflow",
+        json!({ "name": "Sentinel" }),
+    );
+    let session_id = created["session_id"].as_str().unwrap().to_string();
+
+    let error = tool_error(
+        &server,
+        &caller,
+        "add_node",
+        json!({
+            "session_id": session_id,
+            "node_type": "ManualTask",
+            "agent": { "kind": "shell", "config": {} },
+        }),
+    );
+    assert!(
+        matches!(error, McpError::InvalidParam { name: "agent", .. }),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn an_agent_graph_survives_the_bpmn_round_trip() {
+    let server = server();
+    let caller = CallerContext::local();
+    let created = tool(
+        &server,
+        &caller,
+        "create_workflow",
+        json!({ "name": "Sentinel" }),
+    );
+    let session_id = created["session_id"].as_str().unwrap().to_string();
+
+    let start = tool(
+        &server,
+        &caller,
+        "add_node",
+        json!({ "session_id": session_id, "node_type": "StartEvent" }),
+    );
+    let audit = tool(
+        &server,
+        &caller,
+        "add_node",
+        json!({
+            "session_id": session_id,
+            "node_type": "AgentTask",
+            "name": "Audit",
+            "agent": {
+                "kind": "llm",
+                "config": { "prompt": "summarise ${input.diff}" }
+            },
+        }),
+    );
+    let end = tool(
+        &server,
+        &caller,
+        "add_node",
+        json!({ "session_id": session_id, "node_type": "EndEvent" }),
+    );
+    for (from, to) in [(&start, &audit), (&audit, &end)] {
+        tool(
+            &server,
+            &caller,
+            "connect_nodes",
+            json!({
+                "session_id": session_id,
+                "source": from["node_id"],
+                "target": to["node_id"],
+            }),
+        );
+    }
+
+    let exported = tool(
+        &server,
+        &caller,
+        "export_bpmn_xml",
+        json!({ "session_id": session_id }),
+    );
+    let xml = exported["xml"].as_str().expect("the export returns XML");
+    assert!(xml.contains("bonafoid:agentNode"), "{xml}");
+
+    let parsed = parse_bpmn(xml, "Sentinel").expect("the export re-imports");
+    let node = parsed
+        .nodes
+        .iter()
+        .find(|n| n.name == "Audit")
+        .expect("the agent node survived");
+    assert_eq!(node.node_type, nocode_model::WorkflowNodeType::AgentTask);
+    let agent = node.config.agent.as_ref().expect("payload survived");
+    assert_eq!(agent.kind(), nocode_model::AgentNodeKind::Llm);
+}

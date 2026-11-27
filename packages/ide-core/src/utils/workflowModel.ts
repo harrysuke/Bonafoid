@@ -7,6 +7,7 @@
  */
 
 import type {
+  AgentNodeConfig,
   EdgeStyle,
   NodeConfig,
   NodeId,
@@ -19,7 +20,16 @@ import type {
 } from '../types/model.generated';
 import { generateId } from './helpers';
 
-export type NodePaletteCategory = 'events' | 'tasks' | 'gateways' | 'composite';
+/**
+ * `events`/`tasks`/`gateways`/`composite` are the BPMN 2.0 groups. `agent`
+ * collects the nine agent kinds, which all create the same `AgentTask` node
+ * type and differ only in their payload — one group, because splitting it
+ * further is a canvas presentation choice (Phase 40), not a model one.
+ */
+export type NodePaletteCategory = 'events' | 'tasks' | 'gateways' | 'composite' | 'agent';
+
+/** Which executor an `AgentTask` runs. Mirrors `AgentNodeKind` in Rust. */
+export type AgentNodeKind = AgentNodeConfig['kind'];
 
 export interface NodePaletteItem {
   type: WorkflowNodeType['type'];
@@ -27,6 +37,12 @@ export interface NodePaletteItem {
   label: string;
   /** Tailwind color hints used by the canvas nodes and the minimap. */
   color: string;
+  /**
+   * Present only on the agent items. Nine palette entries share one node type,
+   * so this is what distinguishes them and what a stored node is matched back
+   * against.
+   */
+  agentKind?: AgentNodeKind;
 }
 
 export const NODE_PALETTE: NodePaletteItem[] = [
@@ -46,6 +62,15 @@ export const NODE_PALETTE: NodePaletteItem[] = [
   { type: 'EventBasedGateway', category: 'gateways', label: 'Event gateway', color: '#fbbf24' },
   { type: 'SubProcess', category: 'composite', label: 'Sub-process', color: '#10b981' },
   { type: 'CallActivity', category: 'composite', label: 'Call activity', color: '#059669' },
+  { type: 'AgentTask', category: 'agent', label: 'LLM call', color: '#7c3aed', agentKind: 'llm' },
+  { type: 'AgentTask', category: 'agent', label: 'Shell command', color: '#0f766e', agentKind: 'shell' },
+  { type: 'AgentTask', category: 'agent', label: 'File operation', color: '#2563eb', agentKind: 'file' },
+  { type: 'AgentTask', category: 'agent', label: 'Git operation', color: '#c2410c', agentKind: 'git' },
+  { type: 'AgentTask', category: 'agent', label: 'HTTP request', color: '#0891b2', agentKind: 'http' },
+  { type: 'AgentTask', category: 'agent', label: 'SQLite query', color: '#4338ca', agentKind: 'sqlite' },
+  { type: 'AgentTask', category: 'agent', label: 'Memory', color: '#be123c', agentKind: 'memory' },
+  { type: 'AgentTask', category: 'agent', label: 'Approval', color: '#ca8a04', agentKind: 'approval' },
+  { type: 'AgentTask', category: 'agent', label: 'Sub-workflow', color: '#15803d', agentKind: 'subflow' },
 ];
 
 export const NODE_PALETTE_CATEGORIES: NodePaletteCategory[] = [
@@ -53,10 +78,112 @@ export const NODE_PALETTE_CATEGORIES: NodePaletteCategory[] = [
   'tasks',
   'gateways',
   'composite',
+  'agent',
 ];
 
 export function paletteItem(type: WorkflowNodeType['type']): NodePaletteItem | undefined {
   return NODE_PALETTE.find((item) => item.type === type);
+}
+
+/** The palette entry an existing node came from, agent kinds included. */
+export function paletteItemForNode(node: WorkflowNode): NodePaletteItem | undefined {
+  const kind = node.config?.agent?.kind;
+  if (kind) {
+    return NODE_PALETTE.find((item) => item.type === 'AgentTask' && item.agentKind === kind);
+  }
+  return paletteItem(node.node_type.type);
+}
+
+export function paletteItemForAgentKind(kind: AgentNodeKind): NodePaletteItem | undefined {
+  return NODE_PALETTE.find((item) => item.agentKind === kind);
+}
+
+/**
+ * A starter payload for each agent kind.
+ *
+ * These mirror the serde defaults in `crates/model/src/agent.rs`. They are
+ * duplicated here because the canvas must build a complete `AgentNodeConfig`
+ * before it has ever spoken to a server, and a partial one would not typecheck.
+ * If a Rust default changes, this table has to change with it — the palette
+ * test pins the shape so a missing field is a compile error, not a blank form.
+ */
+export function buildAgentConfig(kind: AgentNodeKind): AgentNodeConfig {
+  switch (kind) {
+    case 'llm':
+      return {
+        kind,
+        config: {
+          provider: null,
+          model: null,
+          system: null,
+          prompt: '',
+          tools: [],
+          output_schema: null,
+          temperature: null,
+          max_tokens: null,
+          max_turns: 8,
+          stream: false,
+        },
+      };
+    case 'shell':
+      return {
+        kind,
+        config: {
+          program: '',
+          args: [],
+          cwd: null,
+          env: {},
+          timeout_ms: 600_000,
+          mode: 'argv',
+          stdin: null,
+        },
+      };
+    case 'file':
+      return { kind, config: { op: 'read', path: '', content: null, glob: null } };
+    case 'git':
+      return { kind, config: { op: 'status', args: [], message: null } };
+    case 'http':
+      return {
+        kind,
+        config: {
+          url: '',
+          method: 'GET',
+          headers: {},
+          body: null,
+          timeout_ms: 30_000,
+          expect: [],
+        },
+      };
+    case 'sqlite':
+      return { kind, config: { path: '', query: '', params: [], mode: 'read' } };
+    case 'memory':
+      return {
+        kind,
+        config: {
+          store: null,
+          op: 'get',
+          namespace: 'global',
+          key: null,
+          query: null,
+          top_k: null,
+          ttl: null,
+        },
+      };
+    case 'approval':
+      return {
+        kind,
+        config: { title: 'Approval required', body: null, timeout: null, on_timeout: 'fail' },
+      };
+    case 'subflow':
+      return {
+        kind,
+        config: {
+          workflow_id: '00000000-0000-0000-0000-000000000000',
+          input_mapping: {},
+          output_mapping: {},
+        },
+      };
+  }
 }
 
 const DEFAULT_RETRY = {
@@ -122,6 +249,10 @@ export function buildNodeType(type: WorkflowNodeType['type']): WorkflowNodeType 
       return { type, config: { called_workflow_id: '', input_mapping: {}, output_mapping: {} } };
     case 'Task':
       return { type, config: { task_type: 'user' } };
+    case 'AgentTask':
+      // The node type carries no payload; the config is built by
+      // `buildAgentConfig` and attached to `NodeConfig.agent`.
+      return { type };
     default:
       return { type: 'ManualTask' };
   }
@@ -141,13 +272,21 @@ export function emptyNodeConfig(): NodeConfig {
 export function newWorkflowNode(
   type: WorkflowNodeType['type'],
   position: NodePosition = { x: 0, y: 0 },
+  agentKind?: AgentNodeKind,
 ): WorkflowNode {
+  const item = agentKind ? paletteItemForAgentKind(agentKind) : paletteItem(type);
+  const config = emptyNodeConfig();
+  if (type === 'AgentTask') {
+    // An AgentTask with no payload is invalid, so the palette always supplies
+    // one; the default is the first agent entry (an LLM call).
+    config.agent = buildAgentConfig(agentKind ?? 'llm');
+  }
   return {
     id: generateId(),
-    name: paletteItem(type)?.label ?? type,
+    name: item?.label ?? type,
     node_type: buildNodeType(type),
     position,
-    config: emptyNodeConfig(),
+    config,
     documentation: null,
   };
 }
@@ -232,7 +371,7 @@ export interface FlowEdge {
 
 export function workflowToFlowNodes(nodes: WorkflowNode[]): FlowNode[] {
   return nodes.map((node) => {
-    const item = paletteItem(node.node_type.type);
+    const item = paletteItemForNode(node);
     return {
       id: node.id,
       type: 'process',

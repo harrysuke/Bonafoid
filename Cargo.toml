@@ -10,6 +10,8 @@ members = [
     "crates/mcp",
     "crates/deploy",
     "crates/agent",
+    "crates/runtime",
+    "crates/cli",
     "xtask",
 ]
 # apps/ide-tauri has its own Cargo.lock and its own dependency tree; it is
@@ -30,6 +32,9 @@ indexmap = { version = "2.0", features = ["serde"] }
 # Async
 tokio = { version = "1.0", features = ["full"] }
 async-trait = "0.1"
+# `CancellationToken` for the run's cancel tree. Already in the lock file via
+# axum/tower, so this adds no new dependency tree.
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # GUI
 egui = "0.29"
@@ -60,6 +65,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 
 # Codegen
 handlebars = "5.0"
+# BPMN agent-node extension: the config rides base64-encoded in an attribute,
+# which avoids escaping a JSON document inside an XML attribute.
+base64 = "0.22"
 
 # Plugins
 wasmtime = { version = "36.0", features = ["component-model", "async"] }

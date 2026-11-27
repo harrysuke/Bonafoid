@@ -256,6 +256,35 @@ export type ActionType = "navigate" | "submit_form" | "reset_form" | "open_modal
   custom: string;
 };
 
+export type AgentNodeConfig = {
+  config: LlmNode;
+  kind: "llm";
+} | {
+  config: ShellNode;
+  kind: "shell";
+} | {
+  config: FileNode;
+  kind: "file";
+} | {
+  config: GitNode;
+  kind: "git";
+} | {
+  config: HttpNode;
+  kind: "http";
+} | {
+  config: SqliteNode;
+  kind: "sqlite";
+} | {
+  config: MemoryNode;
+  kind: "memory";
+} | {
+  config: ApprovalNode;
+  kind: "approval";
+} | {
+  config: SubflowNode;
+  kind: "subflow";
+};
+
 export type AlertType = "success" | "info" | "warning" | "error";
 
 export interface AnchorLink {
@@ -284,6 +313,13 @@ export interface ApiDocConfig {
 }
 
 export type ApiVersioning = "header" | "query" | "path" | "none";
+
+export interface ApprovalNode {
+  body?: string | null;
+  on_timeout?: unknown;
+  timeout?: string | null;
+  title?: string;
+}
 
 export interface AttributeMapping {
   display_name: string;
@@ -1647,6 +1683,15 @@ export interface FieldUiProps {
   width?: string | null;
 }
 
+export interface FileNode {
+  content?: string | null;
+  glob?: string | null;
+  op?: unknown;
+  path?: string;
+}
+
+export type FileOp = "read" | "write" | "append" | "patch" | "list" | "delete";
+
 export interface FontFamilies {
   custom: Record<string, string>;
   display?: string | null;
@@ -1749,6 +1794,14 @@ export interface GcsConfig {
   project_id: string;
 }
 
+export interface GitNode {
+  args?: Array<string>;
+  message?: string | null;
+  op?: unknown;
+}
+
+export type GitOp = "status" | "diff" | "log" | "branch" | "commit" | "push" | "pr";
+
 export interface GridConfig {
   bottom?: string | null;
   contain_label: boolean;
@@ -1771,6 +1824,15 @@ export interface HeightScale {
 export type HistoryLevel = "none" | "activity" | "audit" | "full";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
+
+export interface HttpNode {
+  body?: string | null;
+  expect?: Array<number>;
+  headers?: Record<string, string>;
+  method?: unknown;
+  timeout_ms?: number;
+  url?: string;
+}
 
 export type IndexId = string;
 
@@ -1852,6 +1914,19 @@ export type ListenerImplementation = {
   type: "Delegate";
 };
 
+export interface LlmNode {
+  max_tokens?: number | null;
+  max_turns?: number;
+  model?: string | null;
+  output_schema?: unknown;
+  prompt?: string;
+  provider?: string | null;
+  stream?: boolean;
+  system?: string | null;
+  temperature?: number | null;
+  tools?: Array<string>;
+}
+
 export interface LocalStorageConfig {
   root_path: string;
   serve_via_app: boolean;
@@ -1879,6 +1954,18 @@ export interface MaxWidthScale {
   xs: string;
   xxl: string;
 }
+
+export interface MemoryNode {
+  key?: string | null;
+  namespace?: string;
+  op?: unknown;
+  query?: string | null;
+  store?: string | null;
+  top_k?: number | null;
+  ttl?: string | null;
+}
+
+export type MemoryOp = "get" | "put" | "append" | "search" | "delete";
 
 export interface MenuItem {
   children: Array<MenuItem>;
@@ -1922,8 +2009,10 @@ export interface MultiInstanceConfig {
 export type MultiInstanceMode = "sequential" | "parallel";
 
 export interface NodeConfig {
+  agent?: AgentNodeConfig | null;
   boundary_events: Array<BoundaryEvent>;
   execution_listeners: Array<ExecutionListener>;
+  idempotent?: boolean | null;
   inputs: Record<string, NodeInput>;
   multi_instance?: MultiInstanceConfig | null;
   outputs: Record<string, NodeOutput>;
@@ -1971,6 +2060,8 @@ export interface OAuth2Config {
 }
 
 export type OnDelete = "cascade" | "set_null" | "restrict" | "no_action" | "set_default";
+
+export type OnTimeout = "fail" | "skip";
 
 export type OnUpdate = "cascade" | "set_null" | "restrict" | "no_action" | "set_default";
 
@@ -2335,6 +2426,18 @@ export interface ShadowTokens {
   xxl: string;
 }
 
+export type ShellMode = "argv" | "shell";
+
+export interface ShellNode {
+  args?: Array<string>;
+  cwd?: string | null;
+  env?: Record<string, string>;
+  mode?: unknown;
+  program?: string;
+  stdin?: string | null;
+  timeout_ms?: number;
+}
+
 export interface SignalDefinition {
   id: SignalId;
   name: string;
@@ -2384,6 +2487,15 @@ export interface SpacingTokens {
   component: ComponentSpacing;
   layout: LayoutSpacing;
   scale: Record<string, string>;
+}
+
+export type SqliteMode = "read" | "write";
+
+export interface SqliteNode {
+  mode?: unknown;
+  params?: Array<unknown>;
+  path?: string;
+  query?: string;
 }
 
 export type SslMode = "disable" | "allow" | "prefer" | "require" | "verify_ca" | "verify_full";
@@ -2453,6 +2565,12 @@ export interface StorageConfig {
 }
 
 export type StorageDriver = "local" | "s3" | "gcs" | "azure_blob" | "custom";
+
+export interface SubflowNode {
+  input_mapping?: Record<string, string>;
+  output_mapping?: Record<string, string>;
+  workflow_id?: unknown;
+}
 
 export interface TabConfig {
   closable: boolean;
@@ -2739,6 +2857,7 @@ export interface WorkflowEdge {
   condition?: string | null;
   id: EdgeId;
   label?: string | null;
+  mapping?: Record<string, string>;
   source: NodeId;
   source_handle?: string | null;
   style: EdgeStyle;
@@ -2839,6 +2958,8 @@ export type WorkflowNodeType = {
     task_type: TaskType;
   };
   type: "Task";
+} | {
+  type: "AgentTask";
 };
 
 export interface WorkflowSettings {
@@ -2858,6 +2979,13 @@ export interface WorkflowVariable {
   name: string;
   scope: VariableScope;
   variable_type: VariableType;
+}
+
+export interface WorkspaceBinding {
+  allowed_programs?: Array<string>;
+  exclude?: Array<string>;
+  include?: Array<string>;
+  root?: string;
 }
 
 export interface ZIndexTokens {
@@ -2892,4 +3020,5 @@ export interface Project {
   updated_at: string;
   version: string;
   workflows: Record<string, Workflow>;
+  workspace?: WorkspaceBinding | null;
 }

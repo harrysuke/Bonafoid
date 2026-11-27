@@ -112,6 +112,17 @@
       "additionalProperties": {
         "$ref": "#/definitions/Workflow"
       }
+    },
+    "workspace": {
+      "description": "The directory the agent operates on, when this project is one.\n\nOn `Project` rather than in a sidecar because a graph without its workspace is unrunnable and the canvas needs the root to show file pickers and diffs. `root` is machine-specific and must never be synced: a server-side path is a lie, so a server host ignores it and disables the file and shell nodes instead.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/WorkspaceBinding"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "definitions": {
@@ -1405,6 +1416,173 @@
         }
       ]
     },
+    "AgentNodeConfig": {
+      "description": "The typed payload of an `AgentTask` node.\n\nAdjacently tagged rather than internally tagged: `{\"kind\":\"llm\",\"config\":{…}}` keeps each payload a self-contained object, which schemars renders as a clean `oneOf` and the inspector can switch on without flattening surprises.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "config",
+            "kind"
+          ],
+          "properties": {
+            "config": {
+              "$ref": "#/definitions/LlmNode"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "llm"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "config",
+            "kind"
+          ],
+          "properties": {
+            "config": {
+              "$ref": "#/definitions/ShellNode"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "shell"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "config",
+            "kind"
+          ],
+          "properties": {
+            "config": {
+              "$ref": "#/definitions/FileNode"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "file"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "config",
+            "kind"
+          ],
+          "properties": {
+            "config": {
+              "$ref": "#/definitions/GitNode"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "git"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "config",
+            "kind"
+          ],
+          "properties": {
+            "config": {
+              "$ref": "#/definitions/HttpNode"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "http"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "config",
+            "kind"
+          ],
+          "properties": {
+            "config": {
+              "$ref": "#/definitions/SqliteNode"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "sqlite"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "config",
+            "kind"
+          ],
+          "properties": {
+            "config": {
+              "$ref": "#/definitions/MemoryNode"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "memory"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "config",
+            "kind"
+          ],
+          "properties": {
+            "config": {
+              "$ref": "#/definitions/ApprovalNode"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "approval"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "config",
+            "kind"
+          ],
+          "properties": {
+            "config": {
+              "$ref": "#/definitions/SubflowNode"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "subflow"
+              ]
+            }
+          }
+        }
+      ]
+    },
     "AlertType": {
       "type": "string",
       "enum": [
@@ -1510,6 +1688,38 @@
         "path",
         "none"
       ]
+    },
+    "ApprovalNode": {
+      "description": "A human gate. Suspends the run until someone answers.",
+      "type": "object",
+      "properties": {
+        "body": {
+          "description": "Body shown with the card, interpolated. Usually a summary of what the next node is about to do.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "on_timeout": {
+          "default": "fail",
+          "allOf": [
+            {
+              "$ref": "#/definitions/OnTimeout"
+            }
+          ]
+        },
+        "timeout": {
+          "description": "How long to wait, e.g. `1h`. `None` waits indefinitely.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "default": "Approval required",
+          "type": "string"
+        }
+      }
     },
     "AttributeMapping": {
       "type": "object",
@@ -8048,6 +8258,49 @@
         }
       }
     },
+    "FileNode": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "glob": {
+          "description": "For `list`: the glob to expand under `path`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "default": "read",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FileOp"
+            }
+          ]
+        },
+        "path": {
+          "description": "Path relative to the workspace root. Checked after canonicalisation, so `..` and symlinks cannot escape.",
+          "default": "",
+          "type": "string"
+        }
+      }
+    },
+    "FileOp": {
+      "description": "A file operation, jailed to the workspace root.",
+      "type": "string",
+      "enum": [
+        "read",
+        "write",
+        "append",
+        "patch",
+        "list",
+        "delete"
+      ]
+    },
     "FontFamilies": {
       "type": "object",
       "required": [
@@ -8224,6 +8477,8 @@
           ]
         },
         "entity_id": {
+          "description": "The entity this form submits to.\n\nOptional, and `serde(default)` on purpose: every project document written before this field existed must still deserialize, and a form that has not been bound yet is a legitimate state. Adding it is the only model change in Milestone 5 — see `docs/Agentic-App-Generation-Plan.md` §5.5.",
+          "default": null,
           "anyOf": [
             {
               "$ref": "#/definitions/EntityId"
@@ -8463,6 +8718,47 @@
         }
       }
     },
+    "GitNode": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "description": "Extra arguments passed to `git`. Never a credential: those come from the deploy vault.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "description": "Commit message, interpolated. Used by `commit` and `pr`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "default": "status",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GitOp"
+            }
+          ]
+        }
+      }
+    },
+    "GitOp": {
+      "description": "A git operation. Read ops are free; the write ops need `git:write`.",
+      "type": "string",
+      "enum": [
+        "status",
+        "diff",
+        "log",
+        "branch",
+        "commit",
+        "push",
+        "pr"
+      ]
+    },
     "GridConfig": {
       "type": "object",
       "required": [
@@ -8560,6 +8856,53 @@
         "HEAD",
         "OPTIONS"
       ]
+    },
+    "HttpNode": {
+      "description": "An HTTP request, restricted to a per-node host allowlist.",
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expect": {
+          "description": "Statuses that count as success. Empty means \"any 2xx\".",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint16",
+            "minimum": 0.0
+          }
+        },
+        "headers": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "method": {
+          "default": "GET",
+          "allOf": [
+            {
+              "$ref": "#/definitions/HttpMethod"
+            }
+          ]
+        },
+        "timeout_ms": {
+          "default": 30000,
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "url": {
+          "default": "",
+          "type": "string"
+        }
+      }
     },
     "IndexId": {
       "type": "string",
@@ -8891,6 +9234,75 @@
         }
       ]
     },
+    "LlmNode": {
+      "description": "A model call, optionally with a tool loop and a structured output.",
+      "type": "object",
+      "properties": {
+        "max_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "max_turns": {
+          "description": "Bounded tool-calling loop. `1` means a single completion, no tools.",
+          "default": 8,
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "model": {
+          "description": "Model id. `None` uses the provider's default from the catalog.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_schema": {
+          "description": "When set, the response must validate against this JSON Schema or the node fails with `invalid_output` after one repair turn."
+        },
+        "prompt": {
+          "description": "Prompt template, interpolated with `${...}` over the node scope.",
+          "default": "",
+          "type": "string"
+        },
+        "provider": {
+          "description": "Catalog platform id (`openai`, `groq`, `ollama`, …). `None` uses the host's default provider.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stream": {
+          "description": "Stream deltas to the canvas. Off by default: a cron run has nowhere to put them.",
+          "default": false,
+          "type": "boolean"
+        },
+        "system": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "temperature": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "tools": {
+          "description": "Tool names the model may call, resolved against the run's registry.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "LocalStorageConfig": {
       "type": "object",
       "required": [
@@ -8988,6 +9400,69 @@
           "type": "string"
         }
       }
+    },
+    "MemoryNode": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "namespace": {
+          "description": "`workflow:<id>`, `agent:<name>` or `global`.",
+          "default": "global",
+          "type": "string"
+        },
+        "op": {
+          "default": "get",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MemoryOp"
+            }
+          ]
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "store": {
+          "description": "Store file. `None` is the workspace's `.bonafoid/memory.db`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "top_k": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "ttl": {
+          "description": "Lifetime, e.g. `30d` or `12h`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "MemoryOp": {
+      "description": "A memory-store operation.",
+      "type": "string",
+      "enum": [
+        "get",
+        "put",
+        "append",
+        "search",
+        "delete"
+      ]
     },
     "MenuItem": {
       "type": "object",
@@ -9163,6 +9638,17 @@
         "properties"
       ],
       "properties": {
+        "agent": {
+          "description": "Present iff `node_type` is `AgentTask`. `#[serde(default)]` keeps every existing document valid, and `skip_serializing_if` keeps a round-trip of an untouched project byte-identical.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AgentNodeConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "boundary_events": {
           "type": "array",
           "items": {
@@ -9174,6 +9660,13 @@
           "items": {
             "$ref": "#/definitions/ExecutionListener"
           }
+        },
+        "idempotent": {
+          "description": "Author override for crash-recovery re-execution. `None` defers to the agent kind's default; it is meaningless on a BPMN node, and the validator says so.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "inputs": {
           "type": "object",
@@ -9352,6 +9845,14 @@
         "restrict",
         "no_action",
         "set_default"
+      ]
+    },
+    "OnTimeout": {
+      "description": "What a run does when an approval is never answered.",
+      "type": "string",
+      "enum": [
+        "fail",
+        "skip"
       ]
     },
     "OnUpdate": {
@@ -10961,6 +11462,77 @@
         }
       }
     },
+    "ShellMode": {
+      "description": "How a shell command is invoked.",
+      "oneOf": [
+        {
+          "description": "`program` + `args` go straight to `Command`. No shell parses them, so `;`, `|` and `$()` are literal.",
+          "type": "string",
+          "enum": [
+            "argv"
+          ]
+        },
+        {
+          "description": "`program` is a command line handed to a shell. Always gated by an approval, even when the program is allowlisted.",
+          "type": "string",
+          "enum": [
+            "shell"
+          ]
+        }
+      ]
+    },
+    "ShellNode": {
+      "description": "A child process, killed as a process group on timeout or cancel.",
+      "type": "object",
+      "properties": {
+        "args": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "description": "Working directory, relative to the workspace root. `None` is the root.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "description": "Extra environment. Everything else is scrubbed by the executor.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "mode": {
+          "default": "argv",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ShellMode"
+            }
+          ]
+        },
+        "program": {
+          "default": "",
+          "type": "string"
+        },
+        "stdin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeout_ms": {
+          "default": 600000,
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
     "SignalDefinition": {
       "type": "object",
       "required": [
@@ -11194,6 +11766,41 @@
           "additionalProperties": {
             "type": "string"
           }
+        }
+      }
+    },
+    "SqliteMode": {
+      "description": "Whether a SQLite node may write. Read-only is the default connection mode.",
+      "type": "string",
+      "enum": [
+        "read",
+        "write"
+      ]
+    },
+    "SqliteNode": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "default": "read",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SqliteMode"
+            }
+          ]
+        },
+        "params": {
+          "default": [],
+          "type": "array",
+          "items": true
+        },
+        "path": {
+          "description": "Database file, relative to the workspace root.",
+          "default": "",
+          "type": "string"
+        },
+        "query": {
+          "default": "",
+          "type": "string"
         }
       }
     },
@@ -11507,6 +12114,35 @@
         "azure_blob",
         "custom"
       ]
+    },
+    "SubflowNode": {
+      "description": "A call into another workflow in the same project.",
+      "type": "object",
+      "properties": {
+        "input_mapping": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "output_mapping": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "workflow_id": {
+          "description": "Deterministic placeholder (nil) until the author picks a workflow; the validator reports a nil id rather than silently running nothing.",
+          "default": "00000000-0000-0000-0000-000000000000",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WorkflowId"
+            }
+          ]
+        }
+      }
     },
     "TabConfig": {
       "type": "object",
@@ -12772,6 +13408,13 @@
             "null"
           ]
         },
+        "mapping": {
+          "description": "Port bindings this edge carries: `{\"files\": \"input.files\"}` maps the target's `files` port from the source scope. Empty for a plain control-flow line, which is every edge the BPMN editor draws.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "source": {
           "$ref": "#/definitions/NodeId"
         },
@@ -13292,6 +13935,21 @@
               ]
             }
           }
+        },
+        {
+          "description": "A node executed by the agent runtime rather than the BPMN simulator.\n\nCarries no payload of its own: the configuration lives in [`NodeConfig::agent`], so the node type stays a cheap discriminant and the inspector reads one place. A unit variant also serialises as `{\"type\":\"AgentTask\"}`, which keeps existing documents untouched.",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "AgentTask"
+              ]
+            }
+          }
         }
       ]
     },
@@ -13365,6 +14023,40 @@
         },
         "variable_type": {
           "$ref": "#/definitions/VariableType"
+        }
+      }
+    },
+    "WorkspaceBinding": {
+      "description": "Where a workflow's agent is allowed to act, and with what.\n\nThe policy half (`include`/`exclude`/`allowed_programs`) is what the runtime enforces; it is deliberately part of the project document so that \"it ran in the IDE\" and \"it runs from the compiled binary\" mean the same thing.",
+      "type": "object",
+      "properties": {
+        "allowed_programs": {
+          "description": "Programs runnable without a fresh per-node approval. Resolved through PATH and compared by canonical path, never by bare name.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "include": {
+          "description": "Globs the runtime may touch. Empty means \"the whole root\".",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "root": {
+          "description": "Absolute path on the authoring machine. Never synced to a server.",
+          "default": "",
+          "type": "string"
         }
       }
     },

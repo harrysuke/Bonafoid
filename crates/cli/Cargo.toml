@@ -1,0 +1,20 @@
+[package]
+name = "nocode-cli"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "`bonafoid` — run and resume workflows from a terminal"
+
+[[bin]]
+name = "bonafoid"
+path = "src/main.rs"
+
+[dependencies]
+nocode-model = { path = "../model" }
+nocode-runtime = { path = "../runtime" }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

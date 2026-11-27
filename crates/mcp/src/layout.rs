@@ -180,6 +180,7 @@ mod tests {
                 condition: None,
                 label: None,
                 style: Default::default(),
+                mapping: Default::default(),
             });
         }
         workflow.nodes = nodes;
@@ -216,6 +217,7 @@ mod tests {
             condition: None,
             label: None,
             style: Default::default(),
+            mapping: Default::default(),
         });
         workflow.edges.push(nocode_model::WorkflowEdge {
             id: nocode_model::EdgeId::new(),
@@ -226,6 +228,7 @@ mod tests {
             condition: None,
             label: None,
             style: Default::default(),
+            mapping: Default::default(),
         });
         workflow.edges.push(nocode_model::WorkflowEdge {
             id: nocode_model::EdgeId::new(),
@@ -236,6 +239,7 @@ mod tests {
             condition: None,
             label: None,
             style: Default::default(),
+            mapping: Default::default(),
         });
         workflow.edges.push(nocode_model::WorkflowEdge {
             id: nocode_model::EdgeId::new(),
@@ -246,6 +250,7 @@ mod tests {
             condition: None,
             label: None,
             style: Default::default(),
+            mapping: Default::default(),
         });
         workflow.nodes.push(branch);
         workflow.nodes.push(end);

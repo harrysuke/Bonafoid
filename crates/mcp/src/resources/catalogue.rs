@@ -27,8 +27,12 @@ pub struct NodeTypeInfo {
     pub defaults: Value,
 }
 
-/// All 16 node types, in palette order.
-pub const NODE_TYPE_NAMES: [&str; 16] = [
+/// All 17 node types, in palette order.
+///
+/// `AgentTask` is last because it is the one type whose payload does not live
+/// in its own config: the agent settings ride in `NodeConfig::agent`, which the
+/// catalogue describes separately in [`agent_kind_catalogue`].
+pub const NODE_TYPE_NAMES: [&str; 17] = [
     "StartEvent",
     "EndEvent",
     "UserTask",
@@ -45,6 +49,7 @@ pub const NODE_TYPE_NAMES: [&str; 16] = [
     "EventBasedGateway",
     "SubProcess",
     "CallActivity",
+    "AgentTask",
 ];
 
 /// Build the default payload for a node type tag.
@@ -107,6 +112,7 @@ pub fn default_node_type(tag: &str) -> Option<WorkflowNodeType> {
             input_mapping: IndexMap::new(),
             output_mapping: IndexMap::new(),
         },
+        "AgentTask" => WorkflowNodeType::AgentTask,
         _ => return None,
     };
     Some(node_type)
@@ -205,7 +211,7 @@ pub fn merge_json_objects(base: &mut Value, patch: &Value) {
 
 /// Build the serialisable catalogue resource payload.
 pub fn catalogue() -> Vec<NodeTypeInfo> {
-    let specs: [(&str, &str, &str, &[&str]); 16] = [
+    let specs: [(&str, &str, &str, &[&str]); 17] = [
         ("StartEvent", "Start", "events", &["event_type"]),
         ("EndEvent", "End", "events", &["event_type"]),
         (
@@ -262,6 +268,9 @@ pub fn catalogue() -> Vec<NodeTypeInfo> {
             "composite",
             &["called_workflow_id", "input_mapping", "output_mapping"],
         ),
+        // The inner config is empty on purpose: an AgentTask's payload is the
+        // sibling `config.agent`, described by `agent_kind_catalogue()`.
+        ("AgentTask", "Agent task", "agent", &[]),
     ];
 
     specs
@@ -280,24 +289,82 @@ pub fn catalogue() -> Vec<NodeTypeInfo> {
         .collect()
 }
 
+/// The nine agent kinds with their default payloads.
+///
+/// This is the anti-hallucination measure the MCP integration established,
+/// applied to a new domain: a model reads the schema instead of guessing what
+/// a `shell` node's config looks like. The defaults are generated from the
+/// model crate, so they cannot drift from what the inspector renders.
+pub fn agent_kind_catalogue() -> Value {
+    use nocode_model::{AgentNodeConfig, AgentNodeKind};
+
+    let labels = |kind: AgentNodeKind| match kind {
+        AgentNodeKind::Llm => "LLM call",
+        AgentNodeKind::Shell => "Shell command",
+        AgentNodeKind::File => "File operation",
+        AgentNodeKind::Git => "Git operation",
+        AgentNodeKind::Http => "HTTP request",
+        AgentNodeKind::Sqlite => "SQLite query",
+        AgentNodeKind::Memory => "Memory",
+        AgentNodeKind::Approval => "Human approval",
+        AgentNodeKind::Subflow => "Sub-workflow",
+    };
+
+    AgentNodeKind::ALL
+        .into_iter()
+        .map(|kind| {
+            let config = serde_json::to_value(AgentNodeConfig::default_for(kind))
+                .expect("a default agent config serialises");
+            json!({
+                "kind": kind.as_str(),
+                "label": labels(kind),
+                "idempotent_by_default": kind.idempotent_by_default(),
+                "default_config": config,
+            })
+        })
+        .collect::<Vec<_>>()
+        .into()
+}
+
 /// Catalogue as a JSON resource payload.
 pub fn catalogue_json() -> Value {
     let entries = catalogue()
         .into_iter()
         .map(|entry| {
+            // An agent node's example has to show the sibling payload, or a
+            // model that copies it creates a node the validator rejects.
+            let example = if entry.node_type == "AgentTask" {
+                json!({
+                    "name": entry.label,
+                    "node_type": entry.defaults,
+                    "agent": {
+                        "kind": "llm",
+                        "config": serde_json::to_value(nocode_model::AgentNodeConfig::default_for(
+                            nocode_model::AgentNodeKind::Llm,
+                        ))
+                        .expect("default llm config serialises"),
+                    },
+                })
+            } else {
+                json!({ "name": entry.label, "node_type": entry.defaults })
+            };
             json!({
                 "type": entry.node_type,
                 "label": entry.label,
                 "category": entry.category,
                 "config_keys": entry.config_keys,
                 "default_node_type": entry.defaults,
-                "example": { "name": entry.label, "node_type": entry.defaults },
+                "example": example,
             })
         })
         .collect::<Vec<_>>();
     json!({
         "description": "Valid node_type tags and their default config payloads",
         "node_types": entries,
+        "agent_kinds": agent_kind_catalogue(),
+        "agent_task_note": "An AgentTask stores its settings in the sibling \
+            `agent` field, not in `node_type.config`: pass `agent: {kind, config}` \
+            to add_node or update_node.",
     })
 }
 
@@ -306,15 +373,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn covers_all_sixteen_variants() {
+    fn covers_every_variant() {
         let entries = catalogue();
-        assert_eq!(entries.len(), 16);
+        assert_eq!(entries.len(), 17);
         for name in NODE_TYPE_NAMES {
             assert!(
                 entries.iter().any(|entry| entry.node_type == name),
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn the_agent_catalogue_lists_every_kind_with_a_usable_default() {
+        let payload = agent_kind_catalogue();
+        let kinds = payload.as_array().expect("an array of kinds");
+        assert_eq!(kinds.len(), 9);
+        for entry in kinds {
+            let config = entry["default_config"].clone();
+            // A model copies `default_config` verbatim; it must parse.
+            let parsed: nocode_model::AgentNodeConfig =
+                serde_json::from_value(config).expect("the advertised default parses");
+            assert_eq!(parsed.kind().as_str(), entry["kind"].as_str().unwrap());
+        }
+    }
+
+    #[test]
+    fn the_agent_task_example_includes_the_sibling_payload() {
+        let payload = catalogue_json();
+        let entry = payload["node_types"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["type"] == "AgentTask")
+            .expect("AgentTask is in the catalogue");
+        assert_eq!(entry["example"]["node_type"]["type"], "AgentTask");
+        assert!(
+            entry["example"]["agent"]["kind"].is_string(),
+            "an example without the agent payload would create an invalid node"
+        );
     }
 
     #[test]

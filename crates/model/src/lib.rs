@@ -1,5 +1,6 @@
 //! Core data models for the No-Code IDE
 
+pub mod agent;
 pub mod entity;
 pub mod form;
 pub mod integrity;
@@ -9,6 +10,7 @@ pub mod retry;
 pub mod theme;
 pub mod workflow;
 
+pub use agent::*;
 pub use entity::*;
 pub use form::*;
 pub use integrity::{validate_integrity, IntegrityIssue, Severity};

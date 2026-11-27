@@ -4,8 +4,8 @@
 //! only affected ids/objects so agent context stays small.
 
 use nocode_model::{
-    EdgeId, EdgeStyle, NodeConfig, NodeId, NodePosition, WorkflowEdge, WorkflowNode,
-    WorkflowNodeType,
+    AgentNodeConfig, EdgeId, EdgeStyle, NodeConfig, NodeId, NodePosition, WorkflowEdge,
+    WorkflowNode, WorkflowNodeType,
 };
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -28,6 +28,10 @@ struct AddNodeParams {
     node_type: String,
     name: Option<String>,
     config: Option<Value>,
+    /// The payload of an `AgentTask`: `{"kind": "shell", "config": {…}}`.
+    /// Kept separate from `config` because it lives in `NodeConfig::agent`,
+    /// beside the node type rather than inside it.
+    agent: Option<Value>,
     position: Option<NodePosition>,
     documentation: Option<String>,
     expected_revision: Option<u64>,
@@ -40,6 +44,7 @@ struct UpdateNodeParams {
     node_id: String,
     name: Option<String>,
     config: Option<Value>,
+    agent: Option<Value>,
     position: Option<NodePosition>,
     documentation: Option<Option<String>>,
     expected_revision: Option<u64>,
@@ -104,6 +109,17 @@ pub fn node_type_tag(node_type: &WorkflowNodeType) -> String {
         .unwrap_or_default()
 }
 
+/// Deserialise the `agent` argument into a typed payload.
+///
+/// Reports the serde message verbatim: it names the offending field, which is
+/// the only useful thing to tell a model that wrote the wrong shape.
+fn parse_agent_payload(raw: &Value) -> Result<AgentNodeConfig, McpError> {
+    serde_json::from_value(raw.clone()).map_err(|error| McpError::InvalidParam {
+        name: "agent",
+        detail: error.to_string(),
+    })
+}
+
 fn node_index(workflow: &nocode_model::Workflow, id: &str) -> Result<usize, McpError> {
     workflow
         .nodes
@@ -138,12 +154,12 @@ pub fn definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "add_node".into(),
-            description: "Add one node to the current workflow. node_type must be one of the 16 tags in bpmn://catalog/node-types; config is a partial typed payload and defaults are applied. Omit position to let the server place it. Returns node_id and applied defaults.".into(),
+            description: "Add one node to the current workflow. node_type must be one of the 17 tags in bpmn://catalog/node-types; config is a partial typed payload and defaults are applied. For node_type=AgentTask pass `agent` ({kind, config}) instead — its settings live beside the node type, not inside it. Omit position to let the server place it. Returns node_id and applied defaults.".into(),
             input_schema: schema_for::<AddNodeParams>(),
         },
         ToolDefinition {
             name: "update_node".into(),
-            description: "Update a node's name, documentation, position or config. config is deep-merged into the existing typed payload, never replaced wholesale. Use get_workflow(view=full) to see the current shape.".into(),
+            description: "Update a node's name, documentation, position, config or agent payload. config is deep-merged into the existing typed payload, never replaced wholesale; agent replaces an AgentTask's payload. Use get_workflow(view=full) to see the current shape.".into(),
             input_schema: schema_for::<UpdateNodeParams>(),
         },
         ToolDefinition {
@@ -231,6 +247,29 @@ fn add_node(
         }
     }
     let typed: WorkflowNodeType = parse_node_type_strict(&payload, &params.node_type)?;
+
+    // An agent node's payload lives beside the node type, so it cannot come
+    // through the `config` patch above. Both mismatches are refused at the
+    // call that caused them: a stored node the validator rejects on the next
+    // open is a worse failure than a rejected call.
+    let mut node_config = NodeConfig::default();
+    if let Some(raw) = params.agent.as_ref() {
+        node_config.agent = Some(parse_agent_payload(raw)?);
+    }
+    if typed.is_agent_task() && node_config.agent.is_none() {
+        return Err(McpError::InvalidParam {
+            name: "agent",
+            detail: "an AgentTask requires an `agent` payload, e.g. {\"kind\":\"shell\",\"config\":{}}"
+                .into(),
+        });
+    }
+    if !typed.is_agent_task() && node_config.agent.is_some() {
+        return Err(McpError::InvalidParam {
+            name: "agent",
+            detail: format!("`{}` cannot carry an agent payload", params.node_type),
+        });
+    }
+
     let defaults_applied: Vec<&str> = entry
         .config_keys
         .iter()
@@ -261,7 +300,7 @@ fn add_node(
                 name: name.clone(),
                 node_type: typed.clone(),
                 position: position.clone(),
-                config: NodeConfig::default(),
+                config: node_config.clone(),
                 documentation: documentation.clone(),
             });
             Ok(json!({
@@ -302,6 +341,17 @@ fn update_node(
             if let Some(position) = params.position {
                 node.position = position;
                 updated.push("position");
+            }
+            if let Some(raw) = params.agent.as_ref() {
+                let tag = node_type_tag(&node.node_type);
+                if !node.node_type.is_agent_task() {
+                    return Err(McpError::InvalidParam {
+                        name: "agent",
+                        detail: format!("`{tag}` cannot carry an agent payload"),
+                    });
+                }
+                node.config.agent = Some(parse_agent_payload(raw)?);
+                updated.push("agent");
             }
             if let Some(patch) = params.config.as_ref() {
                 let tag = node_type_tag(&node.node_type);
@@ -392,6 +442,7 @@ fn connect_nodes(
                 condition: params.condition,
                 label: params.label,
                 style: EdgeStyle::default(),
+                mapping: Default::default(),
             };
             let edge_id = edge.id.to_string();
             workflow.edges.push(edge);

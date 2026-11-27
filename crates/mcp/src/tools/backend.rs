@@ -358,6 +358,7 @@ fn edge(source: NodeId, target: NodeId) -> WorkflowEdge {
         condition: None,
         label: None,
         style: Default::default(),
+        mapping: Default::default(),
     }
 }
 

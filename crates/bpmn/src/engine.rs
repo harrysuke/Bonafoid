@@ -248,6 +248,15 @@ impl BpmnEngine {
         }
 
         for node in &workflow.nodes {
+            // The `node_type` / `config.agent` pairing is a model-level rule;
+            // the validator is where a project is actually held to it.
+            if let Err(message) = node.check_agent_invariant() {
+                result.error(Some(node.id.to_string()), message);
+            }
+            for warning in node.agent_warnings() {
+                result.warning(Some(node.id.to_string()), warning);
+            }
+
             let outgoing: Vec<&nocode_model::WorkflowEdge> = workflow
                 .edges
                 .iter()
@@ -605,6 +614,29 @@ impl BpmnEngine {
                 self.follow_all(workflow, instance, token_idx, &node.id)?;
             }
 
+            // The simulator does not execute agent nodes — `crates/runtime`
+            // does, with async executors, a journal and a capability policy.
+            // Recording the arrival keeps a preview honest: the graph shows the
+            // node was reached and which kind it would have run, without
+            // pretending a shell command or a model call happened.
+            WorkflowNodeType::AgentTask => {
+                let detail = match node.agent_config() {
+                    Some(config) => format!(
+                        "{} node; run it with the workflow runtime",
+                        config.kind().as_str()
+                    ),
+                    None => "unconfigured agent node".to_string(),
+                };
+                instance.history.push(HistoryEvent {
+                    timestamp: now,
+                    node_id: Some(node.id.clone()),
+                    node_name: Some(node.name.clone()),
+                    event_type: "agent_task_not_simulated".to_string(),
+                    detail: Some(detail),
+                });
+                self.follow_all(workflow, instance, token_idx, &node.id)?;
+            }
+
             WorkflowNodeType::ExclusiveGateway { default_flow } => {
                 let chosen =
                     self.select_exclusive(workflow, node, instance, default_flow.as_ref())?;
@@ -840,6 +872,7 @@ mod tests {
             condition: condition.map(|s| s.to_string()),
             label: None,
             style: Default::default(),
+            mapping: Default::default(),
         }
     }
 
@@ -1140,5 +1173,104 @@ mod tests {
         );
         let instance = BpmnEngine::new().start(&wf, vars(&[])).unwrap();
         assert_eq!(instance.status, InstanceStatus::Completed);
+    }
+
+    /// Build an agent node with its payload attached.
+    fn agent_node(name: &str, kind: nocode_model::AgentNodeKind) -> WorkflowNode {
+        let mut config = NodeConfig::default();
+        config.agent = Some(nocode_model::AgentNodeConfig::default_for(kind));
+        WorkflowNode {
+            id: NodeId::new(),
+            name: name.into(),
+            node_type: WorkflowNodeType::AgentTask,
+            position: NodePosition::default(),
+            config,
+            documentation: None,
+        }
+    }
+
+    #[test]
+    fn an_agent_task_without_a_payload_fails_validation() {
+        let start = start("Start");
+        let task = node("Audit", WorkflowNodeType::AgentTask);
+        let end = end("End");
+        let wf = workflow(
+            vec![start.clone(), task.clone(), end.clone()],
+            vec![edge(&start, &task), edge(&task, &end)],
+        );
+        let result = BpmnEngine::new().validate(&wf);
+        assert!(!result.is_valid());
+        assert!(
+            result
+                .issues
+                .iter()
+                .any(|i| i.severity == Severity::Error && i.message.contains("no agent config")),
+            "{:?}",
+            result.issues
+        );
+    }
+
+    #[test]
+    fn an_agent_config_on_a_bpmn_node_fails_validation() {
+        let start = start("Start");
+        let mut task = node("Call", WorkflowNodeType::ManualTask);
+        task.config.agent = Some(nocode_model::AgentNodeConfig::default_for(
+            nocode_model::AgentNodeKind::Shell,
+        ));
+        let end = end("End");
+        let wf = workflow(
+            vec![start.clone(), task.clone(), end.clone()],
+            vec![edge(&start, &task), edge(&task, &end)],
+        );
+        let result = BpmnEngine::new().validate(&wf);
+        assert!(!result.is_valid());
+        assert!(
+            result
+                .issues
+                .iter()
+                .any(|i| i.message.contains("must not carry an agent config")),
+            "{:?}",
+            result.issues
+        );
+    }
+
+    #[test]
+    fn a_configured_agent_node_passes_validation() {
+        let start = start("Start");
+        let task = agent_node("Audit", nocode_model::AgentNodeKind::Llm);
+        let end = end("End");
+        let wf = workflow(
+            vec![start.clone(), task.clone(), end.clone()],
+            vec![edge(&start, &task), edge(&task, &end)],
+        );
+        let result = BpmnEngine::new().validate(&wf);
+        assert!(result.is_valid(), "{:?}", result.issues);
+    }
+
+    #[test]
+    fn the_simulator_records_an_agent_node_without_claiming_it_ran() {
+        let start = start("Start");
+        let task = agent_node("Audit", nocode_model::AgentNodeKind::Shell);
+        let end = end("End");
+        let wf = workflow(
+            vec![start.clone(), task.clone(), end.clone()],
+            vec![edge(&start, &task), edge(&task, &end)],
+        );
+
+        let instance = BpmnEngine::new().start(&wf, IndexMap::new()).unwrap();
+        assert_eq!(instance.status, InstanceStatus::Completed);
+        let event = instance
+            .history
+            .iter()
+            .find(|e| e.event_type == "agent_task_not_simulated")
+            .expect("the simulator records the node it could not execute");
+        assert!(event.detail.as_deref().unwrap_or("").contains("shell"));
+        assert!(
+            !instance
+                .history
+                .iter()
+                .any(|e| e.event_type == "service_task_executed"),
+            "an agent node must not be reported as an executed service task"
+        );
     }
 }

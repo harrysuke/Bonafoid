@@ -55,6 +55,7 @@ import {
   newWorkflowNode,
 } from '../utils/workflowModel';
 import type {
+  AgentNodeKind,
   WorkflowEdgePatch,
   WorkflowMetaPatch,
   WorkflowNodePatch,
@@ -186,7 +187,13 @@ interface ProjectState {
   addWorkflow: (name: string) => string;
   removeWorkflow: (id: string) => void;
   updateWorkflowMeta: (workflowId: string, patch: WorkflowMetaPatch) => void;
-  addWorkflowNode: (workflowId: string, nodeType: WorkflowNodeType['type'], x: number, y: number) => string;
+  addWorkflowNode: (
+    workflowId: string,
+    nodeType: WorkflowNodeType['type'],
+    x: number,
+    y: number,
+    agentKind?: AgentNodeKind,
+  ) => string;
   updateWorkflowNode: (workflowId: string, nodeId: string, patch: WorkflowNodePatch) => void;
   moveWorkflowNode: (workflowId: string, nodeId: string, x: number, y: number) => void;
   removeWorkflowNode: (workflowId: string, nodeId: string) => void;
@@ -1066,10 +1073,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
     },
 
-    addWorkflowNode: (workflowId, nodeType, x, y) => {
+    addWorkflowNode: (workflowId, nodeType, x, y, agentKind) => {
       const workflow = readWorkflow(workflowId);
       if (!workflow) return '';
-      const node = newWorkflowNode(nodeType, { x, y });
+      const node = newWorkflowNode(nodeType, { x, y }, agentKind);
       applyWorkflow(workflowId, {
         ...workflow,
         nodes: [...workflow.nodes, node],

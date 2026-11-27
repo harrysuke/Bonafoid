@@ -14,7 +14,10 @@ import {
   newWorkflow,
   newWorkflowEdge,
   newWorkflowNode,
+  buildAgentConfig,
   paletteItem,
+  paletteItemForAgentKind,
+  paletteItemForNode,
   toWorkflow,
   workflowToFlowEdges,
   workflowToFlowNodes,
@@ -27,9 +30,11 @@ describe('node palette', () => {
     }
   });
 
-  it('has no duplicate node types', () => {
-    const types = NODE_PALETTE.map((item) => item.type);
-    expect(new Set(types).size).toBe(types.length);
+  it('has no duplicate entries', () => {
+    // Nine agent items share the `AgentTask` node type, so uniqueness is on
+    // (type, agentKind) rather than on the type alone.
+    const keys = NODE_PALETTE.map((item) => `${item.type}:${item.agentKind ?? ''}`);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
   it('builds a valid node type for every palette entry', () => {
@@ -149,5 +154,61 @@ describe('toWorkflow', () => {
     expect(toWorkflow('a string')).toBeNull();
     expect(toWorkflow({})).toBeNull();
     expect(toWorkflow({ nodes: [], edges: 'nope' })).toBeNull();
+  });
+});
+
+describe('agent palette entries', () => {
+  const KINDS = [
+    'llm',
+    'shell',
+    'file',
+    'git',
+    'http',
+    'sqlite',
+    'memory',
+    'approval',
+    'subflow',
+  ] as const;
+
+  it('offers all nine kinds and nothing else in the agent category', () => {
+    const agentItems = NODE_PALETTE.filter((item) => item.category === 'agent');
+    expect(agentItems.map((item) => item.agentKind).sort()).toEqual([...KINDS].sort());
+    for (const item of agentItems) {
+      expect(item.type).toBe('AgentTask');
+    }
+  });
+
+  it('builds a complete payload for every kind', () => {
+    // The Rust side fills missing fields from serde defaults, but the canvas
+    // must produce a complete object before it has spoken to a server, so a
+    // missing required field here is a broken inspector rather than a default.
+    for (const kind of KINDS) {
+      const config = buildAgentConfig(kind);
+      expect(config.kind).toBe(kind);
+      expect(config.config).toBeTypeOf('object');
+      expect(Object.keys(config.config).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('creates an AgentTask node that carries its payload', () => {
+    const node = newWorkflowNode('AgentTask', { x: 0, y: 0 }, 'shell');
+    expect(node.node_type).toEqual({ type: 'AgentTask' });
+    expect(node.config.agent).toEqual(buildAgentConfig('shell'));
+    expect(node.name).toBe('Shell command');
+  });
+
+  it('defaults a bare AgentTask to an LLM call rather than an invalid node', () => {
+    // An AgentTask without a payload fails validation, so the palette must
+    // never produce one.
+    const node = newWorkflowNode('AgentTask');
+    expect(node.config.agent?.kind).toBe('llm');
+  });
+
+  it('matches a stored node back to its palette entry by agent kind', () => {
+    const node = newWorkflowNode('AgentTask', { x: 0, y: 0 }, 'memory');
+    expect(paletteItemForNode(node)?.label).toBe('Memory');
+    // Without a payload the type alone resolves, as for a BPMN node.
+    expect(paletteItemForNode(newWorkflowNode('UserTask'))?.label).toBe('User task');
+    expect(paletteItemForAgentKind('git')?.color).toMatch(/^#/);
   });
 });

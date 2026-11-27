@@ -27,7 +27,7 @@ import {
   workflowToFlowEdges,
   workflowToFlowNodes,
 } from '../utils/workflowModel';
-import type { FlowNodeData, NodePaletteCategory } from '../utils/workflowModel';
+import type { AgentNodeKind, FlowNodeData, NodePaletteCategory } from '../utils/workflowModel';
 import type { Workflow, WorkflowNodeType } from '../types/model.generated';
 import type { BpmnValidationReport, WorkflowRunSummary } from '../platform/types';
 
@@ -134,11 +134,11 @@ export function WorkflowBuilder() {
   const selectedNode = workflow?.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge = workflow?.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
 
-  const handleAddNode = (type: WorkflowNodeType['type']) => {
+  const handleAddNode = (type: WorkflowNodeType['type'], agentKind?: AgentNodeKind) => {
     if (!workflow) return;
     // Deterministic offset keeps repeated palette clicks readable.
     const offset = workflow.nodes.length * 40;
-    const id = addWorkflowNode(workflow.id, type, 80 + offset, 60 + offset);
+    const id = addWorkflowNode(workflow.id, type, 80 + offset, 60 + offset, agentKind);
     if (id) setSelectedNodeId(id);
   };
 
@@ -436,10 +436,10 @@ export function WorkflowBuilder() {
               <div className="space-y-1">
                 {NODE_PALETTE.filter((item) => item.category === category).map((item) => (
                   <button
-                    key={item.type}
+                    key={`${item.type}:${item.agentKind ?? ''}`}
                     type="button"
                     disabled={!workflow}
-                    onClick={() => handleAddNode(item.type)}
+                    onClick={() => handleAddNode(item.type, item.agentKind)}
                     className="w-full flex items-center gap-2 px-2 py-1 rounded border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700/50 disabled:opacity-50"
                   >
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />

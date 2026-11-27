@@ -1,0 +1,25 @@
+[package]
+name = "nocode-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Agentic workflow runtime: an async token scheduler over a nocode-model graph"
+
+[dependencies]
+nocode-model = { path = "../model" }
+# Gateway conditions reuse the expression language the BPMN simulator already
+# evaluates, so a condition means the same thing in a preview and a real run.
+nocode-bpmn = { path = "../bpmn" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+indexmap = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

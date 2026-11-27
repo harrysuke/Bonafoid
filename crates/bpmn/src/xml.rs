@@ -8,8 +8,10 @@
 //! The importer focuses on the elements the engine understands (events, tasks,
 //! gateways, sequence flows) and preserves node names and positions.
 
+use base64::Engine as _;
 use nocode_model::{
-    EdgeId, EdgeStyle, NodeId, NodePosition, Workflow, WorkflowEdge, WorkflowNode, WorkflowNodeType,
+    AgentNodeConfig, EdgeId, EdgeStyle, NodeConfig, NodeId, NodePosition, Workflow, WorkflowEdge,
+    WorkflowNode, WorkflowNodeType,
 };
 use roxmltree::Document;
 use uuid::Uuid;
@@ -20,6 +22,14 @@ const BPMN_NS: &str = "http://www.omg.org/spec/BPMN/20100524/MODEL";
 const BPMNDI_NS: &str = "http://www.omg.org/spec/BPMN/20100524/DI";
 const DC_NS: &str = "http://www.omg.org/spec/DD/20100524/DC";
 const DI_NS: &str = "http://www.omg.org/spec/DD/20100524/DI";
+/// Namespace for the agent-node extension.
+///
+/// BPMN 2.0 has no vocabulary for "call a model", so an agent node exports as a
+/// `serviceTask` whose payload rides in this namespaced child. Export is
+/// lossless for Bonafoid; a foreign BPMN tool drops the extension and imports a
+/// plain service task, which is the honest outcome — a tool that does not know
+/// what an LLM is cannot invent one.
+const BONAFOID_NS: &str = "https://bonafoid.dev/schema/bpmn";
 
 /// Parse a BPMN 2.0 XML document into a [`Workflow`].
 ///
@@ -91,6 +101,9 @@ pub fn parse_bpmn(xml: &str, name: &str) -> Result<Workflow> {
         let node_name = element.attribute("name").unwrap_or(tag).to_string();
         let (x, y) = positions.get(&id).copied().unwrap_or((0.0, 0.0));
 
+        // Agent nodes carry their payload out-of-band; every other type leaves
+        // the config empty, as before.
+        let mut config = NodeConfig::default();
         let node_type = match tag {
             "startEvent" => Some(WorkflowNodeType::StartEvent {
                 event_type: nocode_model::StartEventType::None,
@@ -107,18 +120,24 @@ pub fn parse_bpmn(xml: &str, name: &str) -> Result<Workflow> {
                 form_id: None,
                 due_date: None,
             }),
-            "serviceTask" => Some(WorkflowNodeType::ServiceTask {
-                implementation: nocode_model::ServiceTaskImplementation::Function {
-                    function_name: element
-                        .attribute("implementation")
-                        .unwrap_or("noop")
-                        .to_string(),
-                    input_mapping: Default::default(),
-                    output_mapping: Default::default(),
-                },
-                r#async: false,
-                exclusive: true,
-            }),
+            "serviceTask" => match parse_agent_extension(element)? {
+                Some(agent) => {
+                    config.agent = Some(agent);
+                    Some(WorkflowNodeType::AgentTask)
+                }
+                None => Some(WorkflowNodeType::ServiceTask {
+                    implementation: nocode_model::ServiceTaskImplementation::Function {
+                        function_name: element
+                            .attribute("implementation")
+                            .unwrap_or("noop")
+                            .to_string(),
+                        input_mapping: Default::default(),
+                        output_mapping: Default::default(),
+                    },
+                    r#async: false,
+                    exclusive: true,
+                }),
+            },
             "scriptTask" => Some(WorkflowNodeType::ScriptTask {
                 script: element
                     .children()
@@ -173,7 +192,7 @@ pub fn parse_bpmn(xml: &str, name: &str) -> Result<Workflow> {
                 name: node_name,
                 node_type,
                 position: NodePosition { x, y },
-                config: Default::default(),
+                config,
                 documentation: None,
             });
         }
@@ -204,6 +223,7 @@ pub fn parse_bpmn(xml: &str, name: &str) -> Result<Workflow> {
             condition,
             label: flow.attribute("name").map(|s| s.to_string()),
             style: EdgeStyle::default(),
+            mapping: Default::default(),
         });
     }
 
@@ -223,9 +243,44 @@ pub fn parse_bpmn(xml: &str, name: &str) -> Result<Workflow> {
     })
 }
 
+/// Read the `bonafoid:agentNode` extension from a `serviceTask`.
+///
+/// Three outcomes, deliberately distinct:
+///
+/// - no extension → `Ok(None)`, so a foreign `serviceTask` stays a service
+///   task (a tool that does not know what an LLM is cannot invent one);
+/// - a readable extension → the parsed payload;
+/// - an extension that is present but undecodable → an error. Falling back to
+///   a plain service task here would silently drop the node's entire
+///   behaviour, which is worse than refusing the file.
+fn parse_agent_extension(element: roxmltree::Node) -> Result<Option<AgentNodeConfig>> {
+    let Some(extension) = element.descendants().find(|n| {
+        n.is_element()
+            && n.tag_name().name() == "agentNode"
+            && n.tag_name().namespace() == Some(BONAFOID_NS)
+    }) else {
+        return Ok(None);
+    };
+
+    let encoded = extension.attribute("config").ok_or_else(|| {
+        BpmnError::Xml("bonafoid:agentNode is missing its `config` attribute".into())
+    })?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .map_err(|error| {
+            BpmnError::Xml(format!("bonafoid:agentNode config is not valid base64: {error}"))
+        })?;
+    let json = String::from_utf8(bytes)
+        .map_err(|_| BpmnError::Xml("bonafoid:agentNode config is not valid UTF-8".into()))?;
+    let config: AgentNodeConfig = serde_json::from_str(&json).map_err(|error| {
+        BpmnError::Xml(format!("bonafoid:agentNode config is not a valid node: {error}"))
+    })?;
+    Ok(Some(config))
+}
+
 /// Serialize a [`Workflow`] to BPMN 2.0 XML.
 pub fn export_bpmn(workflow: &Workflow) -> Result<String> {
-    let (xml, _id_map) = export_bpmn_with_ids(workflow);
+    let (xml, _id_map) = export_bpmn_with_ids(workflow)?;
     Ok(xml)
 }
 
@@ -233,7 +288,7 @@ pub fn export_bpmn(workflow: &Workflow) -> Result<String> {
 /// ids so callers can build diagrams.
 fn export_bpmn_with_ids(
     workflow: &Workflow,
-) -> (String, std::collections::HashMap<NodeId, String>) {
+) -> Result<(String, std::collections::HashMap<NodeId, String>)> {
     use std::collections::HashMap;
     use std::fmt::Write;
 
@@ -246,7 +301,7 @@ fn export_bpmn_with_ids(
     xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     let _ = writeln!(
         xml,
-        "<definitions xmlns=\"{BPMN_NS}\" xmlns:bpmndi=\"{BPMNDI_NS}\" xmlns:dc=\"{DC_NS}\" xmlns:di=\"{DI_NS}\" targetNamespace=\"http://nocode.ide/bpmn\">"
+        "<definitions xmlns=\"{BPMN_NS}\" xmlns:bpmndi=\"{BPMNDI_NS}\" xmlns:dc=\"{DC_NS}\" xmlns:di=\"{DI_NS}\" xmlns:bonafoid=\"{BONAFOID_NS}\" targetNamespace=\"http://nocode.ide/bpmn\">"
     );
     let _ = writeln!(
         xml,
@@ -257,6 +312,20 @@ fn export_bpmn_with_ids(
     for node in &workflow.nodes {
         let id = &id_map[&node.id];
         let name = escape_xml(&node.name);
+
+        // Agent nodes export as a `serviceTask` carrying their payload in a
+        // namespaced extension. The encoding is fallible (a non-finite
+        // temperature cannot be serialised), so it happens here rather than
+        // inside the write-only match below.
+        let agent_payload = match node.agent_config() {
+            Some(config) if matches!(node.node_type, WorkflowNodeType::AgentTask) => Some((
+                config.kind().as_str(),
+                base64::engine::general_purpose::STANDARD
+                    .encode(serde_json::to_string(config)?),
+            )),
+            _ => None,
+        };
+
         let _ = match &node.node_type {
             WorkflowNodeType::StartEvent { .. } => {
                 writeln!(xml, "    <startEvent id=\"{id}\" name=\"{name}\" />")
@@ -344,6 +413,24 @@ fn export_bpmn_with_ids(
             WorkflowNodeType::Task { .. } => {
                 writeln!(xml, "    <task id=\"{id}\" name=\"{name}\" />")
             }
+            WorkflowNodeType::AgentTask => match &agent_payload {
+                Some((kind, encoded)) => {
+                    let _ = writeln!(
+                        xml,
+                        "    <serviceTask id=\"{id}\" name=\"{name}\" bonafoid:kind=\"{kind}\">"
+                    );
+                    let _ = writeln!(xml, "      <extensionElements>");
+                    let _ = writeln!(
+                        xml,
+                        "        <bonafoid:agentNode kind=\"{kind}\" config=\"{encoded}\" />"
+                    );
+                    let _ = writeln!(xml, "      </extensionElements>");
+                    writeln!(xml, "    </serviceTask>")
+                }
+                // Unconfigured: keep the graph's shape so the file still opens,
+                // and let validation report the node on the way back in.
+                None => writeln!(xml, "    <serviceTask id=\"{id}\" name=\"{name}\" />"),
+            },
         };
     }
 
@@ -396,7 +483,7 @@ fn export_bpmn_with_ids(
     let _ = writeln!(xml, "  </bpmndi:BPMNDiagram>");
     let _ = writeln!(xml, "</definitions>");
 
-    (xml, id_map)
+    Ok((xml, id_map))
 }
 
 fn escape_xml(input: &str) -> String {
@@ -460,6 +547,7 @@ mod tests {
                 condition: None,
                 label: None,
                 style: EdgeStyle::default(),
+                mapping: Default::default(),
             },
             WorkflowEdge {
                 id: EdgeId::new(),
@@ -470,6 +558,7 @@ mod tests {
                 condition: None,
                 label: Some("approved".into()),
                 style: EdgeStyle::default(),
+                mapping: Default::default(),
             },
         ];
         Workflow {
@@ -524,5 +613,168 @@ mod tests {
     fn rejects_non_bpmn_root() {
         let err = parse_bpmn("<foo/>", "x").unwrap_err();
         assert!(matches!(err, BpmnError::Xml(_)));
+    }
+
+    fn agent_workflow(agent: nocode_model::AgentNodeConfig) -> Workflow {
+        let start = WorkflowNode {
+            id: NodeId::new(),
+            name: "Start".into(),
+            node_type: WorkflowNodeType::StartEvent {
+                event_type: nocode_model::StartEventType::None,
+            },
+            position: NodePosition { x: 0.0, y: 0.0 },
+            config: Default::default(),
+            documentation: None,
+        };
+        let mut config = NodeConfig::default();
+        config.agent = Some(agent);
+        let task = WorkflowNode {
+            id: NodeId::new(),
+            name: "Audit".into(),
+            node_type: WorkflowNodeType::AgentTask,
+            position: NodePosition { x: 200.0, y: 0.0 },
+            config,
+            documentation: None,
+        };
+        let end = WorkflowNode {
+            id: NodeId::new(),
+            name: "End".into(),
+            node_type: WorkflowNodeType::EndEvent {
+                event_type: nocode_model::EndEventType::None,
+            },
+            position: NodePosition { x: 400.0, y: 0.0 },
+            config: Default::default(),
+            documentation: None,
+        };
+        let edges = vec![
+            WorkflowEdge {
+                id: EdgeId::new(),
+                source: start.id.clone(),
+                target: task.id.clone(),
+                source_handle: None,
+                target_handle: None,
+                condition: None,
+                label: None,
+                style: EdgeStyle::default(),
+                mapping: Default::default(),
+            },
+            WorkflowEdge {
+                id: EdgeId::new(),
+                source: task.id.clone(),
+                target: end.id.clone(),
+                source_handle: None,
+                target_handle: None,
+                condition: None,
+                label: None,
+                style: EdgeStyle::default(),
+                mapping: Default::default(),
+            },
+        ];
+        Workflow {
+            id: WorkflowId::new(),
+            name: "Sentinel".into(),
+            description: None,
+            version: "1.0.0".into(),
+            nodes: vec![start, task, end],
+            edges,
+            variables: Vec::new(),
+            signals: Vec::new(),
+            timers: Vec::new(),
+            settings: Default::default(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn the_export_declares_the_bonafoid_namespace() {
+        let xml = export_bpmn(&sample_workflow()).unwrap();
+        assert!(
+            xml.contains("xmlns:bonafoid="),
+            "an undeclared prefix makes the document invalid XML"
+        );
+    }
+
+    #[test]
+    fn an_agent_node_round_trips_with_its_payload() {
+        let agent = nocode_model::AgentNodeConfig::Shell(nocode_model::ShellNode {
+            program: "git".into(),
+            args: vec!["diff".into(), "--name-only".into()],
+            ..Default::default()
+        });
+        let original = agent_workflow(agent.clone());
+
+        let xml = export_bpmn(&original).unwrap();
+        assert!(xml.contains("<serviceTask"));
+        assert!(xml.contains("bonafoid:agentNode"), "the payload must ride along");
+
+        let parsed = parse_bpmn(&xml, "fallback").unwrap();
+        let node = parsed
+            .nodes
+            .iter()
+            .find(|n| n.name == "Audit")
+            .expect("agent node survived the round trip");
+        assert_eq!(node.node_type, WorkflowNodeType::AgentTask);
+        assert_eq!(node.config.agent, Some(agent));
+    }
+
+    #[test]
+    fn a_plain_service_task_is_not_promoted_to_an_agent_node() {
+        let xml = r#"<?xml version="1.0"?>
+        <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL">
+          <process id="p" name="P">
+            <startEvent id="s" name="Start" />
+            <serviceTask id="t" name="Call" implementation="noop" />
+            <endEvent id="e" name="End" />
+            <sequenceFlow id="f1" sourceRef="s" targetRef="t" />
+            <sequenceFlow id="f2" sourceRef="t" targetRef="e" />
+          </process>
+        </definitions>"#;
+        let parsed = parse_bpmn(xml, "P").unwrap();
+        let node = parsed.nodes.iter().find(|n| n.name == "Call").unwrap();
+        assert!(matches!(node.node_type, WorkflowNodeType::ServiceTask { .. }));
+        assert!(node.config.agent.is_none());
+    }
+
+    #[test]
+    fn a_corrupt_extension_is_refused_rather_than_silently_dropped() {
+        // Falling back to a plain service task here would turn "this node runs
+        // a security audit" into "this node does nothing", with no signal.
+        let xml = r#"<?xml version="1.0"?>
+        <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                     xmlns:bonafoid="https://bonafoid.dev/schema/bpmn">
+          <process id="p" name="P">
+            <startEvent id="s" name="Start" />
+            <serviceTask id="t" name="Call">
+              <extensionElements>
+                <bonafoid:agentNode kind="llm" config="not base64!" />
+              </extensionElements>
+            </serviceTask>
+            <endEvent id="e" name="End" />
+            <sequenceFlow id="f1" sourceRef="s" targetRef="t" />
+            <sequenceFlow id="f2" sourceRef="t" targetRef="e" />
+          </process>
+        </definitions>"#;
+        let error = parse_bpmn(xml, "P").unwrap_err();
+        assert!(matches!(error, BpmnError::Xml(_)), "{error}");
+    }
+
+    #[test]
+    fn an_unconfigured_agent_node_still_exports_and_imports_as_an_agent_node() {
+        let mut workflow = agent_workflow(nocode_model::AgentNodeConfig::default_for(
+            nocode_model::AgentNodeKind::Shell,
+        ));
+        // Strip the payload: the node keeps its type but loses its config.
+        for node in &mut workflow.nodes {
+            node.config.agent = None;
+        }
+        let xml = export_bpmn(&workflow).unwrap();
+        assert!(!xml.contains("bonafoid:agentNode"));
+        let parsed = parse_bpmn(&xml, "x").unwrap();
+        let node = parsed.nodes.iter().find(|n| n.name == "Audit").unwrap();
+        assert!(
+            matches!(node.node_type, WorkflowNodeType::ServiceTask { .. }),
+            "a payload-less agent node cannot survive as one; the validator flags it"
+        );
     }
 }
